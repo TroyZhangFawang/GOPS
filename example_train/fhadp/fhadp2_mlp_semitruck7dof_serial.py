@@ -28,10 +28,9 @@ from gops.utils.common_utils import seed_everything
 if __name__ == "__main__":
     # Parameters Setup
     parser = argparse.ArgumentParser()
-
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti")
+    parser.add_argument("--env_id", type=str, default="pyth_semitruck7dof")
     parser.add_argument("--algorithm", type=str, default="FHADP2")
     parser.add_argument("--pre_horizon", type=int, default=30)
     parser.add_argument("--enable_cuda", default=False)
