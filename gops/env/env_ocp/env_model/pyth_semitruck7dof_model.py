@@ -250,7 +250,7 @@ class PythSemitruck7dof(PythBaseModel):
         )
 
         self.ref_traj = Ref_Route()
-        self.action_last = 0
+        self.action_last = torch.zeros((kwargs['replay_batch_size'], 1))
 
     def forward(
         self,
@@ -302,7 +302,7 @@ class PythSemitruck7dof(PythBaseModel):
             "ref_points": next_ref_points,
             "ref_points_2": next_ref_points_2,
         })
-        # self.action_last = action
+        self.action_last = action.clone().detach()
         return next_obs, reward, isdone, next_info
 
     def get_obs(self, state, ref_points, ref_points_2):
@@ -338,7 +338,7 @@ class PythSemitruck7dof(PythBaseModel):
             + 0.5 * obs[:, 2] ** 2
             + 0.5 * obs[:, 3] ** 2
             + 0.4 * action[:, 0] ** 2
-            #+ 2.0 * (action[:, 0] - self.action_last) ** 2
+            + 2.0 * (action[:, 0] - self.action_last[:, 0]) ** 2
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:

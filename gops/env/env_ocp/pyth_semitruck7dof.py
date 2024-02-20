@@ -263,7 +263,7 @@ class PythSemitruck7dof(PythBaseEnv):
         self.ref_points = None
         self.ref_points_2 = None
 
-        self.action_last = 0
+
         # obs_scale_default = [1, 1, 1, 1,
         #                      1, 1, 1, 1,
         #                      1 / 10, 1 / 10, 1 / 100, 1 / 100, 1 / 100, 1 / (10 * kwargs["pre_horizon"])]
@@ -322,7 +322,7 @@ class PythSemitruck7dof(PythBaseEnv):
         self.ref_points_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
 
         obs = self.get_obs()
-
+        self.action_last = 0
         return obs, self.info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
@@ -333,7 +333,6 @@ class PythSemitruck7dof(PythBaseEnv):
         self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
 
         self.ref_x, self.ref_y = self.state[self.state_dim - 2], self.state[self.state_dim - 4]
-
 
         self.ref_points[:-1] = self.ref_points[1:]
         self.ref_x += self.target_speed * self.dt
@@ -398,7 +397,7 @@ class PythSemitruck7dof(PythBaseEnv):
             + 0.5 * varphi1 ** 2
             + 0.5 * varphi1_dot ** 2
             + 0.4 * steer ** 2
-            #+ 2.0 * (steer - self.action_last) ** 2
+            + 2.0 * (steer - self.action_last) ** 2
         )
 
     def judge_done(self, obs) -> bool:
