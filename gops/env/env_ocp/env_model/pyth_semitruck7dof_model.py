@@ -238,8 +238,12 @@ class PythSemitruck7dof(PythBaseModel):
         self.vehicle_dynamics = VehicleDynamicsModel()
         self.pre_horizon = pre_horizon
         self.state_dim = 15
-        ego_obs_dim = 15
-        ref_obs_dim = 3
+        ego_obs_dim = 13
+        ref_obs_dim = 2
+        obs_scale_default = [1, 1, 1, 1,
+                             1, 1, 1, 1,
+                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+        self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon*2,
             action_dim=1,
@@ -307,20 +311,21 @@ class PythSemitruck7dof(PythBaseModel):
 
     def get_obs(self, state, ref_points, ref_points_2):
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            ego_vehicle_coordinate_transform(
+            state_error_calculate(
                 state[:, 13], state[:, 11], state[:, 8],
                 ref_points[..., 0], ref_points[..., 1], ref_points[..., 2],
             )
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            ego_vehicle_coordinate_transform(
+            state_error_calculate(
                 state[:, 14], state[:, 12], state[:, 9],
                 ref_points_2[..., 0], ref_points_2[..., 1], ref_points_2[..., 2],
             )
 
         ego_obs = torch.concat((state[:, 0:8], torch.stack(
-            (ref_phi_tf[:, 0], ref_phi2_tf[:, 0]), dim=1), state[:, 10:11], torch.stack(
-            (ref_y_tf[:, 0], ref_y2_tf[:, 0], ref_x_tf[:, 0],  ref_x2_tf[:, 0]), dim=1),), dim=1)
-        ref_obs = torch.stack((ref_x_tf, ref_y_tf, ref_phi_tf, ref_x2_tf, ref_y2_tf, ref_phi2_tf), 2)[
+            (ref_phi_tf[:, 0]*self.obs_scale[8], ref_phi2_tf[:, 0]*self.obs_scale[9]), dim=1),
+                                state[:, 10:11]*self.obs_scale[10],
+                                torch.stack((ref_y_tf[:, 0]*self.obs_scale[11], ref_y2_tf[:, 0]*self.obs_scale[12]), dim=1),), dim=1)
+        ref_obs = torch.stack((ref_y_tf*self.obs_scale[13], ref_phi_tf*self.obs_scale[14], ref_y2_tf*self.obs_scale[13], ref_phi2_tf*self.obs_scale[14]), 2)[
             :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
 
@@ -330,9 +335,9 @@ class PythSemitruck7dof(PythBaseModel):
         action: torch.Tensor
     ) -> torch.Tensor:
         return -(
-            1 * (obs[:, 13] ** 2 + obs[:, 11] ** 2)
-            + 0.9 * obs[:, 10] ** 2
-            + 0.8 * obs[:, 8] ** 2
+            1 * (obs[:, 13] ** 2 + (obs[:, 11]/self.obs_scale[11]) ** 2)
+            + 0.9 * (obs[:, 10]/self.obs_scale[10]) ** 2
+            + 0.8 * (obs[:, 8]/self.obs_scale[8]) ** 2
             + 0.5 * obs[:, 1] ** 2
             + 0.5 * obs[:, 0] ** 2
             + 0.5 * obs[:, 2] ** 2
@@ -342,14 +347,18 @@ class PythSemitruck7dof(PythBaseModel):
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, delta_y2, delta_phi2 = obs[:, 11], obs[:, 8], obs[:, 12], obs[:, 9]
+        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 11]/self.obs_scale[11], obs[:, 8]/self.obs_scale[8], obs[:, 12]/self.obs_scale[12], obs[:, 9]/self.obs_scale[9], obs[:, 10]/self.obs_scale[10]
         done = (
                 (torch.abs(delta_y) > 3)
+                # | (torch.abs(vy1) > 2)
                 | (torch.abs(delta_phi) > np.pi/2)
                 | (torch.abs(delta_y2) > 3)
                 | (torch.abs(delta_phi2) > np.pi / 2)
         )
         return done
+
+
+
 
 
 def state_error_calculate(

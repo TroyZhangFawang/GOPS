@@ -240,8 +240,8 @@ class PythSemitruck7dof(PythBaseEnv):
         self.ref_traj = Ref_Route()
         self.state_dim = 15
         self.pre_horizon = pre_horizon
-        ego_obs_dim = 15
-        ref_obs_dim = 3
+        ego_obs_dim = 13
+        ref_obs_dim = 2
         self.observation_space = gym.spaces.Box(
             low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon*2)),
             high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon*2)),
@@ -252,6 +252,11 @@ class PythSemitruck7dof(PythBaseEnv):
             high=np.array([max_steer]),
             dtype=np.float32,
         )
+        obs_scale_default = [1, 1, 1, 1,
+                             1, 1, 1, 1,
+                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+        self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
+
         self.dt = 0.01
         self.max_episode_steps = 200
 
@@ -263,11 +268,6 @@ class PythSemitruck7dof(PythBaseEnv):
         self.ref_points = None
         self.ref_points_2 = None
 
-
-        # obs_scale_default = [1, 1, 1, 1,
-        #                      1, 1, 1, 1,
-        #                      1 / 10, 1 / 10, 1 / 100, 1 / 100, 1 / 100, 1 / (10 * kwargs["pre_horizon"])]
-        # self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
             "ref_points": {"shape": (self.pre_horizon + 1, 3), "dtype": np.float32},
@@ -349,7 +349,7 @@ class PythSemitruck7dof(PythBaseEnv):
         self.ref_points[-1] = new_ref_point_2
 
         obs = self.get_obs()
-        self.done = self.judge_done(obs)
+        self.done = self.judge_done()
         # if self.done:
         #     reward = reward - 100
         # self.action_last = action
@@ -357,13 +357,13 @@ class PythSemitruck7dof(PythBaseEnv):
 
     def get_obs(self) -> np.ndarray:
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            ego_vehicle_coordinate_transform(
+            state_error_calculate(
                 self.state[13], self.state[11], self.state[8],
                 self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2],
             )
 
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            ego_vehicle_coordinate_transform(
+            state_error_calculate(
                 self.state[14], self.state[12], self.state[9],
                 self.ref_points_2[:, 0], self.ref_points_2[:, 1], self.ref_points_2[:, 2],
             )
@@ -372,13 +372,14 @@ class PythSemitruck7dof(PythBaseEnv):
         # delta_x, delta_y, delta_psi,delta_x2, delta_y2, delta_psi2 (of the first reference point)
         # v, w, varphi (of ego vehicle, including tractor and trailer)
         # ]
+
         ego_obs = np.concatenate(
-            (self.state[0:8], [ref_phi_tf[0], ref_phi2_tf[0]], self.state[10:11],
-             [ref_y_tf[0], ref_y2_tf[0], ref_x_tf[0], ref_x2_tf[0]]))
+            (self.state[0:8], [ref_phi_tf[0]*self.obs_scale[8], ref_phi2_tf[0]*self.obs_scale[9]], self.state[10:11]*self.obs_scale[10],
+             [ref_y_tf[0]*self.obs_scale[11], ref_y2_tf[0]*self.obs_scale[12]]))
         # ref_obs: [
         # delta_x, delta_y, delta_psi (of the second to last reference point)
         # ]
-        ref_obs = np.stack((ref_x_tf, ref_y_tf, ref_phi_tf, ref_x2_tf, ref_y2_tf, ref_phi2_tf), 1)[1:].flatten()
+        ref_obs = np.stack((ref_y_tf*self.obs_scale[13], ref_phi_tf*self.obs_scale[14], ref_y2_tf*self.obs_scale[13], ref_phi2_tf*self.obs_scale[14]), 1)[1:].flatten()
         return np.concatenate((ego_obs, ref_obs))
 
     def compute_reward(self, action: np.ndarray) -> float:
@@ -400,11 +401,12 @@ class PythSemitruck7dof(PythBaseEnv):
             + 2.0 * (steer - self.action_last) ** 2
         )
 
-    def judge_done(self, obs) -> bool:
-        done = ((abs(obs[11]) > 3)  # delta_y1
-                  + (abs(obs[8]) > np.pi/2)  # delta_psi1
-                  + (abs(obs[12]) > 3) # delta_y2
-                  + (abs(obs[9]) > np.pi / 2))  # delta_psi2
+    def judge_done(self) -> bool:
+        done = ((abs(self.state[11]-self.ref_points[0, 1]) > 3)  # delta_y1
+                + (abs(self.state[10]) > 2)  # delta_psi1
+                  + (abs(self.state[8]-self.ref_points[0, 2]) > np.pi/2)  # delta_psi1
+                  + (abs(self.state[12]-self.ref_points_2[0, 1]) > 3) # delta_y2
+                  + (abs(self.state[9]-self.ref_points_2[0, 2]) > np.pi / 2))  # delta_psi2
         return done
 
     @property
