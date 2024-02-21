@@ -307,12 +307,12 @@ class PythSemitruck7dof(PythBaseModel):
 
     def get_obs(self, state, ref_points, ref_points_2):
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 state[:, 13], state[:, 11], state[:, 8],
                 ref_points[..., 0], ref_points[..., 1], ref_points[..., 2],
             )
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 state[:, 14], state[:, 12], state[:, 9],
                 ref_points_2[..., 0], ref_points_2[..., 1], ref_points_2[..., 2],
             )
@@ -365,6 +365,22 @@ def state_error_calculate(
     y_err = ego_y - ref_y
     phi_err = angle_normalize(ego_phi - ref_phi)
     return x_err, y_err, phi_err
+
+def ego_vehicle_coordinate_transform(
+    ego_x: torch.Tensor,
+    ego_y: torch.Tensor,
+    ego_phi: torch.Tensor,
+    ref_x: torch.Tensor,
+    ref_y: torch.Tensor,
+    ref_phi: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ego_x, ego_y, ego_phi = ego_x.unsqueeze(1), ego_y.unsqueeze(1), ego_phi.unsqueeze(1)
+    cos_tf = torch.cos(-ego_phi)
+    sin_tf = torch.sin(-ego_phi)
+    ref_x_tf = (ref_x - ego_x) * cos_tf - (ref_y - ego_y) * sin_tf
+    ref_y_tf = (ref_x - ego_x) * sin_tf + (ref_y - ego_y) * cos_tf
+    ref_phi_tf = angle_normalize(ref_phi - ego_phi)
+    return ref_x_tf, ref_y_tf, ref_phi_tf
 
 
 def env_model_creator(**kwargs):

@@ -357,13 +357,13 @@ class PythSemitruck7dof(PythBaseEnv):
 
     def get_obs(self) -> np.ndarray:
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 self.state[13], self.state[11], self.state[8],
                 self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2],
             )
 
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 self.state[14], self.state[12], self.state[9],
                 self.ref_points_2[:, 0], self.ref_points_2[:, 1], self.ref_points_2[:, 2],
             )
@@ -437,6 +437,36 @@ def state_error_calculate(
     phi_err = ego_phi - ref_phi
     return x_err, y_err, phi_err
 
+def ego_vehicle_coordinate_transform(
+    ego_x: np.ndarray,
+    ego_y: np.ndarray,
+    ego_phi: np.ndarray,
+    ref_x: np.ndarray,
+    ref_y: np.ndarray,
+    ref_phi: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Transform absolute coordinate of ego vehicle and reference points to the ego
+    vehicle coordinate. The origin is the position of ego vehicle. The x-axis points
+    to heading angle of ego vehicle.
+
+    Args:
+        ego_x (np.ndarray): Absolution x-coordinate of ego vehicle, shape ().
+        ego_y (np.ndarray): Absolution y-coordinate of ego vehicle, shape ().
+        ego_phi (np.ndarray): Absolution heading angle of ego vehicle, shape ().
+        ref_x (np.ndarray): Absolution x-coordinate of reference points, shape (N,).
+        ref_y (np.ndarray): Absolution y-coordinate of reference points, shape (N,).
+        ref_phi (np.ndarray): Absolution tangent angle of reference points, shape (N,).
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: Transformed x, y, phi of reference
+        points.
+    """
+    cos_tf = np.cos(-ego_phi)
+    sin_tf = np.sin(-ego_phi)
+    ref_x_tf = (ref_x - ego_x) * cos_tf - (ref_y - ego_y) * sin_tf
+    ref_y_tf = (ref_x - ego_x) * sin_tf + (ref_y - ego_y) * cos_tf
+    ref_phi_tf = angle_normalize(ref_phi - ego_phi)
+    return ref_x_tf, ref_y_tf, ref_phi_tf
 
 def env_creator(**kwargs):
     """
