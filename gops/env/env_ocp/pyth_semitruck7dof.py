@@ -213,7 +213,6 @@ class VehicleDynamicsData:
             states[9])  # posx_trailer
         return state_next
 
-
 class PythSemitruck7dof(PythBaseEnv):
     metadata = {
         "render.modes": ["human", "rgb_array"],
@@ -350,9 +349,9 @@ class PythSemitruck7dof(PythBaseEnv):
 
         obs = self.get_obs()
         self.done = self.judge_done()
-        # if self.done:
-        #     reward = reward - 100
-        # self.action_last = action
+        if self.done:
+            reward = reward - 1000
+        self.action_last = action
         return obs, reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
