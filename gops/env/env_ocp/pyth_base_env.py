@@ -22,7 +22,7 @@ class PythBaseEnv(gym.Env):
         self,
         work_space: Sequence,
         train_space: Optional[Sequence] = None,
-        initial_distribution: str = "uniform",
+        initial_distribution: str = "normal",
         **kwargs: Any,
     ):
         self.work_space = np.array(work_space, dtype=np.float32)
@@ -65,7 +65,7 @@ class PythBaseEnv(gym.Env):
             )
         elif self.initial_distribution == "normal":
             mean = (self.init_space[0] + self.init_space[1]) / 2
-            std = (self.init_space[1] - self.init_space[0]) / 6
+            std = (self.init_space[1] - self.init_space[0]) / 20
             state = self.np_random.normal(loc=mean, scale=std)
         else:
             raise ValueError(

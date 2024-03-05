@@ -220,17 +220,19 @@ class PythSemitruck7dof(PythBaseEnv):
 
     def __init__(
         self,
-        pre_horizon: int = 30,
+        pre_horizon: int = 100,
         max_steer: float = 0.5,
         **kwargs,
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
-            # initial range of [delta_x, delta_y, delta_phi, delta_u, v, w]
+            # initial range of [beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot,
+            # psi1, psi2, vy1,py1, py2, px1, px2]
+            # 用高斯分布去采样
             init_high = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  np.pi / 6, np.pi / 6, 0.1, 2, 2, 280, 280], dtype=np.float32)
+                                  0.1, 0.1, 0.1, 1, 1, 280, 280], dtype=np.float32)
             init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -np.pi / 6, -np.pi / 6, -0.1, -2, -2, 100, 100], dtype=np.float32)
+                                  -0.1, -0.1, -0.1, -1, -1, 100, 100], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(PythSemitruck7dof, self).__init__(work_space=work_space, **kwargs)
 
@@ -301,6 +303,9 @@ class PythSemitruck7dof(PythBaseEnv):
 
         state[12] = state[11] - self.vehicle_dynamics.b * np.sin(state[8]) - self.vehicle_dynamics.e * np.sin(
             state[9])  # posy_trailer
+        state[13] = self.np_random.uniform(
+            low=self.init_space[0][13], high=self.init_space[1][13]
+        )
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state
@@ -349,8 +354,8 @@ class PythSemitruck7dof(PythBaseEnv):
 
         obs = self.get_obs()
         self.done = self.judge_done()
-        if self.done:
-            reward = reward - 1000
+        # if self.done:
+        #     reward = reward - 1000
         self.action_last = action
         return obs, reward, self.done, self.info
 

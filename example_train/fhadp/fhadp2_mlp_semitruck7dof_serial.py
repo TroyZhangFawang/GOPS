@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # Key Parameters for users
     parser.add_argument("--env_id", type=str, default="pyth_semitruck7dof")
     parser.add_argument("--algorithm", type=str, default="FHADP2")
-    parser.add_argument("--pre_horizon", type=int, default=30)
+    parser.add_argument("--pre_horizon", type=int, default=100)
     parser.add_argument("--enable_cuda", default=False)
     ################################################
     # 1. Parameters for environment
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     # Max size of reply buffer
     parser.add_argument("--buffer_max_size", type=int, default=100000)
     # Batch size of replay samples from buffer
-    parser.add_argument("--replay_batch_size", type=int, default=64)
+    parser.add_argument("--replay_batch_size", type=int, default=100)
     # Period of sampling
     parser.add_argument("--sample_interval", type=int, default=1)
 
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
     env = create_env(**args)
     args = init_args(env, **args)
-    start_tensorboard(args["save_folder"])
+    # start_tensorboard(args["save_folder"])
     # Step 1: create algorithm and approximate function
     alg = create_alg(**args)
     # Step 2: create sampler in trainer

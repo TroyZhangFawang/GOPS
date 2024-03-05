@@ -227,7 +227,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 class PythSemitruck7dof(PythBaseModel):
     def __init__(
         self,
-        pre_horizon: int = 30,
+        pre_horizon: int = 100,
         device: Union[torch.device, str, None] = None,
         max_steer: float = 0.5,
         **kwargs,
