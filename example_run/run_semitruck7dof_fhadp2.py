@@ -14,27 +14,27 @@ from gops.sys_simulator.sys_run import PolicyRunner
 
 runner = PolicyRunner(
     log_policy_dir_list=[
-        "../results/pyth_semitruck7dof/FHADP2_240222-142216"
+        "../results/pyth_semitruck7dof/FHADP2_240305-150727"
         # "PATH_TO_YOUR_RESULT_DIR",
     ],
     trained_policy_iteration_list=[
-        "91200_opt"
+        "199600_opt"
         # "ITERATION_NUM",
     ],
     is_init_info=True,
     init_info={
         # parameters of env.reset()
-        "init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 1.5, 100, 94],
+        "init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 1.5, 100, 96],
     },
     save_render=False,
     legend_list=[
         "FHADP2"
-        # "ALGORITHM_NAME",
+        # "ALGORITHM_NAME",a
     ],
-    use_opt=False,
+    use_opt=True,
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 30,
+        "num_pred_step": 100,
         "gamma": 1.0,
         "mode": "collocation",
         "minimize_options": {

@@ -33,7 +33,7 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
+        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
@@ -224,7 +224,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         return state_next
 
 
-class PythSemitruck7dof(PythBaseModel):
+class Semitruck7dofModel(PythBaseModel):
     def __init__(
         self,
         pre_horizon: int = 100,
@@ -350,7 +350,7 @@ class PythSemitruck7dof(PythBaseModel):
         delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 11]/self.obs_scale[11], obs[:, 8]/self.obs_scale[8], obs[:, 12]/self.obs_scale[12], obs[:, 9]/self.obs_scale[9], obs[:, 10]/self.obs_scale[10]
         done = (
                 (torch.abs(delta_y) > 3)
-                # | (torch.abs(vy1) > 2)
+                | (torch.abs(vy1) > 2)
                 | (torch.abs(delta_phi) > np.pi/2)
                 | (torch.abs(delta_y2) > 3)
                 | (torch.abs(delta_phi2) > np.pi / 2)
@@ -396,4 +396,4 @@ def env_model_creator(**kwargs):
     """
     make env model `pyth_veh3dofconti`
     """
-    return PythSemitruck7dof(**kwargs)
+    return Semitruck7dofModel(**kwargs)

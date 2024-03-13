@@ -30,7 +30,7 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
+        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
         print(root_dir)
         self.ref_traj = read_path(root_dir)
 
@@ -213,7 +213,7 @@ class VehicleDynamicsData:
             states[9])  # posx_trailer
         return state_next
 
-class PythSemitruck7dof(PythBaseEnv):
+class Semitruck7dof(PythBaseEnv):
     metadata = {
         "render.modes": ["human", "rgb_array"],
     }
@@ -234,7 +234,7 @@ class PythSemitruck7dof(PythBaseEnv):
             init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
                                   -0.1, -0.1, -0.1, -1, -1, 100, 100], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
-        super(PythSemitruck7dof, self).__init__(work_space=work_space, **kwargs)
+        super(Semitruck7dof, self).__init__(work_space=work_space, **kwargs)
 
         self.vehicle_dynamics = VehicleDynamicsData()
         self.target_speed = self.vehicle_dynamics.v_x
@@ -259,7 +259,7 @@ class PythSemitruck7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 200
+        self.max_episode_steps = 3000
 
         self.state = None
         self.ref_x = None
@@ -356,7 +356,7 @@ class PythSemitruck7dof(PythBaseEnv):
         self.done = self.judge_done()
         # if self.done:
         #     reward = reward - 1000
-        self.action_last = action
+        self.action_last = action[0]
         return obs, reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -392,7 +392,7 @@ class PythSemitruck7dof(PythBaseEnv):
         psi1, psi2, vy1, py1, py2, px1, px2 = self.state
 
         ref_x, ref_y, ref_psi = self.ref_points[0]
-        steer = action
+        steer = action[0]
         return -(
             1 * ((px1 - ref_x) ** 2 + 0.04 * (py1 - ref_y) ** 2)
             + 0.9 * vy1 ** 2
@@ -478,4 +478,4 @@ def env_creator(**kwargs):
     """
     make env `pyth_SimuSemiTruck9dof`
     """
-    return PythSemitruck7dof(**kwargs)
+    return Semitruck7dof(**kwargs)
