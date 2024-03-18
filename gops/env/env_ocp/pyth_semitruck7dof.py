@@ -259,7 +259,7 @@ class Semitruck7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 3000
+        self.max_episode_steps = 2000
 
         self.state = None
         self.ref_x = None
@@ -303,9 +303,11 @@ class Semitruck7dof(PythBaseEnv):
 
         state[12] = state[11] - self.vehicle_dynamics.b * np.sin(state[8]) - self.vehicle_dynamics.e * np.sin(
             state[9])  # posy_trailer
-        state[13] = self.np_random.uniform(
-            low=self.init_space[0][13], high=self.init_space[1][13]
-        )
+
+        # 训练用，run的时候注释掉
+        # state[13] = self.np_random.uniform(
+        #     low=self.init_space[0][13], high=self.init_space[1][13]
+        # )
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state
@@ -354,8 +356,7 @@ class Semitruck7dof(PythBaseEnv):
 
         obs = self.get_obs()
         self.done = self.judge_done()
-        # if self.done:
-        #     reward = reward - 1000
+
         self.action_last = action[0]
         return obs, reward, self.done, self.info
 

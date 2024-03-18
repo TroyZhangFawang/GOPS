@@ -7,42 +7,33 @@
 #  Email: lisb04@gmail.com
 #
 #  Description: run a closed-loop system
+#  Update: 2022-12-05, Congsheng Zhang: create file
 
 
 from gops.sys_simulator.sys_run import PolicyRunner
-
+import numpy as np
 
 runner = PolicyRunner(
-    log_policy_dir_list=[
-        "../results/pyth_semitruck7dof/FHADP2_240305-150727"
-        # "PATH_TO_YOUR_RESULT_DIR",
-    ],
-    trained_policy_iteration_list=[
-        "199600_opt"
-        # "ITERATION_NUM",
-    ],
+    log_policy_dir_list=["/home/bit/Troy.Z/1_code/GOPS/results/pyth_semitruck7dof/FHADP2_240305-150727"],
+    trained_policy_iteration_list=["199600_opt"],
     is_init_info=True,
-    init_info={
-        # parameters of env.reset()
-        "init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 1.5, 100, 96],
-    },
+    init_info={"init_state": [0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 100, 96]},
     save_render=False,
-    legend_list=[
-        "FHADP2"
-        # "ALGORITHM_NAME",a
-    ],
-    use_opt=True,
+    legend_list=["FHADP2"],
+    use_opt=True, # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
         "num_pred_step": 100,
-        "gamma": 1.0,
-        "mode": "collocation",
+        "gamma": 1,
+        "mode": "shooting",
         "minimize_options": {
-            "max_iter": 4000,
-            "tol": 1e-4,
+            "max_iter": 10,
+            "tol": 1e-5,
+            "acceptable_tol": 1e-2,
+            "acceptable_iter": 10,
         },
         "use_terminal_cost": False,
-        "use_MPC_for_general_env": True,
     },
     constrained_env=False,
     is_tracking=True,

@@ -254,7 +254,7 @@ class Semitruck7dofModel(PythBaseModel):
         )
 
         self.ref_traj = Ref_Route()
-        self.action_last = torch.zeros((kwargs['replay_batch_size'], 1))
+        self.action_last = torch.zeros((1, ))
 
     def forward(
         self,
@@ -343,7 +343,7 @@ class Semitruck7dofModel(PythBaseModel):
             + 0.5 * obs[:, 2] ** 2
             + 0.5 * obs[:, 3] ** 2
             + 0.4 * action[:, 0] ** 2
-            + 2.0 * (action[:, 0] - self.action_last[:, 0]) ** 2
+            + 2.0 * (action[:, 0] - self.action_last) ** 2
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:

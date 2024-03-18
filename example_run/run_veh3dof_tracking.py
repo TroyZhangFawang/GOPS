@@ -14,12 +14,12 @@ from gops.sys_simulator.sys_run import PolicyRunner
 
 runner = PolicyRunner(
     log_policy_dir_list=[
-        # "../results/veh3dof_tracking/<ALGORITHM>_<DATETIME>"
-        "PATH_TO_YOUR_RESULT_DIR",
+        "../results/pyth_veh3dofconti/FHADP_240314-122822"
+        # "PATH_TO_YOUR_RESULT_DIR",
     ],
     trained_policy_iteration_list=[
-        # e.g., "1000", "1000_opt"
-        "ITERATION_NUM",
+        "87000_opt"
+        # "ITERATION_NUM",
     ],
     is_init_info=True,
     init_info={
@@ -28,10 +28,10 @@ runner = PolicyRunner(
         "ref_time": 0.0,
         "ref_num": 0,
     },
-    save_render=True,
+    save_render=False,
     legend_list=[
-        # e.g., "FHADP"
-        "ALGORITHM_NAME",
+        "FHADP"
+        # "ALGORITHM_NAME",
     ],
     use_opt=True,
     opt_args={
