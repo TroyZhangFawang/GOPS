@@ -335,7 +335,7 @@ class Semitruck7dofModel(PythBaseModel):
         action: torch.Tensor
     ) -> torch.Tensor:
         return -(
-            1 * (obs[:, 13] ** 2 + (obs[:, 11]/self.obs_scale[11]) ** 2)
+            1 * ((obs[:, 11]/self.obs_scale[11]) ** 2)
             + 0.9 * (obs[:, 10]/self.obs_scale[10]) ** 2
             + 0.8 * (obs[:, 8]/self.obs_scale[8]) ** 2
             + 0.5 * obs[:, 1] ** 2
