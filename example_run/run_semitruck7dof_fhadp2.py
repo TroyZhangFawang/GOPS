@@ -14,7 +14,7 @@ from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
 
 runner = PolicyRunner(
-    log_policy_dir_list=["/home/bit/Troy.Z/1_code/GOPS/results/pyth_semitruck7dof/FHADP2_240305-150727"],
+    log_policy_dir_list=["C:/Users/Troy.Z/Desktop\GOPS\\results\pyth_semitruck7dof\FHADP2_240305-150727"],
     trained_policy_iteration_list=["100000"],
     is_init_info=True,
     init_info={"init_state": [0, 0, 0, 0, 0, 0, 0, 0,

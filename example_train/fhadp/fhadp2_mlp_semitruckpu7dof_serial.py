@@ -19,7 +19,8 @@ from gops.create_pkg.create_env import create_env
 from gops.create_pkg.create_evaluator import create_evaluator
 from gops.create_pkg.create_sampler import create_sampler
 from gops.create_pkg.create_trainer import create_trainer
-from gops.utils.init_args import init_args
+from gops.utils.init_args_abpo import init_args
+from gops.utils.cost_update import cost_update
 from gops.utils.plot_evaluation import plot_all
 from gops.utils.tensorboard_setup import start_tensorboard, save_tb_to_csv
 from gops.utils.common_utils import seed_everything
@@ -30,7 +31,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_semitruck7dof")
+    parser.add_argument("--env_id", type=str, default="pyth_semitruckpu7dof")
+    parser.add_argument("--cost_paras", type=list, default=[1, 0.9, 0.8, 0.5, 0.5, 0.5, 0.5, 0.4, 2.0])
     parser.add_argument("--algorithm", type=str, default="FHADP2")
     parser.add_argument("--pre_horizon", type=int, default=100)
     parser.add_argument("--enable_cuda", default=False)
@@ -58,6 +60,7 @@ if __name__ == "__main__":
     ################################################
     # 3. Parameters for RL algorithm
     parser.add_argument("--policy_learning_rate", type=float, default=3e-5)
+    parser.add_argument("--cost_learning_rate", type=float, default=1e-5)
 
     ################################################
     # 4. Parameters for trainer
@@ -66,7 +69,8 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=200000)
+    parser.add_argument("--max_iteration", type=int, default=20000)
+    parser.add_argument("--max_iteration_upper", type=int, default=20)  # iteration of outer loop (Theta update)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -101,11 +105,12 @@ if __name__ == "__main__":
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
     parser.add_argument("--num_eval_episode", type=int, default=10)
     parser.add_argument("--eval_interval", type=int, default=100)
-    parser.add_argument("--eval_save", type=str, default=True, help="save evaluation data")
+    parser.add_argument("--eval_save", type=str, default=False, help="save evaluation data")
 
     ################################################
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
+    parser.add_argument("--save_folder_upper", type=str, default=None)
     # Save value/policy every N updates
     parser.add_argument("--apprfunc_save_interval", type=int, default=100)
     # Save key info every N updates
@@ -116,7 +121,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
     env = create_env(**args)
     args = init_args(env, **args)
-    # start_tensorboard(args["save_folder"])
+    start_tensorboard(args["save_folder_upper"])
     # Step 1: create algorithm and approximate function
     alg = create_alg(**args)
     # Step 2: create sampler in trainer
@@ -130,12 +135,29 @@ if __name__ == "__main__":
     trainer = create_trainer(alg, sampler, buffer, evaluator, **args)
 
     ################################################
-    # Start training ... ...
-    trainer.train()
-    print("Training is finished!")
+    # initial cost_update class
+    cost_update = cost_update(trainer.alg.envmodel, **args)
 
-    ################################################
-    # Plot and save training figures
-    plot_all(args["save_folder"])
-    save_tb_to_csv(args["save_folder"])
-    print("Plot & Save are finished!")
+    # Start training ... ...
+    cost_paras = np.array(args["cost_paras"])
+    data = trainer.buffer.sample_batch(args["replay_batch_size"])
+    for iter_up in range(args["max_iteration_upper"]):
+        traj = trainer.alg.envmodel.Rollout_traj_NN(data, trainer.networks, args["pre_horizon"], cost_paras)
+
+        args["save_folder"] = args["save_folder_upper"]+'/' + str(iter_up) + 'th-lower'
+        os.makedirs(args["save_folder"], exist_ok=True)
+        os.makedirs(args["save_folder"] + "/apprfunc", exist_ok=True)
+        os.makedirs(args["save_folder"] + "/evaluator", exist_ok=True)
+        trainer.save_folder = args["save_folder"]
+        # trainer.evaluator.save_folder=args["save_folder"]
+
+        trainer.train()
+        trainer.iteration = 0
+        cost_paras = cost_update.step(iter_up, traj, cost_paras)
+        trainer.alg.envmodel.update_cost_paras(cost_paras)
+        print("Training is finished!")
+        ################################################
+        # Plot and save training figures
+        plot_all(args["save_folder"])
+        save_tb_to_csv(args["save_folder"])
+        print(iter_up, "-st/th update are finished!")
