@@ -4,13 +4,13 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 
-class cost_update:
+class cost_update_pdp:
     def __init__(self, env, **kwargs):
         self.maxiters_u = kwargs.get("max_iteration_upper")
         self.batch_size = kwargs.get("replay_batch_size")
         self.save_folder_u = kwargs["save_folder_upper"]
         self.horizon = kwargs["pre_horizon"]
-        self.abpo_lr = kwargs["cost_learning_rate"]
+        self.pdp_lr = kwargs["cost_learning_rate"]
         self.env = env
         # initialize the cost_auxvar and path cost
         self.env.vehicle_dynamics.auxvar_setting()
@@ -37,64 +37,60 @@ class cost_update:
         self.writer_up.add_scalar(tb_tags["Q_phi1dot_tt"], cost_paras[6], iter_up)
         self.writer_up.add_scalar(tb_tags["R_str_tt"], cost_paras[7], iter_up)
         self.writer_up.add_scalar(tb_tags["R_strdot_tt"], cost_paras[8], iter_up)
-        ref_state_traj = np.zeros((self.horizon+1, self.batch_size, 3))
+        ref_state_traj = np.zeros((self.horizon+1, 3))
         dp = torch.zeros(cost_paras.shape)
-        print("Training ends!")
-        dp_batch = torch.zeros(self.batch_size, self.env.cost_dim)
-        for i in range(self.batch_size):
-            aux_sys = self.cost_auxvar_oc.getAuxSys(state_traj_opt=traj['state_traj_opt'][:, i, :self.env.state_dim],
-                                                control_traj_opt=traj['control_traj_opt'][:, i, :],
-                                                costate_traj_opt=traj['costate_traj_opt'][:, i, :],
-                                                auxvar_value=cost_paras)
-            self.aux_solver.setDyn(dynF=aux_sys['dynF'], dynG=aux_sys['dynG'], dynE=aux_sys['dynE'])
-            self.aux_solver.setPathCost(Hxx=aux_sys['Hxx'], Huu=aux_sys['Huu'], Hxu=aux_sys['Hxu'], Hux=aux_sys['Hux'],
-                                        Hxe=aux_sys['Hxe'], Hue=aux_sys['Hue'])
-            self.aux_solver.setFinalCost(hxx=aux_sys['hxx'], hxe=aux_sys['hxe'])
 
-            aux_sol = self.aux_solver.lqrSolver(numpy.zeros((self.cost_auxvar_oc.n_state, self.cost_auxvar_oc.n_auxvar)),
-                                                self.horizon)
 
-            # take solution of the auxiliary control system
-            dxdp_traj = aux_sol['state_traj_opt']  # dx /dtheta
-            dudp_traj = aux_sol['control_traj_opt']  # du/dtheta
+        aux_sys = self.cost_auxvar_oc.getAuxSys(state_traj_opt=traj['state_traj_opt'][:, :self.env.state_dim],
+                                            control_traj_opt=traj['control_traj_opt'][:, :],
+                                            costate_traj_opt=traj['costate_traj_opt'][:, :],
+                                            auxvar_value=cost_paras)
+        self.aux_solver.setDyn(dynF=aux_sys['dynF'], dynG=aux_sys['dynG'], dynE=aux_sys['dynE'])
+        self.aux_solver.setPathCost(Hxx=aux_sys['Hxx'], Huu=aux_sys['Huu'], Hxu=aux_sys['Hxu'], Hux=aux_sys['Hux'],
+                                    Hxe=aux_sys['Hxe'], Hue=aux_sys['Hue'])
+        self.aux_solver.setFinalCost(hxx=aux_sys['hxx'], hxe=aux_sys['hxe'])
 
-            # evaluate the loss
-            state_traj = torch.from_numpy(traj['state_traj_opt'])
-            state_traj.requires_grad_(True)
-            control_traj = torch.from_numpy(traj['control_traj_opt'])
-            control_traj.requires_grad_(True)
+        aux_sol = self.aux_solver.lqrSolver(numpy.zeros((self.cost_auxvar_oc.n_state, self.cost_auxvar_oc.n_auxvar)),
+                                            self.horizon)
 
-            dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
-            x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
-            # (y2-y2_ref)**2 +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2
-            dloss = jacobian(sum1(sum2((x_1[self.env.state_dim-3] - x_2[1]) ** 2+x_1[4]**2+x_1[5]**2+x_1[6]**2+(x_1[7])**2+(x_1[9]-x_2[2])**2)), x_1)
-            dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
-            for i_step in range(self.horizon):
-                ref_state_tensor = self.env.ref_traj.find_nearst_point(torch.tensor([traj['state_traj_opt'][i_step, i, 14], traj['state_traj_opt'][i_step, i, 12]]).reshape(1,-1))
-                ref_state = np.array(ref_state_tensor)
-                ref_state_traj[i_step, i, :] = np.array(ref_state)
-                dldX = dloss_fn(traj['state_traj_opt'][i_step, 0, :], ref_state)
-                dldX_traj[i_step, :, :] = np.array(dldX)
-            # chain rule
-            dldX_traj = torch.from_numpy(dldX_traj)
-            for t in range(self.horizon):
-                dp = dp + torch.mm(dldX_traj[t, :, :], torch.from_numpy(dxdp_traj[t]))
-            dp = dp + torch.mm(dldX_traj[-1, :, :], torch.from_numpy(dxdp_traj[-1]))
-            dp_batch[i, :] = dp
+        # take solution of the auxiliary control system
+        dxdp_traj = aux_sol['state_traj_opt']  # dx /dtheta
+        dudp_traj = aux_sol['control_traj_opt']  # du/dtheta
 
-        # update
-        dp_mean = torch.mean(dp_batch, dim=0).detach().numpy()
+        # evaluate the loss
+        state_traj = torch.from_numpy(traj['state_traj_opt'])
+        state_traj.requires_grad_(True)
+        control_traj = torch.from_numpy(traj['control_traj_opt'])
+        control_traj.requires_grad_(True)
 
-        upper_loss = self.loss_upper_evaluator_3d(traj['state_traj_opt'][:, :, :],
-                                                            ref_state_traj[:, :, :])
-        print('iter:', iter_up, 'loss:', upper_loss, 'paras:', cost_paras, 'dp:', dp_mean)
+        dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
+        x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
+        # (y2-y2_ref)**2 +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2
+        dloss = jacobian(sum1(sum2((x_1[self.env.state_dim-3] - x_2[1]) ** 2+x_1[4]**2+x_1[5]**2+x_1[6]**2+(x_1[7])**2+(x_1[9]-x_2[2])**2)), x_1)
+        dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
+        for i_step in range(self.horizon):
+            ref_state_tensor = self.env.ref_traj.find_nearst_point(torch.tensor([traj['state_traj_opt'][i_step, 14], traj['state_traj_opt'][i_step, 12]]).reshape(1,-1))
+            ref_state = np.array(ref_state_tensor)
+            ref_state_traj[i_step, :] = np.array(ref_state)
+            dldX = dloss_fn(traj['state_traj_opt'][i_step, 0, :], ref_state)
+            dldX_traj[i_step, :, :] = np.array(dldX)
+        # chain rule
+        dldX_traj = torch.from_numpy(dldX_traj)
+        for t in range(self.horizon):
+            dp = dp + torch.mm(dldX_traj[t, :, :], torch.from_numpy(dxdp_traj[t]))
+        dp = dp + torch.mm(dldX_traj[-1, :, :], torch.from_numpy(dxdp_traj[-1]))
 
-        cost_paras = cost_paras - self.abpo_lr * dp_mean  # update theta
+
+        upper_loss = self.loss_upper_evaluator_2d(traj['state_traj_opt'][0, :, :],
+                                                            ref_state_traj[:, :])
+        print('iter:', iter_up, 'loss:', upper_loss, 'paras:', cost_paras, 'dp:', dp)
+
+        cost_paras = cost_paras - self.pdp_lr * dp  # update theta
         # save
         save_data = {'iter': iter_up,
                      'loss_trace': upper_loss,
                      'parameter_trace': cost_paras,
-                     'learning_rate': self.abpo_lr}
+                     'learning_rate': self.pdp_lr}
         self.tb_info[tb_tags["Loss_upper"]] = upper_loss
         self.writer_up.add_scalar(tb_tags["Loss_upper"], upper_loss, iter_up)
         self.writer_up.flush()
@@ -113,7 +109,14 @@ class cost_update:
              state[:, :, 7] ** 2).mean()
         return L
 
-
+    def loss_upper_evaluator_2d(self, state, state_up):
+        L = (((state[:,  self.env.state_dim - 3] - state_up[:, 1]) ** 2) +
+             state[:, 4] ** 2 +
+             state[:, 5] ** 2 +
+             state[:, 6] ** 2 +
+             (state[:, 9]-state_up[:, 2]) ** 2+
+             state[:, 7] ** 2).mean()
+        return L
 
 tb_tags = {
     "TAR of RL iteration": "Evaluation/1. TAR-RL iter",

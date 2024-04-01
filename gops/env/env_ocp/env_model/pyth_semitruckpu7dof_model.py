@@ -34,7 +34,7 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
+        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
@@ -431,6 +431,7 @@ class Semitruckpu7dofModel(PythBaseModel):
 
         self.ref_traj = Ref_Route()
         self.action_last = torch.zeros((1, ))
+        self.action_last_np = 0
         self.cost_paras = np.array(kwargs["cost_paras"])
     def forward(
         self,
@@ -590,6 +591,28 @@ class Semitruckpu7dofModel(PythBaseModel):
                 "control_traj_opt": control_traj_opt,
                 "costate_traj_opt": costate_traj_opt.detach().numpy()}
         return traj
+
+    # def Rollout_Trajectory_PDP(self, obs, info, controller, step, cost_paras):
+    #
+    #     # Forward Pass, step = horizon
+    #     state_traj_opt, control_traj_opt, costate_traj_opt = np.empty((1, step + 1, self.state_dim)), \
+    #         np.empty((1, step, self.action_dim)), \
+    #         np.empty((1, step, self.state_dim))
+    #
+    #     ref_tractor = info["ref_points"]
+    #     state_traj_opt[0, 0, :] = state[0, :].clone().detach()
+    #     ref_traj = []
+    #     pos_x1, pos_y1 = state[:1, self.state_dim-2].clone(), state[:1, self.state_dim-4].clone()
+    #
+    #     action = controller(obs, info)
+    #     state_traj_opt[0, :, :] = opt_sol["state_traj_opt"]
+    #     control_traj_opt[0, :, :] = opt_sol["control_traj_opt"]
+    #     costate_traj_opt[0, :, :] = opt_sol["costate_traj_opt"]
+    #
+    #     traj = {"state_traj_opt": state_traj_opt,
+    #             "control_traj_opt": control_traj_opt,
+    #             "costate_traj_opt": costate_traj_opt}
+    #     return traj
 
 def state_error_calculate(
     ego_x: torch.Tensor,

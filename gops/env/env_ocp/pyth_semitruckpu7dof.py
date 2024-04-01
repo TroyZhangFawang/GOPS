@@ -30,7 +30,7 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
+        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
         print(root_dir)
         self.ref_traj = read_path(root_dir)
 
@@ -230,9 +230,9 @@ class Semitruckpu7dof(PythBaseEnv):
             # psi1, psi2, vy1,py1, py2, px1, px2]
             # 用高斯分布去采样
             init_high = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  0.1, 0.1, 0.1, 1, 1, 280, 280], dtype=np.float32)
+                                  0.1, 0.1, 0.1, 2, 2, 350, 350], dtype=np.float32)
             init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -0.1, -0.1, -0.1, -1, -1, 100, 100], dtype=np.float32)
+                                  -0.1, -0.1, -0.1, -2, -2, 100, 100], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Semitruckpu7dof, self).__init__(work_space=work_space, **kwargs)
 
@@ -259,7 +259,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 2000
+        self.max_episode_steps = 700
 
         self.state = None
         self.ref_x = None
@@ -305,10 +305,10 @@ class Semitruckpu7dof(PythBaseEnv):
             state[9])  # posy_trailer
 
         # 训练用，run的时候注释掉
-        state[13] = self.np_random.uniform(
-            low=self.init_space[0][13], high=self.init_space[1][13]
-        )
-        # state[13] = 160
+        # state[13] = self.np_random.uniform(
+        #     low=self.init_space[0][13], high=self.init_space[1][13]
+        # )
+        state[13] = 130
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state

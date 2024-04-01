@@ -6,11 +6,12 @@
 #  Lab Leader: Prof. Shengbo Eben Li
 #  Email: lisb04@gmail.com
 #
-#  Description: example for fhadp2 + veh3dofconti + mlp + off_serial using full horizon action
-#  Update Date: 2023-07-30, Jiaxin Gao: create example
+#  Description: example for fhadp + veh3dofconti + mlp + off_serial
+#  Update Date: 2023-08-28, Guojian Zhan: support lr schedule
 
 import os
 import argparse
+import json
 import numpy as np
 
 from gops.create_pkg.create_alg import create_alg
@@ -19,23 +20,24 @@ from gops.create_pkg.create_env import create_env
 from gops.create_pkg.create_evaluator import create_evaluator
 from gops.create_pkg.create_sampler import create_sampler
 from gops.create_pkg.create_trainer import create_trainer
-from gops.utils.init_args_abpo import init_args
-from gops.utils.cost_update_abpo import cost_update
+from gops.utils.init_args import init_args
 from gops.utils.plot_evaluation import plot_all
 from gops.utils.tensorboard_setup import start_tensorboard, save_tb_to_csv
 from gops.utils.common_utils import seed_everything
 
+os.environ["OMP_NUM_THREADS"] = "1"
 
 if __name__ == "__main__":
     # Parameters Setup
     parser = argparse.ArgumentParser()
+
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_semitruckpu7dof")
-    parser.add_argument("--cost_paras", type=list, default=[1, 0.9, 0.8, 0.5, 0.5, 0.5, 0.5, 0.4, 2.0])
-    parser.add_argument("--algorithm", type=str, default="FHADP2")
-    parser.add_argument("--pre_horizon", type=int, default=100)
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti")
+    parser.add_argument("--algorithm", type=str, default="FHADP")
+    parser.add_argument("--pre_horizon", type=int, default=30)
     parser.add_argument("--enable_cuda", default=False)
+    parser.add_argument("--seed", default=1057443824, help="seed")
     ################################################
     # 1. Parameters for environment
     parser.add_argument("--is_render", type=bool, default=False)
@@ -49,18 +51,25 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy_func_name",
         type=str,
-        default="FiniteHorizonFullPolicy"
+        default="FiniteHorizonPolicy"
     )
     parser.add_argument("--policy_func_type", type=str, default="MLP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256])
-    parser.add_argument("--policy_hidden_activation", type=str, default="elu")
+    parser.add_argument("--policy_hidden_sizes", type=int, nargs="+", default=[256, 256, 256])
+    parser.add_argument("--policy_hidden_activation", type=str, default="gelu")
     
     ################################################
     # 3. Parameters for RL algorithm
-    parser.add_argument("--policy_learning_rate", type=float, default=3e-5)
-    parser.add_argument("--cost_learning_rate", type=float, default=1e-5)
+    parser.add_argument("--policy_learning_rate", type=float, default=1e-3)
+    parser.add_argument("--policy_scheduler", type=json.loads, default={
+        "name": "LinearLR",
+        "params": {
+            "start_factor": 1.0,
+            "end_factor": 0.0,
+            "total_iters": 100000,
+            }
+    })
 
     ################################################
     # 4. Parameters for trainer
@@ -69,8 +78,7 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=60000)
-    parser.add_argument("--max_iteration_upper", type=int, default=10)  # iteration of outer loop (Theta update)
+    parser.add_argument("--max_iteration", type=int, default=100000)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -84,7 +92,7 @@ if __name__ == "__main__":
     # Max size of reply buffer
     parser.add_argument("--buffer_max_size", type=int, default=100000)
     # Batch size of replay samples from buffer
-    parser.add_argument("--replay_batch_size", type=int, default=100)
+    parser.add_argument("--replay_batch_size", type=int, default=256)
     # Period of sampling
     parser.add_argument("--sample_interval", type=int, default=1)
 
@@ -103,31 +111,29 @@ if __name__ == "__main__":
     ################################################
     # 6. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
-    parser.add_argument("--num_eval_episode", type=int, default=10)
-    parser.add_argument("--eval_interval", type=int, default=100)
+    parser.add_argument("--num_eval_episode", type=int, default=64)
+    parser.add_argument("--eval_interval", type=int, default=1000)
     parser.add_argument("--eval_save", type=str, default=False, help="save evaluation data")
 
     ################################################
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
-    parser.add_argument("--save_folder_upper", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=100)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=1000)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=100)
+    parser.add_argument("--log_save_interval", type=int, default=1000)
 
     ################################################
     # Get parameter dictionary
     args = vars(parser.parse_args())
     env = create_env(**args)
     args = init_args(env, **args)
-    start_tensorboard(args["save_folder_upper"])
+    # start_tensorboard(args["save_folder"])
     # Step 1: create algorithm and approximate function
     alg = create_alg(**args)
     # Step 2: create sampler in trainer
     sampler = create_sampler(**args)
     # Step 3: create buffer in trainer
-    # buffer = create_buffer(**args)
     buffer = create_buffer(**args)
     # Step 4: create evaluator in trainer
     evaluator = create_evaluator(**args)
@@ -135,29 +141,12 @@ if __name__ == "__main__":
     trainer = create_trainer(alg, sampler, buffer, evaluator, **args)
 
     ################################################
-    # initial cost_update class
-    cost_update = cost_update(trainer.alg.envmodel, **args)
-
     # Start training ... ...
-    cost_paras = np.array(args["cost_paras"])
-    data = trainer.buffer.sample_batch(args["replay_batch_size"])
-    for iter_up in range(args["max_iteration_upper"]):
-        traj = trainer.alg.envmodel.Rollout_traj_NN(data, trainer.networks, args["pre_horizon"], cost_paras)
+    trainer.train()
+    print("Training is finished!")
 
-        args["save_folder"] = args["save_folder_upper"]+'/' + str(iter_up) + 'th-lower'
-        os.makedirs(args["save_folder"], exist_ok=True)
-        os.makedirs(args["save_folder"] + "/apprfunc", exist_ok=True)
-        os.makedirs(args["save_folder"] + "/evaluator", exist_ok=True)
-        trainer.save_folder = args["save_folder"]
-        # trainer.evaluator.save_folder=args["save_folder"]
-
-        trainer.train()
-        trainer.iteration = 0
-        cost_paras = cost_update.step(iter_up, traj, cost_paras)
-        trainer.alg.envmodel.update_cost_paras(cost_paras)
-        print("Training is finished!")
-        ################################################
-        # Plot and save training figures
-        plot_all(args["save_folder"])
-        save_tb_to_csv(args["save_folder"])
-        print(iter_up, "-st/th update are finished!")
+    ################################################
+    # Plot and save training figures
+    plot_all(args["save_folder"])
+    save_tb_to_csv(args["save_folder"])
+    print("Plot & Save are finished!")
