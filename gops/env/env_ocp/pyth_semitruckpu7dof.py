@@ -308,7 +308,7 @@ class Semitruckpu7dof(PythBaseEnv):
         # state[13] = self.np_random.uniform(
         #     low=self.init_space[0][13], high=self.init_space[1][13]
         # )
-        state[13] = 130
+        state[13] = 220
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state

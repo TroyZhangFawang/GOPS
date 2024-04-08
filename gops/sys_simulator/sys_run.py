@@ -1273,7 +1273,7 @@ class PolicyRunner_Multiopt:
                         legend = "OPT"
                     elif self.opt_args["opt_controller_type"] == "MPC":
                         if self.multi_opt:
-                            legend = "MPC-" + str(run_time)
+                            legend = "PDP-" + str(run_time)
                             if (
                                     "use_terminal_cost" not in self.opt_args.keys()
                                     or self.opt_args["use_terminal_cost"] == False
@@ -1697,7 +1697,7 @@ class PolicyRunner_Multiopt:
                 labels = ax.get_xticklabels() + ax.get_yticklabels()
                 [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
                 plt.xlabel(x_label, default_cfg["label_font"])
-                plt.ylabel("Ref $-$ State-{}".format(j + 1), default_cfg["label_font"])
+                plt.ylabel("Ref$-$State-Error{}".format(j + 1), default_cfg["label_font"])
                 plt.legend(loc="best", prop=default_cfg["legend_font"])
                 fig.tight_layout(pad=default_cfg["pad"])
                 plt.savefig(
@@ -1709,7 +1709,7 @@ class PolicyRunner_Multiopt:
 
                 tracking_error_data = pd.DataFrame(data=tracking_error_data)
                 tracking_error_data.to_csv(
-                    os.path.join(self.save_path, "Ref - State-{}.csv".format(j + 1)),
+                    os.path.join(self.save_path, "Ref-State-Error{}.csv".format(j + 1)),
                     encoding="gbk",
                 )
 

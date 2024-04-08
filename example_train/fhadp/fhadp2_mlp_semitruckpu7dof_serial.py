@@ -69,8 +69,8 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=60000)
-    parser.add_argument("--max_iteration_upper", type=int, default=10)  # iteration of outer loop (Theta update)
+    parser.add_argument("--max_iteration", type=int, default=50000)
+    parser.add_argument("--max_iteration_upper", type=int, default=50)  # iteration of outer loop (Theta update)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",

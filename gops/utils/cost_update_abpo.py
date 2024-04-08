@@ -87,7 +87,7 @@ class cost_update:
 
         upper_loss = self.loss_upper_evaluator_3d(traj['state_traj_opt'][:, :, :],
                                                             ref_state_traj[:, :, :])
-        dp_mean_clip = np.clip(x, np.inf, 1e+04)
+        dp_mean_clip = np.clip(dp_mean, -1e+04, 1e+04)
         print('iter:', iter_up, 'loss:', upper_loss, 'paras:', cost_paras, 'dp:', dp_mean, 'dp_clip:', dp_mean_clip)
 
         cost_paras = cost_paras - self.abpo_lr * dp_mean_clip  # update theta

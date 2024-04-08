@@ -230,9 +230,9 @@ class Semitruck7dof(PythBaseEnv):
             # psi1, psi2, vy1,py1, py2, px1, px2]
             # 用高斯分布去采样
             init_high = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  0.1, 0.1, 0.1, 1, 1, 280, 280], dtype=np.float32)
+                                  0.1, 0.1, 0.1, 1, 1, 200, 200], dtype=np.float32)
             init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -0.1, -0.1, -0.1, -1, -1, 100, 100], dtype=np.float32)
+                                  -0.1, -0.1, -0.1, -1, -1, 0, 0], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Semitruck7dof, self).__init__(work_space=work_space, **kwargs)
 

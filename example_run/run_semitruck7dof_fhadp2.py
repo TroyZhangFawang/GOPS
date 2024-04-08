@@ -18,7 +18,7 @@ runner = PolicyRunner(
     trained_policy_iteration_list=["200000"],
     is_init_info=True,
     init_info={"init_state": [0, 0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 0, 0, 0, 100, 96]},
+                                  0, 0, 0, 0, 0, 10, 6]},
     save_render=False,
     legend_list=["FHADP2"],
     use_opt=True, # Use optimal solution for comparison

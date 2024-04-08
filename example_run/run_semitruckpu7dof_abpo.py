@@ -20,7 +20,7 @@ runner = PolicyRunner_Multiopt(
     trained_policy_iteration_list=["60000", "60000"],
     is_init_info=True,
     init_info={"init_state": [0, 0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 0, -1, -1, 100, 96]},
+                                  0, 0, 0, -1, -1, 200, 196]},
     save_render=False,
     legend_list=["FHADP2", "ABPO"],
 
