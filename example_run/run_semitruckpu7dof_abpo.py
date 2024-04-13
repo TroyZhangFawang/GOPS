@@ -12,15 +12,15 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner_Multiopt
 import numpy as np
-init_path = "FHADP2_240327-121848-upper_10-inner_60000/0th-lower"
-abpo_path = "FHADP2_240327-121848-upper_10-inner_60000/4th-lower"
+init_path = "FHADP2_240408-182414-upper_50-inner_50000/0th-lower"
+abpo_path = "FHADP2_240408-182414-upper_50-inner_50000/0th-lower"
 result_path = "../results/pyth_semitruckpu7dof/"
 runner = PolicyRunner_Multiopt(
     log_policy_dir_list=[result_path+init_path, result_path+abpo_path],
-    trained_policy_iteration_list=["60000", "60000"],
+    trained_policy_iteration_list=["50000", "50000"],
     is_init_info=True,
     init_info={"init_state": [0, 0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 0, -1, -1, 200, 196]},
+                                  0, 0, 0, -1, -1, 10, 6]},
     save_render=False,
     legend_list=["FHADP2", "ABPO"],
 

@@ -230,9 +230,9 @@ class Semitruckpu7dof(PythBaseEnv):
             # psi1, psi2, vy1,py1, py2, px1, px2]
             # 用高斯分布去采样
             init_high = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  0.1, 0.1, 0.1, 2, 2, 350, 350], dtype=np.float32)
+                                  0.1, 0.1, 0.1, 2, 2, 200, 200], dtype=np.float32)
             init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -0.1, -0.1, -0.1, -2, -2, 100, 100], dtype=np.float32)
+                                  -0.1, -0.1, -0.1, -2, -2, 0, 0], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Semitruckpu7dof, self).__init__(work_space=work_space, **kwargs)
 
@@ -305,10 +305,10 @@ class Semitruckpu7dof(PythBaseEnv):
             state[9])  # posy_trailer
 
         # 训练用，run的时候注释掉
-        # state[13] = self.np_random.uniform(
-        #     low=self.init_space[0][13], high=self.init_space[1][13]
-        # )
-        state[13] = 220
+        state[13] = self.np_random.uniform(
+            low=self.init_space[0][13], high=self.init_space[1][13]
+        )
+        # state[13] = 220
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state
@@ -353,7 +353,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.ref_y2 += self.state[10] * self.dt
         traj_points_2 = [[self.ref_x2, self.ref_y2]]
         new_ref_point_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
-        self.ref_points[-1] = new_ref_point_2
+        self.ref_points_2[-1] = new_ref_point_2
 
         obs = self.get_obs()
         self.done = self.judge_done()

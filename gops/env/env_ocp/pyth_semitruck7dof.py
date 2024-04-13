@@ -305,10 +305,10 @@ class Semitruck7dof(PythBaseEnv):
             state[9])  # posy_trailer
 
         # 训练用，run的时候注释掉
-        state[13] = self.np_random.uniform(
-            low=self.init_space[0][13], high=self.init_space[1][13]
-        )
-        # state[13] = 150
+        # state[13] = self.np_random.uniform(
+        #     low=self.init_space[0][13], high=self.init_space[1][13]
+        # )
+        state[13] = 10
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state
@@ -353,7 +353,7 @@ class Semitruck7dof(PythBaseEnv):
         self.ref_y2 += self.state[10] * self.dt
         traj_points_2 = [[self.ref_x2, self.ref_y2]]
         new_ref_point_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
-        self.ref_points[-1] = new_ref_point_2
+        self.ref_points_2[-1] = new_ref_point_2
 
         obs = self.get_obs()
         self.done = self.judge_done()
