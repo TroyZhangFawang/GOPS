@@ -30,7 +30,7 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
+        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
         print(root_dir)
         self.ref_traj = read_path(root_dir)
 
@@ -51,21 +51,21 @@ class Ref_Route:
 class VehicleDynamicsData:
     def __init__(self):
         self.v_x = 20
-        self.m1 = 5760.  # Total mass of the tractor [kg]
+        self.m1 = 4455.+168+679  # Total mass of the tractor [kg]
         self.m1s = 4455.  # Sprung mass of the tractor [kg]
-        self.m2 = 20665  # Total mass of the semitrailer [kg]
-        self.m2s = 20000  # Sprung mass of the semitrailer [kg]
+        self.m2 = 5500+769*3  # Total mass of the semitrailer [kg]
+        self.m2s = 5500  # Sprung mass of the semitrailer [kg]
         self.gravity = 9.81
         self.a = 1.1  # Distance between the center of gravity (CG) of the tractor and its front axle [m]
         self.b = 2.8  # Distance between the CG of the tractor and its rear axle [m]
         self.c = 1.9  # Distance between the hitch point and the center of gravity (CG) of the tractor [m]
-        self.e = 1.24  # Distance between the hitch point and the CG of the semitrailer [m]
-        self.d = 6.9  # Distance between the rear axle and the CG of the semitrailer [m]
+        self.e = 3.39031007  # Distance between the hitch point and the CG of the semitrailer [m]
+        self.d = 9.1-6.39031007  # Distance between the rear axle and the CG of the semitrailer [m]
 
-        self.h1 = 1.175  # Height of the CG of the sprung mass for the tractor [m]
-        self.h2 = 2.125  # Height of the CG of the sprung mass for the semitrailer [m]
-        self.h1c = 1.1  # Height of hitch point to the roll center of the sprung mass for the tractor [m]
-        self.h2c = 1.1  # Height of hitch point to the roll center of the sprung mass for the semitrailer [m]
+        self.h1 = 1.12610225  # Height of the CG of the sprung mass for the tractor [m]
+        self.h2 = 1.91144013  # Height of the CG of the sprung mass for the semitrailer [m]
+        self.h1c = 1.07  # Height of hitch point to the roll center of the sprung mass for the tractor [m]
+        self.h2c = 1.07  # Height of hitch point to the roll center of the sprung mass for the semitrailer [m]
 
         self.I1zz = 34802.6  # Yaw moment of inertia of the whole mass of the tractor [kg m^2]
         self.I1xx = 2283  # Roll moment of inertia of the sprung mass of the tractor [kg m^2]
@@ -75,14 +75,14 @@ class VehicleDynamicsData:
         self.I2xx = 22330  # Roll moment of inertia of the sprung mass of the semitrailer [kg m^2]
         self.I2xz = 0.0  # Roll–yaw product of inertia of the sprung mass of the semitrailer [kg m^2]
 
-        self.kf = -4.0889e5  # Tire cornering stiffness of the front axle of the tractor [N/rad]
-        self.km = -9.1361e5  # Tire cornering stiffness of the rear axle of the tractor [N/rad]
-        self.kr = -6.5922e5  # Tire cornering stiffness of the rear axle of the trailer [N/rad]
-        self.kr1 = 9.1731e5  # roll stiffness of tire (front)[N/m]
-        self.kr2 = 2.6023e6  # roll stiffness of tire (rear)[N/m]
-        self.ka = 3.5503e6  # Roll stiffness of the articulation joint between the tractor and semitrailer [N m/rad]
-        self.c1 = 1.2727e6  # Roll damping of the tractor's suspension [N-s/m]
-        self.c2 = 4.1745e5  # Roll damping of the semitrailer's suspension [N-s/m]
+        self.kf = -259752  # Tire cornering stiffness of the front axle of the tractor [N/rad]
+        self.km = -259752  # Tire cornering stiffness of the rear axle of the tractor [N/rad]
+        self.kr = -259752*3  # Tire cornering stiffness of the rear axle of the trailer [N/rad]
+        self.kr1 = 85987.26  # roll stiffness of tire (front)[N/m]
+        self.kr2 = 515923.5668789808917  # roll stiffness of tire (rear)[N/m]
+        self.ka = 5732484.076433121019   # Roll stiffness of the articulation joint between the tractor and semitrailer [N m/rad]
+        self.c1 = 0  # Roll damping of the tractor's suspension [N-s/m]
+        self.c2 = 0  # Roll damping of the semitrailer's suspension [N-s/m]
 
         self.M11 = self.m1 * self.v_x * self.c
         self.M12 = self.I1zz
