@@ -14,6 +14,8 @@ from gops.sys_simulator.sys_run import OptRunner
 import numpy as np
 result_path = "../results/pyth_holisticcontrol/"
 runner = OptRunner(
+    log_policy_dir_list=[result_path],
+    env_id="pyth_holisticcontrol",
     is_init_info=True,
     init_info={"init_state": [20, 0, 0, 0, 0, 0, 0, 0,
                                   0, 0, 0, 0]},
@@ -21,9 +23,8 @@ runner = OptRunner(
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
     opt_args={
-        "env_id":"pyth_holisticcontrol",
         "opt_controller_type": "MPC",
-        "num_pred_step": 100,
+        "num_pred_step": 30,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {

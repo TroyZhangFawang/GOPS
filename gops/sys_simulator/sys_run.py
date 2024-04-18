@@ -1976,7 +1976,8 @@ class OptRunner:
 
     def __init__(
             self,
-
+            log_policy_dir_list: list,
+            env_id:str = None,
             save_render: bool = False,
             plot_range: list = None,
             is_init_info: bool = False,
@@ -1997,7 +1998,9 @@ class OptRunner:
             action_noise_type: str = None,
             action_noise_data: list = None,
     ):
-
+        self.log_policy_dir_list = [
+            os.path.join(gops_path, d) for d in log_policy_dir_list
+        ]
         self.save_render = save_render
         self.args = None
         self.plot_range = plot_range
@@ -2022,7 +2025,7 @@ class OptRunner:
         self.use_dist = use_dist
         self.is_tracking = is_tracking
         self.dt = dt
-
+        self.policy_num = len(self.log_policy_dir_list)
         self.obs_noise_type = obs_noise_type
         self.obs_noise_data = obs_noise_data
         self.action_noise_type = action_noise_type
@@ -2033,9 +2036,10 @@ class OptRunner:
         self.args_list = []
         self.eval_list = []
         self.env_id_list = []
+        self.algorithm_list = []
         self.tracking_list = []
 
-        self.__load_all_args(opt_args)
+        self.__load_all_args()
         self.env_id = self.get_n_verify_env_id()
 
         # save path
@@ -2052,17 +2056,23 @@ class OptRunner:
 
 
     @staticmethod
-    def __load_args(opt_args):
-        args = opt_args
+    def __load_args(log_policy_dir: str):
+        json_path = os.path.join(log_policy_dir, "config.json")
+        parser = argparse.ArgumentParser()
+        args_dict = vars(parser.parse_args())
+        args = get_args_from_json(json_path, args_dict)
         return args
 
-    def __load_all_args(self, opt_args):
-        args = self.__load_args(opt_args)
+    def __load_all_args(self):
+        log_policy_dir = self.log_policy_dir_list[0]
+        args = self.__load_args(log_policy_dir)
         args['vector_env_num'] = None
         args['gym2gymnasium'] = False
         self.args_list.append(args)
         env_id = args["env_id"]
         self.env_id_list.append(env_id)
+        self.algorithm_list.append(args["algorithm"])
+
     def __load_env(self, use_opt: bool = False):
         if use_opt:
             env = create_env(**self.args)
@@ -2356,60 +2366,30 @@ class OptRunner:
             if self.constrained_env:
                 constrain_list.append(info["constraint"])
             if self.is_tracking:
-                reference_tractor = get_reference_from_info(info)
-                reference_trailer = info['ref2']
-                state_num = len(reference_tractor) + len(reference_trailer)
-                self.ref_state_num = sum(x is not None for x in reference_tractor) + 3
+                reference = get_reference_from_info(info)
+                state_num = len(reference)
+                self.ref_state_num = sum(x is not None for x in reference)
                 if step == 0:
                     for i in range(state_num):
-                        # if reference_tractor[i] is not None:
-                        state_with_ref_error["state-{}".format(i)] = []
-                        state_with_ref_error["ref-{}".format(i)] = []
-                        state_with_ref_error["state-{}-error".format(i)] = []
+                        if reference[i] is not None:
+                            state_with_ref_error["state-{}".format(i)] = []
+                            state_with_ref_error["ref-{}".format(i)] = []
+                            state_with_ref_error["state-{}-error".format(i)] = []
 
                 robot_state = get_robot_state_from_info(info)
-
-                state_with_ref_error["state-{}".format(0)].append(robot_state[13])
-                state_with_ref_error["ref-{}".format(0)].append(reference_tractor[0])
-                state_with_ref_error["state-{}-error".format(0)].append(
-                    reference_tractor[0] - robot_state[13]
-                )
-
-                state_with_ref_error["state-{}".format(1)].append(robot_state[11])
-                state_with_ref_error["ref-{}".format(1)].append(reference_tractor[1])
-                state_with_ref_error["state-{}-error".format(1)].append(
-                    reference_tractor[1] - robot_state[11]
-                )
-
-                state_with_ref_error["state-{}".format(2)].append(robot_state[8])
-                state_with_ref_error["ref-{}".format(2)].append(reference_tractor[2])
-                state_with_ref_error["state-{}-error".format(2)].append(
-                    reference_tractor[2] - robot_state[8]
-                )
-
-                state_with_ref_error["state-{}".format(3)].append(robot_state[14])
-                state_with_ref_error["ref-{}".format(3)].append(reference_trailer[0])
-                state_with_ref_error["state-{}-error".format(3)].append(
-                    reference_trailer[0] - robot_state[14]
-                )
-
-                state_with_ref_error["state-{}".format(4)].append(robot_state[12])
-                state_with_ref_error["ref-{}".format(4)].append(reference_trailer[1])
-                state_with_ref_error["state-{}-error".format(4)].append(
-                    reference_trailer[1] - robot_state[12]
-                )
-
-                state_with_ref_error["state-{}".format(5)].append(robot_state[9])
-                state_with_ref_error["ref-{}".format(5)].append(reference_trailer[2])
-                state_with_ref_error["state-{}-error".format(5)].append(
-                    reference_trailer[2] - robot_state[9])
-
+                for i in range(state_num):
+                    if reference[i] is not None:
+                        state_with_ref_error["state-{}".format(i)].append(robot_state[i])
+                        state_with_ref_error["ref-{}".format(i)].append(reference[i])
+                        state_with_ref_error["state-{}-error".format(i)].append(
+                            reference[i] - robot_state[i]
+                        )
             next_obs, reward, done, info = env.step(action)
 
             # save the real action (without scaling)
             action_list.append(info.get("raw_action", action))
             step_list.append(step)
-            reward_list.append(reward)
+            reward_list.append(reward[0])
             info_list.append(info)
 
             obs = next_obs
@@ -2441,6 +2421,7 @@ class OptRunner:
             tracking_dict = {}
 
         return eval_dict, tracking_dict
+
 
     def draw(self):
         fig_size = (
@@ -2537,7 +2518,7 @@ class OptRunner:
         fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
 
         # save reward data to csv
-        reward_data = pd.DataFrame(data=reward_list)
+        reward_data = pd.DataFrame(data=reward_list[0])
         reward_data.to_csv(os.path.join(self.save_path, "Reward.csv"), encoding="gbk")
 
         for i in range(policy_num):

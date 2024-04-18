@@ -8,7 +8,7 @@
 #
 #  Description: vehicle 3DOF data environment
 #  Update Date: 2021-05-55, Jiaxin Gao: create environment
-
+import os
 from typing import Dict, Optional, Sequence, Tuple
 import pandas as pd
 import torch
@@ -31,7 +31,9 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self, ref_vx):
         self.preview_index = 5
-        root_dir = "./resources/cury.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir+"/resources/cury.csv"
+
         self.ref_traj = read_path(root_dir)
         self.ref_vx = ref_vx
 
@@ -47,40 +49,71 @@ class Ref_Route:
         prev_index = np.maximum(nearest_point_index - 1, 0)
         ref_heading = np.arctan2((ref_y - self.ref_traj[prev_index][:, 1]),
                                  (ref_x - self.ref_traj[prev_index][:, 0]))
-        return np.stack([ref_x, ref_y, ref_heading, self.ref_vx], axis=1)
+        ref_vx = np.empty_like(ref_x)+self.ref_vx
+        return np.stack([ref_x, ref_y, ref_heading, ref_vx], axis=1)
 
 class VehicleDynamicsData:
     def __init__(self):
-        self.state_dim = 12
-        self.m = 4455+362+679   # Total mass[kg]
-        self.mu = 362+679
-        self.ms = 4455.  # Sprung mass[kg]
-        self.g = 9.81
-        self.Rw = 0.51
+        self.vehicle_params = dict(
+            state_dim=12,
+            m=4455 + 362 + 679,  # Total mass[kg]
+            mu=362 + 679,
+            ms=4455,  # Sprung mass[kg]
+            g=9.81,
+            Rw=0.51,
+            lw=2.03,
+            lf=1.250,  # Distance between the center of gravity (CG)and its front axle [m]
+            lr=5.000 - 1.250,  # Distance between the CGand its rear axle [m]
+            hs=1.16407072,  # Height of the CG of the sprung mass for the tractor [m]
+            hr=1,
+            hu=1,
+            Izz=34802.6,  # Yaw moment of inertia of the whole mass[kg m^2]
+            Ixx=2283.9,  # Roll moment of inertia of the sprung mass[kg m^2]
+            Iyy=35402.8,
+            Ixz=1626,  # Roll–yaw product of inertia of the sprung mass[kg m^2]
 
-        self.lw = 2.03
-        self.lf = 1.250  # Distance between the center of gravity (CG)and its front axle [m]
-        self.lr = 5.000-1.250 # Distance between the CGand its rear axle [m]
+            k_alpha1=259752 / 2,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha2=259752 / 2,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha3=259752 / 2,  # Tire cornering stiffness of the rear axle[N/rad]
+            k_alpha4=259752 / 2,  # Tire cornering stiffness of the rear axle[N/rad]
+            C_slip1=259752 / 2,
+            C_slip2=259752 / 2,
+            C_slip3=259752 / 2,
+            C_slip4=259752 / 2,
 
-        self.hs = 1.16407072  # Height of the CG of the sprung mass for the tractor [m]
-        self.hr = 1
-        self.hu = 1
-        self.Izz = 34802.6  # Yaw moment of inertia of the whole mass[kg m^2]
-        self.Ixx = 2283.9  # Roll moment of inertia of the sprung mass[kg m^2]
-        self.Iyy = 35402.8
-        self.Ixz = 1626  # Roll–yaw product of inertia of the sprung mass[kg m^2]
-
-        self.k_alpha1 = 259752/2  # Tire cornering stiffness of the 1st wheel[N/rad]
-        self.k_alpha2 = 259752/2  # Tire cornering stiffness of the 1st wheel[N/rad]
-        self.k_alpha3 = 259752/2  # Tire cornering stiffness of the rear axle[N/rad]
-        self.k_alpha4 = 259752/2  # Tire cornering stiffness of the rear axle[N/rad]
-        self.C_slip1 = 259752/2
-        self.C_slip2 = 259752 / 2
-        self.C_slip3 = 259752 / 2
-        self.C_slip4 = 259752 / 2
-
-        self.K_varphi = (8500/3.14*180+1500/3.14*180)*4# roll stiffness of tire [N-m/rad] /3.14*180
-        self.C_varphi = 0  #Roll damping of the suspension [N-m-s/rad]
+            K_varphi=(8500 / 3.14 * 180 + 1500 / 3.14 * 180) * 4,  # roll stiffness of tire [N-m/rad] /3.14*180
+            C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
+        )
+    
+        self.m = self.vehicle_params["m"]  # Total mass[kg]
+        self.mu = self.vehicle_params["mu"]
+        self.ms = self.vehicle_params["ms"]  # Sprung mass[kg]
+        self.g = self.vehicle_params["g"]
+        self.Rw = self.vehicle_params["Rw"]
+    
+        self.lw = self.vehicle_params["lw"]
+        self.lf = self.vehicle_params["lf"]  # Distance between the center of gravity (CG)and its front axle [m]
+        self.lr = self.vehicle_params["lr"]  # Distance between the CGand its rear axle [m]
+    
+        self.hs = self.vehicle_params["hs"]  # Height of the CG of the sprung mass for the tractor [m]
+        self.hr = self.vehicle_params["hr"]
+        self.hu = self.vehicle_params["hu"]
+        self.Izz = self.vehicle_params["Izz"]  # Yaw moment of inertia of the whole mass[kg m^2]
+        self.Ixx = self.vehicle_params["Ixx"]  # Roll moment of inertia of the sprung mass[kg m^2]
+        self.Iyy = self.vehicle_params["Iyy"]
+        self.Ixz = self.vehicle_params["Ixz"]  # Roll–yaw product of inertia of the sprung mass[kg m^2]
+    
+        self.k_alpha1 = self.vehicle_params["k_alpha1"]  # Tire cornering stiffness of the 1st wheel[N/rad]
+        self.k_alpha2 = self.vehicle_params["k_alpha2"]  # Tire cornering stiffness of the 1st wheel[N/rad]
+        self.k_alpha3 = self.vehicle_params["k_alpha3"]  # Tire cornering stiffness of the rear axle[N/rad]
+        self.k_alpha4 = self.vehicle_params["k_alpha4"]  # Tire cornering stiffness of the rear axle[N/rad]
+        self.C_slip1 = self.vehicle_params["C_slip1"]
+        self.C_slip2 = self.vehicle_params["C_slip2"]
+        self.C_slip3 = self.vehicle_params["C_slip3"]
+        self.C_slip4 = self.vehicle_params["C_slip4"]
+    
+        self.K_varphi = self.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
+        self.C_varphi = self.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
 
     def f_xu(self, states, actions, delta_t):
         v_x, v_y, gamma, varphi, varphi_dot, x, y, phi, kappa1, kappa2, kappa3, kappa4 = states
@@ -208,13 +241,12 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             init_low = np.array([0, -10, -0.5, -0.1, -0.5, 0, -10, -1, -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
-
+        
         self.vehicle_dynamics = VehicleDynamicsData()
-
-        self.state_dim = 12
         self.pre_horizon = pre_horizon
         self.ref_vx = ref_vx
         self.ref_traj = Ref_Route(self.ref_vx)
+        self.state_dim = self.vehicle_dynamics.vehicle_params["state_dim"]
         ego_obs_dim = 11
         ref_obs_dim = 3
         self.observation_space = gym.spaces.Box(
@@ -223,13 +255,13 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Box(
-            low=np.array([max_torque, -max_steer]*8),
-            high=np.array([0, max_steer]*8),
+            low=np.array([max_torque, -max_steer]*4),
+            high=np.array([0, max_steer]*4),
             dtype=np.float32,
         )
-        obs_scale_default = [1, 1, 1, 1,
-                             1, 1, 1, 1,
-                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+        obs_scale_default = [1/10, 1/10, 1, 1/10, 1,
+                             1/100, 1/100, 1/10,
+                             1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.05
@@ -390,8 +422,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             "ref_points": self.ref_points.copy(),
             "ref_x": self.ref_x,
             "ref_y": self.ref_y,
-            "ref": self.ref_points[0].copy(),
-            "target_speed": self.ref_traj.vx_ref,
+            "ref": self.ref_points[0].copy()
         }
 
 

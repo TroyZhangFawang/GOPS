@@ -12,8 +12,8 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner_Multiopt
 import numpy as np
-init_path = "FHADP2_240408-182414-upper_50-inner_50000/0th-lower"
-abpo_path = "FHADP2_240408-182414-upper_50-inner_50000/0th-lower"
+init_path = "FHADP2_240410-092852-upper_50-inner_50000/0th-lower"
+abpo_path = "FHADP2_240410-092852-upper_50-inner_50000/0th-lower"
 result_path = "../results/pyth_semitruckpu7dof/"
 runner = PolicyRunner_Multiopt(
     log_policy_dir_list=[result_path+init_path, result_path+abpo_path],

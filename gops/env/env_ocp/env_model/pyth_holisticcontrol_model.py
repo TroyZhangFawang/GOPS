@@ -8,20 +8,20 @@
 #
 #  Description: 4WS 4WD vehicle holistic control model environment
 #  Update Date: 2024-04-13, Fawang Zhang: create environment
-
-
+import os
 from typing import Dict, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
 import torch
 
 from gops.env.env_ocp.env_model.pyth_base_model import PythBaseModel
-from gops.env.env_ocp.pyth_veh3dofconti import angle_normalize, VehicleDynamicsData
+from gops.env.env_ocp.pyth_holisticcontrol import angle_normalize, VehicleDynamicsData
 from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel
 from gops.utils.gops_typing import InfoDict
 
 
 def read_path(root_path):
+    print(root_path)
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     state_1 = np.array(data_result.iloc[1:, 0], dtype='float32') #x
     state_2 = np.array(data_result.iloc[1:, 1], dtype='float32')  #y
@@ -33,7 +33,8 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self, vx_ref):
         self.preview_index = 5
-        root_dir = "./resources/cury.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir+"/../resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
@@ -49,52 +50,58 @@ class Ref_Route:
         ref_x = self.ref_traj_tensor[nearest_point_indices][:, 0]
         ref_y = self.ref_traj_tensor[nearest_point_indices][:, 1]
         ref_heading = torch.atan2((ref_y - self.ref_traj_tensor[nearest_point_indices - 1][:, 1]), (ref_x - self.ref_traj_tensor[nearest_point_indices - 1][:, 0]))
-        return torch.stack([ref_x, ref_y, ref_heading, self.vx_ref], 1)
+        ref_vx = torch.zeros_like(ref_x).add(self.vx_ref)
+        return torch.stack([ref_x, ref_y, ref_heading, ref_vx], 1)
 
 class VehicleDynamicsModel(VehicleDynamicsData):
-    def f_xu(self, states, actions, delta_t):
-        v_x, v_y, gamma, varphi, varphi_dot, x, y, phi, kappa1, kappa2, kappa3, kappa4 = states
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = actions
-        self.batch_size = len(states[:, 0])
-        X = torch.tensor(states[:, 5]).unsqueeze(1)
-        D = actions.unsqueeze(1)
-        U = torch.zeros((self.batch_size ,8, 1))
-        self.m = self.vehicle_params["m"]
-        self.ms = self.vehicle_params["ms"]
-        self.mu = self.vehicle_params["mu"]
-        self.g = self.vehicle_params["g"]
-        self.Rw = self.vehicle_params["Rw"]
+    def __init__(self):
+        DynamicsData = VehicleDynamicsData()
+        self.m = DynamicsData.vehicle_params["m"]
+        self.ms = DynamicsData.vehicle_params["ms"]
+        self.mu = DynamicsData.vehicle_params["mu"]
+        self.g = DynamicsData.vehicle_params["g"]
+        self.Rw = DynamicsData.vehicle_params["Rw"]
 
-        self.lw = self.vehicle_params["lw"]
-        self.lf = self.vehicle_params["lf"]  # Distance between the center of gravity (CG)and its front axle [m]
-        self.lr = self.vehicle_params["lr"]  # Distance between the CGand its rear axle [m]
-        
-        self.hs = self.vehicle_params["hs"] # Height of the CG of the sprung mass for the tractor [m]
-        self.hr = self.vehicle_params["hr"] # Height of the CG of the sprung mass for the tractor [m]
-        self.hu = self.vehicle_params["hu"] # Height of the CG of the sprung mass for the tractor [m]
+        self.lw = DynamicsData.vehicle_params["lw"]
+        self.lf = DynamicsData.vehicle_params["lf"]  # Distance between the center of gravity (CG)and its front axle [m]
+        self.lr = DynamicsData.vehicle_params["lr"]  # Distance between the CGand its rear axle [m]
 
-        self.Izz = self.vehicle_params["Izz"]  # Yaw moment of inertia of the whole mass[kg m^2]
-        self.Ixx = self.vehicle_params["Ixx"] # Roll moment of inertia of the sprung mass[kg m^2]
-        self.Iyy = self.vehicle_params["Iyy"]
-        self.Ixz = self.vehicle_params["Ixz"] # Roll–yaw product of inertia of the sprung mass[kg m^2]
+        self.hs = DynamicsData.vehicle_params["hs"]  # Height of the CG of the sprung mass for the tractor [m]
+        self.hr = DynamicsData.vehicle_params["hr"]  # Height of the CG of the sprung mass for the tractor [m]
+        self.hu = DynamicsData.vehicle_params["hu"]  # Height of the CG of the sprung mass for the tractor [m]
 
-        self.k_alpha1 = self.vehicle_params["k_alpha1"]  # Tire cornering stiffness of the 1st wheel[N/rad]
-        self.k_alpha2 = self.vehicle_params["k_alpha2"]  # Tire cornering stiffness of the 1st wheel[N/rad]
-        self.k_alpha3 = self.vehicle_params["k_alpha3"]  # Tire cornering stiffness of the rear axle[N/rad]
-        self.k_alpha4 = self.vehicle_params["k_alpha4"]  # Tire cornering stiffness of the rear axle[N/rad]
-        self.C_slip1 = self.vehicle_params["C_slip1"]
-        self.C_slip2 = self.vehicle_params["C_slip2"]
-        self.C_slip3 = self.vehicle_params["C_slip3"]
-        self.C_slip4 = self.vehicle_params["C_slip4"]
+        self.Izz = DynamicsData.vehicle_params["Izz"]  # Yaw moment of inertia of the whole mass[kg m^2]
+        self.Ixx = DynamicsData.vehicle_params["Ixx"]  # Roll moment of inertia of the sprung mass[kg m^2]
+        self.Iyy = DynamicsData.vehicle_params["Iyy"]
+        self.Ixz = DynamicsData.vehicle_params["Ixz"]  # Roll–yaw product of inertia of the sprung mass[kg m^2]
 
-        self.K_varphi = self.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
-        self.C_varphi = self.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
+        self.k_alpha1 = DynamicsData.vehicle_params["k_alpha1"]  # Tire cornering stiffness of the 1st wheel[N/rad]
+        self.k_alpha2 = DynamicsData.vehicle_params["k_alpha2"]  # Tire cornering stiffness of the 1st wheel[N/rad]
+        self.k_alpha3 = DynamicsData.vehicle_params["k_alpha3"]  # Tire cornering stiffness of the rear axle[N/rad]
+        self.k_alpha4 = DynamicsData.vehicle_params["k_alpha4"]  # Tire cornering stiffness of the rear axle[N/rad]
+        self.C_slip1 = DynamicsData.vehicle_params["C_slip1"]
+        self.C_slip2 = DynamicsData.vehicle_params["C_slip2"]
+        self.C_slip3 = DynamicsData.vehicle_params["C_slip3"]
+        self.C_slip4 = DynamicsData.vehicle_params["C_slip4"]
+
+        self.K_varphi = DynamicsData.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
+        self.C_varphi = DynamicsData.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
+
+        self.state_dim = DynamicsData.vehicle_params["state_dim"]
+    def f_xu(self, state, action, delta_t):
+        self.batch_size = len(state[:, 0])
+        v_x, v_y, gamma, varphi, varphi_dot, x, y, phi, kappa1, kappa2, kappa3, kappa4 = state[0, 0], state[0, 1],state[0, 2], state[0, 3],\
+            state[0, 4], state[0, 5],state[0, 6], state[0, 7],\
+            state[0, 8], state[0, 9],state[0, 10], state[0, 11]
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action[0, 0], action[0, 1], action[0, 2], action[0, 3], \
+            action[0, 4], action[0, 5], action[0, 6], action[0, 7]
+
+        X = torch.tensor(state[:, :5]).reshape(5, 1)
+        D = action.reshape(8, 1)
+        U = torch.zeros((8, 1))
 
 
-        self.state_dim = self.vehicle_params["state_dim"]
-
-
-        state_next = torch.zeros_like(states)
+        state_next = torch.zeros_like(state)
         dividend = (self.m * self.Ixx * self.Izz + self.Izz * self.ms ** 2 * self.hs ** 2 - self.m * self.Ixz ** 2)
         A_matrix = torch.zeros((5, 5))
 
@@ -148,9 +155,9 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         Mw4 = torch.tensor([[torch.cos(delta4), -torch.sin(delta4)],
                         [torch.sin(delta4), torch.cos(delta4)]])
 
-        Mw_matrix = torch.stack(Mw1, Mw2, Mw3, Mw4)
+        Mw_matrix = torch.block_diag(Mw1, Mw2, Mw3, Mw4)
 
-        Ew_matrix = torch.diag([0, 0, 0, 0, 0, 0, 0, 0])
+        Ew_matrix = torch.diag(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0.]))
 
         A1_matrix = torch.zeros((8, 5))
 
@@ -162,22 +169,22 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         A1_matrix[7, 1], A1_matrix[7, 2] = -self.k_alpha4 / v_x, -self.k_alpha4 * (-self.lr) / v_x
 
-        B1 = [1 / self.Rw, self.k_alpha1, 1 / self.Rw, self.k_alpha2,
-              1 / self.Rw, self.k_alpha3, 1 / self.Rw, self.k_alpha4]
+        B1 = torch.tensor([1 / self.Rw, self.k_alpha1, 1 / self.Rw, self.k_alpha2,
+              1 / self.Rw, self.k_alpha3, 1 / self.Rw, self.k_alpha4])
 
         B1_matrix = torch.diag(B1)
-        temp = torch.matmul(A1_matrix, X) + np.matmul(B1_matrix, D) + np.matmul(np.matmul(Ew_matrix, B1_matrix), U)
+        temp = torch.matmul(A1_matrix, X) + torch.matmul(B1_matrix, D) + torch.matmul(np.matmul(Ew_matrix, B1_matrix), U)
 
-        X_dot_batch = torch.zeros((self.batch_size, self.state_dim - 2))
+        X_dot_batch = torch.zeros((self.batch_size, 5))
         for batch in range(self.batch_size):
             X_dot = (torch.matmul(A_matrix, X) + torch.matmul(torch.matmul(torch.matmul(torch.matmul(
             B_matrix, Lc_matrix), Ec_matrix), Mw_matrix), temp)).squeeze()
             X_dot_batch[batch, :] = X_dot
 
-        state_next[:, :5] = states[:, :5] + delta_t * X_dot_batch
+        state_next[:, :5] = state[:, :5] + delta_t * X_dot_batch
 
-        state_next[:, 5] = x + delta_t * (v_x * torch.cos(phi.clone()) - v_y * np.sin(phi.clone()))
-        state_next[:, 6] = y + delta_t * (v_y * np.cos(phi.clone()) + v_x * np.sin(phi.clone()))
+        state_next[:, 5] = x + delta_t * (v_x * torch.cos(phi.clone()) - v_y * torch.sin(phi.clone()))
+        state_next[:, 6] = y + delta_t * (v_y * torch.cos(phi.clone()) + v_x * torch.sin(phi.clone()))
         state_next[:, 7] = phi + delta_t * gamma
         state_next[:, 8] = ((4 * (kappa1 + 1) / (self.m * v_x) + (kappa1 + 1) ** 2 * self.Rw * Q1 / (self.Izz * v_x)) *
                          self.C_slip1 * delta_t + 1) * kappa1 - (kappa1 + 1) ** 2 * self.Rw * delta_t * Q1 / (
@@ -198,8 +205,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     def __init__(
         self,
-        ref_vx: float = 20,
-        pre_horizon: int = 100,
+        ref_vx: float = 25,
+        pre_horizon: int = 30,
         device: Union[torch.device, str, None] = None,
         max_torque: float = -100,
         max_steer: float = 0.5,
@@ -214,9 +221,9 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         self.ref_vx = ref_vx
         ego_obs_dim = 11
         ref_obs_dim = 3
-        obs_scale_default = [1, 1, 1, 1,
-                             1, 1, 1, 1,
-                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+        obs_scale_default = [1 / 10, 1 / 10, 1, 1 / 10, 1,
+                             1 / 100, 1 / 100, 1 / 10,
+                             1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
@@ -228,7 +235,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         )
 
         self.ref_traj = Ref_Route(self.ref_vx)
-        self.action_last = torch.zeros((1, ))
+        self.action_last = torch.zeros((1, 8))
 
     def forward(
         self,
@@ -241,7 +248,6 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         ref_x = info["ref_x"]
         ref_y = info["ref_y"]
         ref_points = info["ref_points"]
-        vx_ref = info["vx_ref"]
 
         reward = self.compute_reward(state, action, ref_points)
 
@@ -278,10 +284,10 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
                 ref_points[..., 0], ref_points[..., 1], ref_points[..., 2], ref_points[..., 3],
             )
 
-        ego_obs = torch.concat((torch.stack(
-            (ref_y_tf[:, 0]*self.obs_scale[6], ref_phi_tf[:, 0]*self.obs_scale[7], ref_vx_tf[:, 0]*self.obs_scale[0]), dim=1),
-                                state[:, 1:5]*self.obs_scale[1:5],
-                                state[:, 8:12]*self.obs_scale[8:12]), dim=1)
+        ego_obs = torch.stack(
+            (ref_y_tf[:, 0]*self.obs_scale[6], ref_phi_tf[:, 0]*self.obs_scale[7], ref_vx_tf[:, 0]*self.obs_scale[0],
+             state[:, 1]*self.obs_scale[1], state[:, 2]*self.obs_scale[2], state[:, 3]*self.obs_scale[3], state[:, 4]*self.obs_scale[4],
+             state[:, 8]*self.obs_scale[8], state[:, 9]*self.obs_scale[9], state[:, 10]*self.obs_scale[10], state[:, 11]*self.obs_scale[11]), dim=1)
         ref_obs = torch.stack((ref_y_tf*self.obs_scale[6], ref_phi_tf*self.obs_scale[7], ref_vx_tf*self.obs_scale[0]), 2)[
             :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
@@ -294,10 +300,13 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     ) -> torch.Tensor:
         vx, vy, gamma, varphi, \
         varphi_dot, px, py, phi, \
-        kappa1, kappa2, kappa3, kappa4 = state
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action
-        ref_x, ref_y, ref_phi, ref_vx = ref_points
-        beta = np.arctan(vy / vx)
+        kappa1, kappa2, kappa3, kappa4 = state[0, 0], state[0, 1],state[0, 2], state[0, 3],\
+            state[0, 4], state[0, 5],state[0, 6], state[0, 7],\
+            state[0, 8], state[0, 9],state[0, 10], state[0, 11]
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action[0, 0], action[0, 1], action[0, 2], action[0, 3], \
+            action[0, 4], action[0, 5], action[0, 6], action[0, 7]
+        ref_x, ref_y, ref_phi, ref_vx = ref_points[:, 0, 0], ref_points[:, 0, 1], ref_points[:, 0, 2], ref_points[:, 0, 3]
+        beta = torch.arctan(vy / vx)
         I_matrix = torch.tensor([[(self.vehicle_dynamics.k_alpha1 + self.vehicle_dynamics.k_alpha2 +
                                self.vehicle_dynamics.k_alpha3 + self.vehicle_dynamics.k_alpha4) / (
                                           self.vehicle_dynamics.m * vx),
@@ -351,8 +360,8 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
             + 0.5 * (beta-later_ref[0]) ** 2
             + 0.5 * (gamma - later_ref[1]) ** 2
             + 0.4 * I_rollover ** 2
-            + 2.0 * torch.sum((action - self.action_last) ** 2)
-        )
+            + 2.0 * torch.sum((action - self.action_last) ** 2, 1)
+        )[0]
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
         delta_y, delta_phi, vx, vy = obs[:, 0]/self.obs_scale[6], obs[:, 1]/self.obs_scale[7], obs[:, 2]/self.obs_scale[0], obs[:, 3]/self.obs_scale[1]
