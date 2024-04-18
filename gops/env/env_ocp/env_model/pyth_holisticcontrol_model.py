@@ -88,6 +88,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         self.C_varphi = DynamicsData.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
 
         self.state_dim = DynamicsData.vehicle_params["state_dim"]
+
     def f_xu(self, state, action, delta_t):
         self.batch_size = len(state[:, 0])
         v_x, v_y, gamma, varphi, varphi_dot, x, y, phi, kappa1, kappa2, kappa3, kappa4 = state[0, 0], state[0, 1],state[0, 2], state[0, 3],\
@@ -200,7 +201,6 @@ class VehicleDynamicsModel(VehicleDynamicsData):
                           self.C_slip4 * delta_t + 1) * kappa4 - (kappa4 + 1) ** 2 * self.Rw * delta_t * Q4 / (
                                      self.Izz * v_x)
         return state_next
-
 
 class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     def __init__(
@@ -372,8 +372,6 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
                 | (torch.abs(delta_phi) > np.pi/2)
         )
         return done
-
-
 
 
 

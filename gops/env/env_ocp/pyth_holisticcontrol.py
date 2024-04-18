@@ -56,32 +56,32 @@ class VehicleDynamicsData:
     def __init__(self):
         self.vehicle_params = dict(
             state_dim=12,
-            m=4455 + 362 + 679,  # Total mass[kg]
-            mu=362 + 679,
-            ms=4455,  # Sprung mass[kg]
+            m=2257 + 139.4+172,  # Total mass[kg]
+            mu=139.4+172,
+            ms=2257,  # Sprung mass[kg]
             g=9.81,
-            Rw=0.51,
-            lw=2.03,
-            lf=1.250,  # Distance between the center of gravity (CG)and its front axle [m]
-            lr=5.000 - 1.250,  # Distance between the CGand its rear axle [m]
-            hs=1.16407072,  # Height of the CG of the sprung mass for the tractor [m]
-            hr=1,
-            hu=1,
-            Izz=34802.6,  # Yaw moment of inertia of the whole mass[kg m^2]
-            Ixx=2283.9,  # Roll moment of inertia of the sprung mass[kg m^2]
-            Iyy=35402.8,
-            Ixz=1626,  # Roll–yaw product of inertia of the sprung mass[kg m^2]
+            Rw=0.401,
+            lw=0.8625*2,
+            lf=1.32913322,  # Distance between the center of gravity (CG)and its front axle [m]
+            lr=3.140 - 1.32913322,  # Distance between the CGand its rear axle [m]
+            hs=0.76673148,  # Height of the CG of the sprung mass for to the ground [m]
+            hr=0.70518242,  # Height of the CG of the roll center to the ground
+            hu=0.4,  # Height of the CG of the un-sprung mass to the ground
+            Izz=3524.9,  # Yaw moment of inertia of the whole mass[kg m^2]
+            Ixx=846.6,  # Roll moment of inertia of the sprung mass[kg m^2]
+            Iyy=3524.9,
+            Ixz=0,  # Roll–yaw product of inertia of the sprung mass[kg m^2]
 
-            k_alpha1=259752 / 2,  # Tire cornering stiffness of the 1st wheel[N/rad]
-            k_alpha2=259752 / 2,  # Tire cornering stiffness of the 1st wheel[N/rad]
-            k_alpha3=259752 / 2,  # Tire cornering stiffness of the rear axle[N/rad]
-            k_alpha4=259752 / 2,  # Tire cornering stiffness of the rear axle[N/rad]
-            C_slip1=259752 / 2,
-            C_slip2=259752 / 2,
-            C_slip3=259752 / 2,
-            C_slip4=259752 / 2,
+            k_alpha1=3.771 *2.453 * 13.03 /3.14*180,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha2=3.771 *2.453 * 13.03 /3.14*180 ,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha3=3.771 *2.453 * 13.03 /3.14*180 ,  # Tire cornering stiffness of the rear axle[N/rad]
+            k_alpha4=3.771 *2.453 * 13.03 /3.14*180 ,  # Tire cornering stiffness of the rear axle[N/rad]
+            C_slip1=1.562*1.074*15.15 /3.14*180,
+            C_slip2=1.562*1.074*15.15 /3.14*180,
+            C_slip3=1.562*1.074*15.15 /3.14*180,
+            C_slip4=1.562*1.074*15.15 /3.14*180,
 
-            K_varphi=(8500 / 3.14 * 180 + 1500 / 3.14 * 180) * 4,  # roll stiffness of tire [N-m/rad] /3.14*180
+            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of tire [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
         )
     
@@ -264,7 +264,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
                              1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
-        self.dt = 0.05
+        self.dt = 0.01
         self.max_episode_steps = 200
 
         self.state = None
