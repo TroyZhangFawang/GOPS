@@ -17,14 +17,14 @@ runner = OptRunner(
     log_policy_dir_list=[result_path],
     env_id="pyth_holisticcontrol",
     is_init_info=True,
-    init_info={"init_state": [20, 0, 0, 0, 0, 0, 0, 0,
+    init_info={"init_state": [0, -1.0, 0, 18, 0.0, 0, 0, 0,
                                   0, 0, 0, 0]},
     save_render=False,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 30,
+        "num_pred_step": 50,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {

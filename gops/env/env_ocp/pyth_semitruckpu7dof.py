@@ -8,7 +8,7 @@
 #
 #  Description: vehicle 3DOF data environment
 #  Update Date: 2021-05-55, Jiaxin Gao: create environment
-
+import os
 from typing import Dict, Optional, Sequence, Tuple
 import pandas as pd
 import torch
@@ -30,7 +30,8 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir + "/resources/cury.csv"
         print(root_dir)
         self.ref_traj = read_path(root_dir)
 

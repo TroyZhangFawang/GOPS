@@ -34,7 +34,8 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir+"/../resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
