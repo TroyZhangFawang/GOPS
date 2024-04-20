@@ -8,7 +8,7 @@
 #
 #  Description: vehicle 3DOF data environment
 #  Update Date: 2021-05-55, Jiaxin Gao: create environment
-
+import os
 from typing import Dict, Optional, Sequence, Tuple
 import pandas as pd
 import torch
@@ -30,8 +30,8 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/cury.csv"
-        print(root_dir)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir + "/resources/cury.csv"
         self.ref_traj = read_path(root_dir)
 
     def find_nearest_point(self, traj_points):
@@ -259,7 +259,7 @@ class Semitruck7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 700
+        self.max_episode_steps = 200
 
         self.state = None
         self.ref_x = None
@@ -303,12 +303,12 @@ class Semitruck7dof(PythBaseEnv):
 
         state[12] = state[11] - self.vehicle_dynamics.b * np.sin(state[8]) - self.vehicle_dynamics.e * np.sin(
             state[9])  # posy_trailer
-
+        # state[13] = 10
         # 训练用，run的时候注释掉
-        # state[13] = self.np_random.uniform(
-        #     low=self.init_space[0][13], high=self.init_space[1][13]
-        # )
-        state[13] = 10
+        state[13] = self.np_random.uniform(
+            low=self.init_space[0][13], high=self.init_space[1][13]
+        )
+
         state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
             state[9])  # posx_trailer
         self.state = state

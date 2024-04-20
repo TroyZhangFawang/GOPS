@@ -8,8 +8,7 @@
 #
 #  Description: vehicle 3DOF model environment
 #  Update Date: 2022-04-20, Jiaxin Gao: create environment
-
-
+import os
 from typing import Dict, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
@@ -33,7 +32,8 @@ def read_path(root_path):
 class Ref_Route:
     def __init__(self):
         self.preview_index = 5
-        root_dir = "/home/bit/Troy.Z/1_code/GOPS/gops/env/env_ocp/resources/cury.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = current_dir + "/../resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
@@ -306,7 +306,7 @@ class Semitruck7dofModel(PythBaseModel):
             "ref_points": next_ref_points,
             "ref_points_2": next_ref_points_2,
         })
-        self.action_last = action.clone().detach()
+        self.action_last = action[:, 0].clone().detach()
         return next_obs, reward, isdone, next_info
 
     def get_obs(self, state, ref_points, ref_points_2):

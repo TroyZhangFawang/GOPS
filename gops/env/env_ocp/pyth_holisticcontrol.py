@@ -234,8 +234,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         if work_space is None:
             # initial range of [x, y, yaw, vx, vy, yaw rate, roll, roll rate, slip_ratio_1, slip_ratio_2, slip_ratio_3, slip_ratio_4]
             # 用高斯分布去采样
-            init_high = np.array([100, 10, 1,30, 10, 0.5, 0.1, 0.5,  0.1, 0.1, 0.1, 0.1 ], dtype=np.float32)
-            init_low = np.array([0, -10, -1, 0, -10, -0.5, -0.1, -0.5,  -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
+            init_high = np.array([100, 1, np.pi/2, 30, 10, 0.5, 0.1, 0.5,  0.1, 0.1, 0.1, 0.1 ], dtype=np.float32)
+            init_low = np.array([0, -2, -np.pi/2, 0, -10, -0.5, -0.1, -0.5,  -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
         
