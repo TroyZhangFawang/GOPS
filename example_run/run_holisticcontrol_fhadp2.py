@@ -12,10 +12,10 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-result_path = "../results/pyth_holisticcontrol/FHADP2_240420-153113"
+result_path = "../results/pyth_holisticcontrol/FHADP2_240423-160328"
 runner = PolicyRunner(
     log_policy_dir_list=[result_path],
-    trained_policy_iteration_list=["6200"],
+    trained_policy_iteration_list=["89200"],
     is_init_info=True,
     init_info={"init_state": [0, -1.0, 0, 18, 0.0, 0, 0, 0,
                                   0, 0, 0, 0]},
