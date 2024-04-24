@@ -65,7 +65,7 @@ class PythBaseEnv(gym.Env):
             )
         elif self.initial_distribution == "normal":
             mean = (self.init_space[0] + self.init_space[1]) / 2
-            std = (self.init_space[1] - self.init_space[0]) / 20
+            std = (self.init_space[1] - self.init_space[0]) / 100
             state = self.np_random.normal(loc=mean, scale=std)
         else:
             raise ValueError(

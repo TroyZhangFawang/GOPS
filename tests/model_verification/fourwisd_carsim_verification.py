@@ -9,22 +9,38 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 import matplotlib.font_manager as fm
 zhfont1 = fm.FontProperties(fname='../SIMSUN.ttf', size=14)
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+np.seterr(divide='ignore', invalid='ignore')
 
+def stiffness_fitting(x, a, b, c, d):
+    return c * np.sin(b * np.arctan(a * x - d * (a * x - np.arctan(a * x))))
+
+def read_path(root_path):
+    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
+    state_1 = np.array(data_result.iloc[:, 0], dtype='float32') #x
+    state_2 = np.array(data_result.iloc[:, 1], dtype='float32')  #y
+    state_traj = np.zeros((len(state_1), 2))
+    state_traj[:, 0] = state_1
+    state_traj[:, 1] = state_2
+    return state_traj
 
 def unit_transform_2A(state):
-    state[0] = state[0] / 3.6  # vx
-    state[1] = state[1] / 3.6  # vy
-    state[2] = state[2] / 180 * np.pi  # yaw_rate
-    state[3] = state[3] / 180 * np.pi  # roll angle
-    state[4] = state[4] / 180 * np.pi  # roll rate
-    state[5] = state[5]  # x
-    state[6] = state[6]  # y
-    state[7] = state[7] / 180 * np.pi  # yaw
+    state[0] = state[0]  # x
+    state[1] = state[1]  # y
+    state[2] = state[2] / 180 * np.pi  # yaw
+
+    state[3] = state[3] / 3.6  # vx
+    state[4] = state[4] / 3.6  # vy
+    state[5] = state[5] / 180 * np.pi  # yaw_rate
+    state[6] = state[6] / 180 * np.pi  # roll angle
+    state[7] = state[7] / 180 * np.pi  # roll rate
+
     state[8] = state[8]  # kappa_1
     state[9] = state[9]  # kappa_2
     state[10] = state[10] # kappa_3
     state[11] = state[11] # kappa_4
-
     # control feedback
     state[12] = state[12]  # drive torque on wheel 1
     state[13] = state[13] / 180 * np.pi  # steering angle on wheel 1
@@ -39,8 +55,8 @@ def unit_transform_2A(state):
 
 
 def model_compare_4wisd(env_id):
-    run_step = 1000
-    delta_t = 0.01
+    run_step = 12000
+    delta_t = 0.0005
     model_mechnical = gym.make(env_id, disable_env_checker=True)
     state = model_mechnical.reset()
 
@@ -95,25 +111,25 @@ def model_compare_4wisd(env_id):
     
 
     for i in range(run_step):
-        drive_torque = -60
-        # if i< 500 :
+        drive_torque = 80
+        # if i< 4000 :
         #     steering_angle_degree = 0
-        # elif i>500and i<1000 :
-        #     steering_angle_degree = 3
-        # elif i>1000and i<1500 :
-        #     steering_angle_degree = -3
+        # # elif i>500and i<1000 :
+        # #     steering_angle_degree = 3
+        # # elif i>1000and i<1500 :
+        # #     steering_angle_degree = -3
         # else:
-        #     steering_angle_degree = 0
-        steering_angle_degree = 3 * np.sin(np.pi * 2 / 20000 * i)
+        #     steering_angle_degree = 3
+        steering_angle_degree = 3 * np.sin(np.pi * 2 / 5000 * i)
         steering_angle_rad = steering_angle_degree / 180 * 3.14
         control_carsim = np.array([drive_torque, steering_angle_degree,
                                      drive_torque, steering_angle_degree,
-                                     drive_torque, steering_angle_degree,
-                                     drive_torque, steering_angle_degree])
+                                     drive_torque, 0,
+                                     drive_torque, 0])
         control = np.array([drive_torque, steering_angle_rad,
                             drive_torque, steering_angle_rad,
-                            drive_torque, steering_angle_rad,
-                            drive_torque, steering_angle_rad])
+                            drive_torque, 0,
+                            drive_torque, 0])
 
         state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t)
 
@@ -121,14 +137,15 @@ def model_compare_4wisd(env_id):
         state = unit_transform_2A(state)
         
         # 4dof
-        vx_self.append(state_python[0])
-        vy_self.append(state_python[1])
-        yawrate_self.append(state_python[2])
-        roll_self.append(state_python[3])
-        rollrate_self.append(state_python[4])
-        x_self.append(state_python[5])
-        y_self.append(state_python[6])
-        yaw_self.append(state_python[7])
+        x_self.append(state_python[0])
+        y_self.append(state_python[1])
+        yaw_self.append(state_python[2])
+        vx_self.append(state_python[3])
+        vy_self.append(state_python[4])
+        yawrate_self.append(state_python[5])
+        roll_self.append(state_python[6])
+        rollrate_self.append(state_python[7])
+
         kappa_1_self.append(state_python[8])
         kappa_4_self.append(state_python[11])
         Qw1_self.append(control[0])
@@ -144,14 +161,15 @@ def model_compare_4wisd(env_id):
 
 
         # -------------------------------
-        vx_carsim.append(state[0])
-        vy_carsim.append(state[1])
-        yawrate_carsim.append(state[2])
-        roll_carsim.append(state[3])
-        rollrate_carsim.append(state[4])
-        x_carsim.append(state[5])
-        y_carsim.append(state[6])
-        yaw_carsim.append(state[7])
+        x_carsim.append(state[0])
+        y_carsim.append(state[1])
+        yaw_carsim.append(state[2])
+        vx_carsim.append(state[3])
+        vy_carsim.append(state[4])
+        yawrate_carsim.append(state[5])
+        roll_carsim.append(state[6])
+        rollrate_carsim.append(state[7])
+
         kappa_1_carsim.append(state[8])
         kappa_4_carsim.append(state[11])
         
@@ -427,4 +445,11 @@ def model_compare_4wisd(env_id):
 
 if __name__ == '__main__':
     model_compare_4wisd(env_id='pyth_holisticcontrol')
+    # root_path = "C:/Users/Troy.Z/Desktop/lat.csv"
+    # re = read_path(root_path)
+    # x = re[:, 0]
+    # y = re[:, 1]
+    # popt1, pcov1 = curve_fit(stiffness_fitting, x, y,maxfev = 10000)
+    # print(popt1)
+
 
