@@ -431,7 +431,6 @@ class Semitruck7dof(PythBaseEnv):
         }
 
 
-
 def state_error_calculate(
     ego_x: np.ndarray,
     ego_y: np.ndarray,

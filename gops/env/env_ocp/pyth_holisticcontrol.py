@@ -6,8 +6,8 @@
 #  Lab Leader: Prof. Shengbo Eben Li
 #  Email: lisb04@gmail.com
 #
-#  Description: vehicle 3DOF data environment
-#  Update Date: 2021-05-55, Jiaxin Gao: create environment
+#  Description: 4WS 4WD vehicle holistic control model environment
+#  Update Date: 2024-04-13, Fawang Zhang: create environment
 import os
 from typing import Dict, Optional, Sequence, Tuple
 import pandas as pd
@@ -234,8 +234,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         if work_space is None:
             # initial range of [x, y, yaw, vx, vy, yaw rate, roll, roll rate, slip_ratio_1, slip_ratio_2, slip_ratio_3, slip_ratio_4]
             # 用高斯分布去采样
-            init_high = np.array([100, 1, np.pi/2, 30, 10, 0.5, 0.1, 0.5,  0.1, 0.1, 0.1, 0.1 ], dtype=np.float32)
-            init_low = np.array([0, -2, -np.pi/2, 0, -10, -0.5, -0.1, -0.5,  -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
+            init_high = np.array([200, 2, 0.1, 22, 2, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01 ], dtype=np.float32)
+            init_low = np.array([0, -2, -0.1, 18, -2, -0.1, -0.1, -0.1,  -0.01, -0.01, -0.01, -0.01], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
         
@@ -295,7 +295,13 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             state = np.array(init_state, dtype=np.float32)
         else:
             state = self.sample_initial_state()
+        # train mode
+        state[0] = self.np_random.uniform(
+            low=self.init_space[0][0], high=self.init_space[1][0]
+        )
 
+        # # run mode
+        # state[0] = 10
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]

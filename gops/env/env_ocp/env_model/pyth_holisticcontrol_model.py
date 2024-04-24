@@ -21,7 +21,6 @@ from gops.utils.gops_typing import InfoDict
 
 
 def read_path(root_path):
-    print(root_path)
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     state_1 = np.array(data_result.iloc[1:, 0], dtype='float32') #x
     state_2 = np.array(data_result.iloc[1:, 1], dtype='float32')  #y
@@ -31,14 +30,14 @@ def read_path(root_path):
     return state_traj
 
 class Ref_Route:
-    def __init__(self, vx_ref):
+    def __init__(self, ref_vx):
         self.preview_index = 5
         current_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = current_dir+"/../resources/cury.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
-        self.vx_ref = vx_ref
+        self.ref_vx = ref_vx
 
     def find_nearst_point(self, traj_points):
         # 计算两组点之间的距离
@@ -50,7 +49,7 @@ class Ref_Route:
         ref_x = self.ref_traj_tensor[nearest_point_indices][:, 0]
         ref_y = self.ref_traj_tensor[nearest_point_indices][:, 1]
         ref_heading = torch.atan2((ref_y - self.ref_traj_tensor[nearest_point_indices - 1][:, 1]), (ref_x - self.ref_traj_tensor[nearest_point_indices - 1][:, 0]))
-        ref_vx = torch.zeros_like(ref_x).add(self.vx_ref)
+        ref_vx = torch.zeros_like(ref_x).add(self.ref_vx)
         return torch.stack([ref_x, ref_y, ref_heading, ref_vx], 1)
 
 class VehicleDynamicsModel(VehicleDynamicsData):
