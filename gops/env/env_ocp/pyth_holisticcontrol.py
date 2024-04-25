@@ -234,7 +234,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         if work_space is None:
             # initial range of [x, y, yaw, vx, vy, yaw rate, roll, roll rate, slip_ratio_1, slip_ratio_2, slip_ratio_3, slip_ratio_4]
             # 用高斯分布去采样
-            init_high = np.array([200, 2, 0.1, 22, 2, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01 ], dtype=np.float32)
+            init_high = np.array([200, 2, 0.1, 22, 2, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01], dtype=np.float32)
             init_low = np.array([0, -2, -0.1, 18, -2, -0.1, -0.1, -0.1,  -0.01, -0.01, -0.01, -0.01], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
@@ -299,9 +299,13 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         state[0] = self.np_random.uniform(
             low=self.init_space[0][0], high=self.init_space[1][0]
         )
+        state[3] = self.np_random.uniform(
+            low=self.init_space[0][3], high=self.init_space[1][3]
+        )
 
         # # run mode
         # state[0] = 10
+        # state[3] = 18
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]
@@ -414,7 +418,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         )
 
     def judge_done(self) -> bool:
-        done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y
+        done = ((abs(self.state[1]-self.ref_points[0, 1]) > 5)  # delta_y
                 + (abs(self.state[3]-self.ref_points[0, 3]) > 5)  # delta_vx
                 + (abs(self.state[4]) > 5)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)) # delta phi
