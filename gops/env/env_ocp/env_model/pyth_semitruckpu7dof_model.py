@@ -217,14 +217,16 @@ class VehicleDynamicsModel(VehicleDynamicsData):
                                   states[batch, :self.state_dim - 2]) +
                      torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, actions[batch, :]))).squeeze()
             X_dot_batch[batch, :] = X_dot
-        # state_next[:, :self.state_dim - 2] = state_curr[:, :self.state_dim - 2] + delta_t * X_dot_batch
-        state_next[:, :self.state_dim - 3] = states[:, :self.state_dim - 3] + delta_t * X_dot_batch[:,
-                                            :self.state_dim - 3]
-        state_next[:, 12] = state_next[:, 11].clone() - self.b * torch.sin(
-            state_next[:, 8].clone()) - self.e * torch.sin(state_next[:, 9].clone())  # posy_trailer
-        state_next[:, 13] = states[:, 13] + delta_t * self.v_x  # x_tractor
-        state_next[:, 14] = state_next[:, 13].clone() - self.b * torch.cos(
-            state_next[:, 8].clone()) - self.e * torch.cos(state_next[:, 9].clone())  # x_trailer
+        state_next[:, 0] = states[:, 0] + delta_t * self.v_x  # x_tractor
+        state_next[:, 1] = states[:, 1] + delta_t * X_dot_batch[:, 11]
+        state_next[:, 2] = states[:, 2] + delta_t * X_dot_batch[:, 8]
+        state_next[:, 3] = state_next[:, 0].clone() - self.b * torch.cos(
+            states[:, 2].clone()) - self.e * torch.cos(states[:, 5].clone())  # x_trailer
+        state_next[:, 4] = state_next[:, 1].clone() - self.b * torch.sin(
+            states[:, 2].clone()) - self.e * torch.sin(states[:, 5].clone())  # posy_trailer
+        state_next[:, 5] = states[:, 5] + delta_t * X_dot_batch[:, 9]
+        state_next[:, 6:14] = states[:, 6:14] + delta_t * X_dot_batch[:, 0:8]
+        state_next[:, 14] = states[:, 14] + delta_t * X_dot_batch[:, 10]
         return state_next
 
     def auxvar_setting(self, delta_t=0.01, ref_traj_init=np.array([0, 0, 0]), action_last_np=0):
@@ -249,16 +251,17 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         parameter += [self.wstrdot]
         self.cost_auxvar = vcat(parameter)
 
-        self.beta1, self.psi1dot, self.phi1, self.phi1dot, \
+        self.x1, self.y1, self.psi1, self.x2,self.y2, self.psi2, self.beta1, self.psi1dot, self.phi1, self.phi1dot, \
             self.beta2, self.psi2dot, self.phi2, self.phi2dot, \
-            self.psi1, self.psi2, self.v1, self.y1, self.y2, self.x1, self.x2 = \
+            self.v1  = \
+            SX.sym('x1'), SX.sym('y1'), SX.sym('psi1'), SX.sym('x2'),SX.sym('y2'), SX.sym('psi2'), \
             SX.sym('beta1'), SX.sym('psi1dot'), SX.sym('phi1'), SX.sym('phi1dot'), \
-                SX.sym('beta2'), SX.sym('psi2dot'), SX.sym('phi2'), SX.sym('phi2dot'), \
-                SX.sym('psi1'), SX.sym('psi2'), SX.sym('v1'), SX.sym('y1'), SX.sym('y2'), SX.sym('x1'), SX.sym('x2')
+                SX.sym('beta2'), SX.sym('psi2dot'), SX.sym('phi2'), SX.sym('phi2dot'), SX.sym('v1')
 
-        self.X = vertcat(self.beta1, self.psi1dot, self.phi1, self.phi1dot,
+        self.X = vertcat(self.x1, self.y1, self.psi1, self.x2,self.y2, self.psi2,
+                         self.beta1, self.psi1dot, self.phi1, self.phi1dot,
                          self.beta2, self.psi2dot, self.phi2, self.phi2dot,
-                         self.psi1, self.psi2, self.v1, self.y1, self.y2, self.x1, self.x2)
+                         self.v1)
 
         self.steering = SX.sym('str')
         self.U = vertcat(self.steering)
@@ -305,27 +308,34 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         B_matrix[0, 0] = self.B11
         B_matrix[1, 0] = self.B21
         B_matrix[2, 0] = self.B31
-
+        # beta1dot, psi1_dotdot, phi1dot, phi1_dotdot,
+        # beta2dot, psi2_dotdot, phi2dot, phi2_dotdot,
+        # psi1dot, psi2dot, vy1dot py1dot,
         X_dot = mtimes(mtimes(inv(M_matrix), A_matrix), self.X[:13]) + mtimes(mtimes(inv(M_matrix), B_matrix), self.U)
-
-        self.dyn = vertcat(self.X[:12] + delta_t * X_dot[:12],
-                           self.X[11] - self.b * sin(self.X[8]) - self.e * sin(self.X[9]),
-                           self.X[13] + delta_t * self.v_x,
-                           self.X[13] - self.b * cos(self.X[8]) - self.e * cos(self.X[9]))
+        # px1, py1, psi1, px2, py2, psi2,
+        # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
+        self.dyn = vertcat(self.X[0] + delta_t * self.v_x,
+                           self.X[1] + delta_t * X_dot[11],
+                           self.X[2] + delta_t * X_dot[8],
+                           self.X[0] - self.b * cos(self.X[2]) - self.e * cos(self.X[5]),
+                           self.X[1] - self.b * sin(self.X[2]) - self.e * sin(self.X[5]),
+                           self.X[5] + delta_t * X_dot[9],
+                           self.X[6:14] + delta_t * X_dot[0:8],
+                           self.X[14] + delta_t * X_dot[10])
 
         self.Path_Cost_Update(ref_traj_init, action_last_np)
 
     def Path_Cost_Update(self, ref, action_last_np):
         # ref:ref_y, ref_vx, ref_phi, ref_x
-        self.path_cost = self.wdis * ((self.X[11] - ref[1]) ** 2 + (self.X[13] - ref[0]) ** 2) + \
-                         self.wv1 * (self.X[10]) ** 2 + self.wpsi1 * (self.X[8] - ref[2]) ** 2 \
-                         + self.womega1 * (self.X[1]) ** 2 + self.wbeta1 * (self.X[0]) ** 2 + \
-                         self.wphi1 * (self.X[2]) ** 2 + self.wphi1dot * (self.X[3]) ** 2 + \
+        self.path_cost = self.wdis * ((self.X[1] - ref[1]) ** 2 + (self.X[0] - ref[0]) ** 2) + \
+                         self.wv1 * (self.X[14]) ** 2 + self.wpsi1 * (self.X[2] - ref[2]) ** 2 \
+                         + self.womega1 * (self.X[7]) ** 2 + self.wbeta1 * (self.X[6]) ** 2 + \
+                         self.wphi1 * (self.X[8]) ** 2 + self.wphi1dot * (self.X[9]) ** 2 + \
                          self.wstr * (self.U[0]) ** 2 + self.wstrdot * (self.U[0] - action_last_np) ** 2
-        self.final_cost = self.wdis * ((self.X[11] - ref[1]) ** 2 + (self.X[13] - ref[0]) ** 2) + \
-                          self.wv1 * (self.X[10]) ** 2 + self.wpsi1 * (self.X[8] - ref[2]) ** 2 \
-                          + self.womega1 * (self.X[1]) ** 2 + self.wbeta1 * (self.X[0]) ** 2 + \
-                          self.wphi1 * (self.X[2]) ** 2 + self.wphi1dot * (self.X[3]) ** 2
+        self.final_cost = self.wdis * ((self.X[1] - ref[1]) ** 2 + (self.X[0] - ref[0]) ** 2) + \
+                         self.wv1 * (self.X[14]) ** 2 + self.wpsi1 * (self.X[2] - ref[2]) ** 2 \
+                         + self.womega1 * (self.X[7]) ** 2 + self.wbeta1 * (self.X[6]) ** 2 + \
+                         self.wphi1 * (self.X[8]) ** 2 + self.wphi1dot * (self.X[9]) ** 2
         return self.path_cost, self.final_cost
 
     def stepPhysics_i(self, state_curr, action):
@@ -378,23 +388,29 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix), state_curr[:self.state_dim-2])  +
                  torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, action))).squeeze()
-        # state_next[:13] = state_curr[:13] + self.dt * X_dot
-        state_next[:12] = state_curr[:12] + self.dt * X_dot[:12]
-        state_next[12] = state_next[11] - self.b * torch.sin(state_next[8].clone()) - self.e * torch.sin(state_next[9].clone())  # posy_trailer
-        state_next[13] = state_curr[13] + self.dt * self.v_x
-        state_next[14] = state_next[13] - self.b * torch.cos(state_next[8].clone()) - self.e * torch.cos(state_next[9].clone())  # posx_trailer
+
+        state_next[0] = state_curr[0] + self.dt * self.v_x
+        state_next[1] = state_curr[1] + self.dt * X_dot[11]
+        state_next[2] = state_curr[2] + self.dt * X_dot[8]
+        state_next[3] = state_next[0] - self.b * torch.cos(state_curr[2].clone()) - self.e * torch.cos(
+            state_curr[5].clone())  # posx_trailer
+        state_next[4] = state_next[1] - self.b * torch.sin(state_curr[2].clone()) - self.e * torch.sin(
+            state_curr[5].clone())  # posy_trailer
+        state_next[5] = state_curr[5] + self.dt * X_dot[9]
+        state_next[6:14] = state_curr[6:14] + self.dt * X_dot[0:8]
+        state_next[14] = state_curr[14] + self.dt * X_dot[10]
         return state_next
 
     def reward_func_i(self, state_curr, action, ref, cost_paras, action_last_i):
         # to calculate dcx in jacobian API
         ref_x, ref_y, ref_psi,  = ref[0], ref[1], ref[2]
-        reward = cost_paras[0] * ((state_curr[11] - ref_y) ** 2+(state_curr[13] - ref_x) ** 2) + \
-                 cost_paras[1] * ((state_curr[10]) ** 2) + \
-                 cost_paras[2] * ((state_curr[8] - ref_psi) ** 2) + \
-                 cost_paras[3] * (state_curr[1]) ** 2 + \
-                 cost_paras[4] * (state_curr[0]) ** 2 + \
-                 cost_paras[5] * (state_curr[2]) ** 2 + \
-                 cost_paras[6] * (state_curr[3]) ** 2 + \
+        reward = cost_paras[0] * ((state_curr[1] - ref_y) ** 2+(state_curr[0] - ref_x) ** 2) + \
+                 cost_paras[1] * ((state_curr[14]) ** 2) + \
+                 cost_paras[2] * ((state_curr[2] - ref_psi) ** 2) + \
+                 cost_paras[3] * (state_curr[7]) ** 2 + \
+                 cost_paras[4] * (state_curr[6]) ** 2 + \
+                 cost_paras[5] * (state_curr[8]) ** 2 + \
+                 cost_paras[6] * (state_curr[9]) ** 2 + \
                  cost_paras[7] * (action[0] ** 2) + \
                  cost_paras[8] * (action[0]-action_last_i) ** 2
         return reward
@@ -416,13 +432,13 @@ class Semitruckpu7dofModel(PythBaseModel):
         self.state_dim = 15
         self.cost_dim = 7+2
         ego_obs_dim = 13
-        ref_obs_dim = 2
-        obs_scale_default = [1, 1, 1, 1,
+        ref_obs_dim = 4
+        obs_scale_default = [1/100, 1/100, 1/100, 1/100, 1/100, 1/100, 1, 1, 1, 1,
                              1, 1, 1, 1,
-                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+                             1/100]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
-            obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon*2,
+            obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
             action_dim=1,
             dt=0.01,
             action_lower_bound=[-max_steer],
@@ -447,7 +463,6 @@ class Semitruckpu7dofModel(PythBaseModel):
         ref_x2 = info["ref_x2"]
         ref_y2 = info["ref_y2"]
         ref_points = info["ref_points"]
-        ref_points_2 = info["ref_points_2"]
         target_speed = info["target_speed"]
 
         reward = self.compute_reward(obs, action)
@@ -457,18 +472,16 @@ class Semitruckpu7dofModel(PythBaseModel):
         next_ref_points = ref_points.clone()
         next_ref_points[:, :-1] = ref_points[:, 1:]
         next_ref_x = ref_x + self.dt * target_speed
-        next_ref_y = ref_y + self.dt * state[:, 10]
+        next_ref_y = ref_y + self.dt * state[:, 14]
         new_ref_point = self.ref_traj.find_nearst_point(torch.stack([next_ref_x, next_ref_y], 1))
-        next_ref_points[:, -1] = new_ref_point
 
-        next_ref_points_2 = ref_points_2.clone()
-        next_ref_points_2[:, :-1] = ref_points_2[:, 1:]
         next_ref_x2 = ref_x2 + self.dt * target_speed
-        next_ref_y2 = ref_y2 + self.dt * state[:, 10]
+        next_ref_y2 = ref_y2 + self.dt * state[:, 14]
         new_ref_point_2 = self.ref_traj.find_nearst_point(torch.stack([next_ref_x2, next_ref_y2], 1))
-        next_ref_points_2[:, -1] = new_ref_point_2
+        next_ref_points[:, -1] = torch.cat((new_ref_point, new_ref_point_2), 1)
 
-        next_obs = self.get_obs(next_state, next_ref_points, next_ref_points_2)
+
+        next_obs = self.get_obs(next_state, next_ref_points)
 
         isdone = self.judge_done(next_obs)
 
@@ -481,29 +494,25 @@ class Semitruckpu7dofModel(PythBaseModel):
             "ref_y": next_ref_y,
             "ref_x2": next_ref_x2,
             "ref_y2": next_ref_y2,
-            "ref_points": next_ref_points,
-            "ref_points_2": next_ref_points_2,
+            "ref_points": next_ref_points
         })
         self.action_last = action.clone().detach()
         return next_obs, reward, isdone, next_info
 
-    def get_obs(self, state, ref_points, ref_points_2):
+    def get_obs(self, state, ref_points):
         ref_x_tf, ref_y_tf, ref_phi_tf = \
             state_error_calculate(
-                state[:, 13], state[:, 11], state[:, 8],
+                state[:, 0], state[:, 1], state[:, 2],
                 ref_points[..., 0], ref_points[..., 1], ref_points[..., 2],
             )
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
             state_error_calculate(
-                state[:, 14], state[:, 12], state[:, 9],
-                ref_points_2[..., 0], ref_points_2[..., 1], ref_points_2[..., 2],
+                state[:, 3], state[:, 4], state[:, 5],
+                ref_points[..., 3], ref_points[..., 4], ref_points[..., 5],
             )
-
-        ego_obs = torch.concat((state[:, 0:8], torch.stack(
-            (ref_phi_tf[:, 0]*self.obs_scale[8], ref_phi2_tf[:, 0]*self.obs_scale[9]), dim=1),
-                                state[:, 10:11]*self.obs_scale[10],
-                                torch.stack((ref_y_tf[:, 0]*self.obs_scale[11], ref_y2_tf[:, 0]*self.obs_scale[12]), dim=1),), dim=1)
-        ref_obs = torch.stack((ref_y_tf*self.obs_scale[13], ref_phi_tf*self.obs_scale[14], ref_y2_tf*self.obs_scale[13], ref_phi2_tf*self.obs_scale[14]), 2)[
+        ego_obs = torch.concat((torch.stack((ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_y2_tf[:, 0]*self.obs_scale[4], ref_phi2_tf[:, 0]*self.obs_scale[5]), dim=1),
+                                state[:, 6:14], state[:, 14:]*self.obs_scale[14]), dim=1)
+        ref_obs = torch.stack((ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_y2_tf*self.obs_scale[4], ref_phi2_tf*self.obs_scale[5]), 2)[
             :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
 
@@ -512,19 +521,19 @@ class Semitruckpu7dofModel(PythBaseModel):
         obs: torch.Tensor,
         action: torch.Tensor) -> torch.Tensor:
         return -(
-            self.cost_paras[0] * ((obs[:, 11]/self.obs_scale[11]) ** 2)
-            + self.cost_paras[1] * (obs[:, 10]/self.obs_scale[10]) ** 2
-            + self.cost_paras[2] * (obs[:, 8]/self.obs_scale[8]) ** 2
-            + self.cost_paras[3] * obs[:, 1] ** 2
-            + self.cost_paras[4] * obs[:, 0] ** 2
-            + self.cost_paras[5] * obs[:, 2] ** 2
-            + self.cost_paras[6] * obs[:, 3] ** 2
+            self.cost_paras[0] * ((obs[:, 0]/self.obs_scale[0]) ** 2)
+            + self.cost_paras[1] * (obs[:, 14]/self.obs_scale[14]) ** 2
+            + self.cost_paras[2] * (obs[:, 2]/self.obs_scale[2]) ** 2
+            + self.cost_paras[3] * obs[:, 7] ** 2
+            + self.cost_paras[4] * obs[:, 6] ** 2
+            + self.cost_paras[5] * obs[:, 8] ** 2
+            + self.cost_paras[6] * obs[:, 9] ** 2
             + self.cost_paras[7] * action[:, 0] ** 2
             + self.cost_paras[8] * (action[:, 0] - self.action_last) ** 2
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 11]/self.obs_scale[11], obs[:, 8]/self.obs_scale[8], obs[:, 12]/self.obs_scale[12], obs[:, 9]/self.obs_scale[9], obs[:, 10]/self.obs_scale[10]
+        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[4], obs[:, 3]/self.obs_scale[5], obs[:, 14]/self.obs_scale[14]
         done = (
                 (torch.abs(delta_y) > 3)
                 | (torch.abs(vy1) > 2)

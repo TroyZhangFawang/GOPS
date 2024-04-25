@@ -70,7 +70,7 @@ if __name__ == "__main__":
         default="off_serial_trainer")
     # Maximum iteration number
     parser.add_argument("--max_iteration", type=int, default=50000)
-    parser.add_argument("--max_iteration_upper", type=int, default=50)  # iteration of outer loop (Theta update)
+    parser.add_argument("--max_iteration_upper", type=int, default=20)  # iteration of outer loop (Theta update)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     # Batch size of replay samples from buffer
     parser.add_argument("--replay_batch_size", type=int, default=100)
     # Period of sampling
-    parser.add_argument("--sample_interval", type=int, default=1)
+    parser.add_argument("--sample_interval", type=int, default=10000)
 
     ################################################
     # 5. Parameters for sampler
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     ################################################
     # 6. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
-    parser.add_argument("--num_eval_episode", type=int, default=10)
+    parser.add_argument("--num_eval_episode", type=int, default=100)
     parser.add_argument("--eval_interval", type=int, default=100)
     parser.add_argument("--eval_save", type=str, default=False, help="save evaluation data")
 
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     # Save value/policy every N updates
     parser.add_argument("--apprfunc_save_interval", type=int, default=100)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=100)
+    parser.add_argument("--log_save_interval", type=int, default=10)
 
     ################################################
     # Get parameter dictionary
