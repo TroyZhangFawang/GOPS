@@ -165,6 +165,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         self.batch_size = len(states[:, 0])
         state_next = torch.zeros_like(states)
+        X_matrix = torch.cat((states[:, 6:14], states[:, 2:3], states[:, 5:6],
+                              states[:, 14:], states[:, 1:2], states[:, 4:5]), 1)
         M_matrix = torch.zeros((self.state_dim - 2, self.state_dim - 2))
         M_matrix[0, 0] = self.M11
         M_matrix[0, 1] = self.M12
@@ -214,7 +216,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         X_dot_batch = torch.zeros((self.batch_size, self.state_dim - 2))
         for batch in range(self.batch_size):
             X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix),
-                                  states[batch, :self.state_dim - 2]) +
+                                  X_matrix[batch, :]) +
                      torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, actions[batch, :]))).squeeze()
             X_dot_batch[batch, :] = X_dot
         state_next[:, 0] = states[:, 0] + delta_t * self.v_x  # x_tractor
@@ -262,7 +264,9 @@ class VehicleDynamicsModel(VehicleDynamicsData):
                          self.beta1, self.psi1dot, self.phi1, self.phi1dot,
                          self.beta2, self.psi2dot, self.phi2, self.phi2dot,
                          self.v1)
-
+        X_matrix = vertcat(self.beta1, self.psi1dot, self.phi1, self.phi1dot,
+                         self.beta2, self.psi2dot, self.phi2, self.phi2dot,
+                           self.psi1, self.psi2, self.v1, self.y1, self.y2)
         self.steering = SX.sym('str')
         self.U = vertcat(self.steering)
 
@@ -311,7 +315,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         # beta1dot, psi1_dotdot, phi1dot, phi1_dotdot,
         # beta2dot, psi2_dotdot, phi2dot, phi2_dotdot,
         # psi1dot, psi2dot, vy1dot py1dot,
-        X_dot = mtimes(mtimes(inv(M_matrix), A_matrix), self.X[:13]) + mtimes(mtimes(inv(M_matrix), B_matrix), self.U)
+
+        X_dot = mtimes(mtimes(inv(M_matrix), A_matrix), X_matrix) + mtimes(mtimes(inv(M_matrix), B_matrix), self.U)
         # px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
         self.dyn = vertcat(self.X[0] + delta_t * self.v_x,
@@ -341,6 +346,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
     def stepPhysics_i(self, state_curr, action):
         state_next = torch.empty_like(state_curr)
         action = action.type(torch.float32)
+        X_matrix = torch.cat((state_curr[6:14], state_curr[2:3], state_curr[5:6],
+                              state_curr[14:], state_curr[1:2], state_curr[4:5]))
         M_matrix = torch.zeros((self.state_dim-2, self.state_dim-2))
         M_matrix[0, 0] = self.M11
         M_matrix[0, 1] = self.M12
@@ -386,7 +393,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         B_matrix[1, 0] = self.B21
         B_matrix[2, 0] = self.B31
 
-        X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix), state_curr[:self.state_dim-2])  +
+        X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix), X_matrix)  +
                  torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, action))).squeeze()
 
         state_next[0] = state_curr[0] + self.dt * self.v_x
@@ -433,7 +440,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         self.cost_dim = 7+2
         ego_obs_dim = 13
         ref_obs_dim = 4
-        obs_scale_default = [1/100, 1/100, 1/100, 1/100, 1/100, 1/100, 1, 1, 1, 1,
+        obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10, 1, 1, 1, 1,
                              1, 1, 1, 1,
                              1/100]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
@@ -521,7 +528,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         obs: torch.Tensor,
         action: torch.Tensor) -> torch.Tensor:
         return -(
-            self.cost_paras[0] * ((obs[:, 0]/self.obs_scale[0]) ** 2)
+            self.cost_paras[0] * ((obs[:, 0]/self.obs_scale[1]) ** 2)
             + self.cost_paras[1] * (obs[:, 14]/self.obs_scale[14]) ** 2
             + self.cost_paras[2] * (obs[:, 2]/self.obs_scale[2]) ** 2
             + self.cost_paras[3] * obs[:, 7] ** 2
@@ -533,7 +540,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[4], obs[:, 3]/self.obs_scale[5], obs[:, 14]/self.obs_scale[14]
+        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[4], obs[:, 3]/self.obs_scale[5], obs[:, 12]/self.obs_scale[14]
         done = (
                 (torch.abs(delta_y) > 3)
                 | (torch.abs(vy1) > 2)
