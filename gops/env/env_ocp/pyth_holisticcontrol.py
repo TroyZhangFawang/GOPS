@@ -234,8 +234,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         if work_space is None:
             # initial range of [x, y, yaw, vx, vy, yaw rate, roll, roll rate, slip_ratio_1, slip_ratio_2, slip_ratio_3, slip_ratio_4]
             # 用高斯分布去采样
-            init_high = np.array([200, 2, 0.1, 22, 2, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01], dtype=np.float32)
-            init_low = np.array([0, -2, -0.1, 18, -2, -0.1, -0.1, -0.1,  -0.01, -0.01, -0.01, -0.01], dtype=np.float32)
+            init_high = np.array([200, 2, 0.1, 22, 0.1, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01], dtype=np.float32)
+            init_low = np.array([0, -2, -0.1, 18, -0.1, -0.1, -0.1, -0.1,  -0.01, -0.01, -0.01, -0.01], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
         
@@ -256,13 +256,13 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             high=np.array([max_torque, max_steer]*4),
             dtype=np.float32,
         )
-        obs_scale_default = [1/10, 1/10, 1/10,
-                             1/10, 1/10, 1, 1/10, 1,
+        obs_scale_default = [1/100, 1/100, 1/10,
+                             1/100, 1/100, 1/10, 1, 1,
                              1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 800
+        self.max_episode_steps = 200
 
         self.state = None
         self.ref_x = None
@@ -298,10 +298,10 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         # train mode
         state[0] = self.np_random.uniform(
             low=self.init_space[0][0], high=self.init_space[1][0]
-        )
+        ) # x
         state[3] = self.np_random.uniform(
             low=self.init_space[0][3], high=self.init_space[1][3]
-        )
+        ) # vx
 
         # # run mode
         # state[0] = 10
@@ -405,7 +405,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
 
         return -(
             1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 2.0 * (vx - ref_vx) ** 2
+            + 1.0 * (vx - ref_vx) ** 2
             + 1.0 * vy ** 2
             + 1.0 * angle_normalize(phi - ref_phi) ** 2
             + 0.5 * gamma ** 2
@@ -418,9 +418,9 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         )
 
     def judge_done(self) -> bool:
-        done = ((abs(self.state[1]-self.ref_points[0, 1]) > 5)  # delta_y
+        done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y
                 + (abs(self.state[3]-self.ref_points[0, 3]) > 5)  # delta_vx
-                + (abs(self.state[4]) > 5)  # delta_vy
+                + (abs(self.state[4]) > 2)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)) # delta phi
         return done
 
