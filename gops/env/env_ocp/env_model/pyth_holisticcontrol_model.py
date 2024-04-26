@@ -221,8 +221,8 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         self.ref_vx = ref_vx
         ego_obs_dim = 11
         ref_obs_dim = 3
-        obs_scale_default = [1 / 10, 1 / 10, 1 / 10,
-                             1 / 10, 1 / 10, 1, 1 / 10, 1,
+        obs_scale_default = [1/100, 1/100, 1/10,
+                             1/100, 1/100, 1/10, 1, 1,
                              1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
@@ -354,7 +354,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
 
         return -(
             1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 2.0 * (vx - ref_vx) ** 2
+            + 1.0 * (vx - ref_vx) ** 2
             + 1.0 * (vy) ** 2
             + 1.0 * (phi-ref_phi) ** 2
             + 0.5 * (gamma) ** 2
@@ -367,11 +367,11 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, vx, vy = obs[:, 1]/self.obs_scale[1], obs[:, 2]/self.obs_scale[2], obs[:, 3]/self.obs_scale[3], obs[:, 4]/self.obs_scale[4]
+        delta_y, delta_phi, vx, vy = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[3], obs[:, 3]/self.obs_scale[4]
         done = (
                 (torch.abs(delta_y) > 3)
                 | (torch.abs(vx) > 5)
-                | (torch.abs(vy) > 5)
+                | (torch.abs(vy) > 2)
                 | (torch.abs(delta_phi) > np.pi/2)
         )
         return done
