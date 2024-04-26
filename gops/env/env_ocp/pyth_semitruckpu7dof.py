@@ -159,6 +159,9 @@ class VehicleDynamicsData:
     def f_xu(self, states, actions, delta_t):
         state_next = np.empty_like(states)
         self.state_dim = 15
+        #[beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot,
+         # psi1, psi2, vy1,py1
+        X_matrix = np.hstack((states[6:14], states[2], states[5], states[14], states[1], states[4]))
         M_matrix = np.zeros((self.state_dim - 2, self.state_dim - 2))
         M_matrix[0, 0] = self.M11
         M_matrix[0, 1] = self.M12
@@ -206,7 +209,7 @@ class VehicleDynamicsData:
         # beta1dot, psi1_dotdot, phi1dot, phi1_dotdot,
         # beta2dot, psi2_dotdot, phi2dot, phi2_dotdot,
         # psi1dot, psi2dot, vy1dot py1dot,
-        X_dot = (np.matmul(np.matmul(np.linalg.inv(M_matrix), A_matrix), states[:self.state_dim - 2]) + np.matmul(
+        X_dot = (np.matmul(np.matmul(np.linalg.inv(M_matrix), A_matrix), X_matrix) + np.matmul(
             np.linalg.inv(M_matrix), np.matmul(B_matrix, actions))).squeeze()
 
         #px1, py1, psi1, px2, py2, psi2,
@@ -236,13 +239,14 @@ class Semitruckpu7dof(PythBaseEnv):
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
-            # initial range of [px1, py1, psi1, px2, py2, psi2,
-            # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1]
+            # initial range of px1, py1, psi1, px2, py2, psi2,
+            # beta1, psi1_dot, varphi1, varphi1_dot, \
+            # beta2, psi2_dot, varphi2, varphi2_dot, vy1]
             # 用高斯分布去采样
-            init_high = np.array([200, 2, 0.1, 200, 2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  0.1, ], dtype=np.float32)
-            init_low = np.array([0, -2,  -0.1, 0, -2, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -0.1, ], dtype=np.float32)
+            init_high = np.array([200, 2, 0.1, 200, 2, 0.1,
+                                  0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+            init_low = np.array([0, -2,  -0.1, 0, -2, -0.1,
+                                 -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, ], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Semitruckpu7dof, self).__init__(work_space=work_space, **kwargs)
 
@@ -263,14 +267,14 @@ class Semitruckpu7dof(PythBaseEnv):
             high=np.array([max_steer]),
             dtype=np.float32,
         )
-        obs_scale_default = [1/100, 1/100, 1/100, 1/100, 1/100, 1/100,
+        obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10,
                              1, 1, 1, 1,
                              1, 1, 1, 1,
                              1/100]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 700
+        self.max_episode_steps = 200
 
         self.state = None
         self.ref_x = None
@@ -309,8 +313,7 @@ class Semitruckpu7dof(PythBaseEnv):
         else:
             state = self.sample_initial_state()
 
-        state[4] = state[1] - self.vehicle_dynamics.b * np.sin(state[2]) - self.vehicle_dynamics.e * np.sin(
-            state[5])  # posy_trailer
+
 
         # 训练用，run的时候注释掉
         state[0] = self.np_random.uniform(
@@ -319,6 +322,8 @@ class Semitruckpu7dof(PythBaseEnv):
         # state[0] = 220
         state[3] = state[0] - self.vehicle_dynamics.b * np.cos(state[2]) - self.vehicle_dynamics.e * np.cos(
             state[5])  # posx_trailer
+        state[4] = state[1] - self.vehicle_dynamics.b * np.sin(state[2]) - self.vehicle_dynamics.e * np.sin(
+            state[5])  # posy_trailer
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]
@@ -403,7 +408,7 @@ class Semitruckpu7dof(PythBaseEnv):
         ref_x, ref_y, ref_psi = self.ref_points[0][0:3]
         steer = action[0]
         return -(
-            1 * ((px1 - ref_x) ** 2 + 0.04 * (py1 - ref_y) ** 2)
+            1 * ((px1 - ref_x) ** 2 + (py1 - ref_y) ** 2)
             + 0.9 * vy1 ** 2
             + 0.8 * angle_normalize(psi1 - ref_psi) ** 2
             + 0.5 * psi1_dot ** 2
@@ -416,7 +421,7 @@ class Semitruckpu7dof(PythBaseEnv):
 
     def judge_done(self) -> bool:
         done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
-                + (abs(self.state[14]) > 2)  # delta_psi1
+                + (abs(self.state[14]) > 2)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)  # delta_psi1
                   + (abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
                   + (abs(self.state[5]-self.ref_points[0, 5]) > np.pi / 2))  # delta_psi2
