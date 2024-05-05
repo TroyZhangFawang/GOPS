@@ -107,16 +107,16 @@ if __name__ == "__main__":
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=100)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=5000)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=100)
+    parser.add_argument("--log_save_interval", type=int, default=2000)
 
     ################################################
     # Get parameter dictionary
     args = vars(parser.parse_args())
     env = create_env(**args)
     args = init_args(env, **args)
-    # start_tensorboard(args["save_folder"])
+    start_tensorboard(args["save_folder"])
     # Step 1: create algorithm and approximate function
     alg = create_alg(**args)
     # Step 2: create sampler in trainer

@@ -274,7 +274,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 200
+        self.max_episode_steps = 2000
 
         self.state = None
         self.ref_x = None
@@ -319,7 +319,7 @@ class Semitruckpu7dof(PythBaseEnv):
         state[0] = self.np_random.uniform(
             low=self.init_space[0][0], high=self.init_space[1][0]
         )
-        # state[0] = 220
+        # state[0] = 0
         state[3] = state[0] - self.vehicle_dynamics.b * np.cos(state[2]) - self.vehicle_dynamics.e * np.cos(
             state[5])  # posx_trailer
         state[4] = state[1] - self.vehicle_dynamics.b * np.sin(state[2]) - self.vehicle_dynamics.e * np.sin(

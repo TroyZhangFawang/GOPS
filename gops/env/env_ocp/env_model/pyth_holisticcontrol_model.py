@@ -222,7 +222,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         ego_obs_dim = 11
         ref_obs_dim = 3
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1, 1,
+                             1/100, 1/100, 1/10, 1, 1/50,
                              1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(

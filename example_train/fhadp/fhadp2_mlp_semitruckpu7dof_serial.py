@@ -86,7 +86,7 @@ if __name__ == "__main__":
     # Batch size of replay samples from buffer
     parser.add_argument("--replay_batch_size", type=int, default=100)
     # Period of sampling
-    parser.add_argument("--sample_interval", type=int, default=10000)
+    parser.add_argument("--sample_interval", type=int, default=1)
 
     ################################################
     # 5. Parameters for sampler
@@ -112,9 +112,9 @@ if __name__ == "__main__":
     parser.add_argument("--save_folder", type=str, default=None)
     parser.add_argument("--save_folder_upper", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=100)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=5000)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=10)
+    parser.add_argument("--log_save_interval", type=int, default=2000)
 
     ################################################
     # Get parameter dictionary

@@ -257,7 +257,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             dtype=np.float32,
         )
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1, 1,
+                             1/100, 1/100, 1/10, 1, 1/50,
                              1, 1, 1, 1]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
@@ -304,8 +304,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         ) # vx
 
         # # run mode
-        # state[0] = 10
-        # state[3] = 18
+        state[0] = 10
+        state[3] = 19
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]

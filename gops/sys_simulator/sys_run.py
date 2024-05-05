@@ -1341,54 +1341,24 @@ class PolicyRunner_Multiopt:
             if self.constrained_env:
                 constrain_list.append(info["constraint"])
             if self.is_tracking:
-                reference_tractor = get_reference_from_info(info)
-                reference_trailer = info['ref2']
-                state_num = len(reference_tractor) + len(reference_trailer)
-                self.ref_state_num = sum(x is not None for x in reference_tractor) + 3
+                reference = get_reference_from_info(info)
+                state_num = len(reference)
+                self.ref_state_num = sum(x is not None for x in reference)
                 if step == 0:
                     for i in range(state_num):
-                        # if reference_tractor[i] is not None:
-                        state_with_ref_error["state-{}".format(i)] = []
-                        state_with_ref_error["ref-{}".format(i)] = []
-                        state_with_ref_error["state-{}-error".format(i)] = []
+                        if reference[i] is not None:
+                            state_with_ref_error["state-{}".format(i)] = []
+                            state_with_ref_error["ref-{}".format(i)] = []
+                            state_with_ref_error["state-{}-error".format(i)] = []
 
                 robot_state = get_robot_state_from_info(info)
-
-                state_with_ref_error["state-{}".format(0)].append(robot_state[13])
-                state_with_ref_error["ref-{}".format(0)].append(reference_tractor[0])
-                state_with_ref_error["state-{}-error".format(0)].append(
-                    reference_tractor[0] - robot_state[13]
-                )
-
-                state_with_ref_error["state-{}".format(1)].append(robot_state[11])
-                state_with_ref_error["ref-{}".format(1)].append(reference_tractor[1])
-                state_with_ref_error["state-{}-error".format(1)].append(
-                    reference_tractor[1] - robot_state[11]
-                )
-
-                state_with_ref_error["state-{}".format(2)].append(robot_state[8])
-                state_with_ref_error["ref-{}".format(2)].append(reference_tractor[2])
-                state_with_ref_error["state-{}-error".format(2)].append(
-                    reference_tractor[2] - robot_state[8]
-                )
-
-                state_with_ref_error["state-{}".format(3)].append(robot_state[14])
-                state_with_ref_error["ref-{}".format(3)].append(reference_trailer[0])
-                state_with_ref_error["state-{}-error".format(3)].append(
-                    reference_trailer[0] - robot_state[14]
-                )
-
-                state_with_ref_error["state-{}".format(4)].append(robot_state[12])
-                state_with_ref_error["ref-{}".format(4)].append(reference_trailer[1])
-                state_with_ref_error["state-{}-error".format(4)].append(
-                    reference_trailer[1] - robot_state[12]
-                )
-
-                state_with_ref_error["state-{}".format(5)].append(robot_state[9])
-                state_with_ref_error["ref-{}".format(5)].append(reference_trailer[2])
-                state_with_ref_error["state-{}-error".format(5)].append(
-                    reference_trailer[2] - robot_state[9])
-
+                for i in range(state_num):
+                    if reference[i] is not None:
+                        state_with_ref_error["state-{}".format(i)].append(robot_state[i])
+                        state_with_ref_error["ref-{}".format(i)].append(reference[i])
+                        state_with_ref_error["state-{}-error".format(i)].append(
+                            reference[i] - robot_state[i]
+                        )
             next_obs, reward, done, info = env.step(action)
 
             # save the real action (without scaling)
