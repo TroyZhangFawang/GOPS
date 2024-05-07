@@ -303,9 +303,9 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             low=self.init_space[0][3], high=self.init_space[1][3]
         ) # vx
 
-        # # run mode
-        state[0] = 10
-        state[3] = 19
+        # # # run mode
+        # state[0] = 0
+        # state[3] = 18
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]
@@ -404,22 +404,22 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         kappa_ref = 0#vx/self.vehicle_dynamics.Rw
 
         return -(
-            1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 1.0 * (vx - ref_vx) ** 2
-            + 1.0 * vy ** 2
-            + 1.0 * angle_normalize(phi - ref_phi) ** 2
-            + 0.5 * gamma ** 2
-            + 0.5 * np.sum((action) ** 2)
-            + 0.8 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
-            + 0.8 * (beta-beta_ref) ** 2
-            + 0.8 * (gamma - gamma_ref) ** 2
-            + 1.0 * I_rollover ** 2
-            + 2.0 * np.sum((action - self.action_last) ** 2)
+            0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+            + 0.08 * (vx - ref_vx) ** 2
+            + 0.02 * vy ** 2
+            + 0.02 * angle_normalize(phi - ref_phi) ** 2
+            + 0.01 * gamma ** 2
+            + 0.01 * np.sum((action) ** 2)
+            + 0.01 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
+            + 0.01 * (beta-beta_ref) ** 2
+            + 0.01 * (gamma - gamma_ref) ** 2
+            + 0.01 * I_rollover ** 2
+            + 0.02 * np.sum((action - self.action_last) ** 2)
         )
 
     def judge_done(self) -> bool:
         done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y
-                + (abs(self.state[3]-self.ref_points[0, 3]) > 5)  # delta_vx
+                + (abs(self.state[3]-self.ref_points[0, 3]) > 3)  # delta_vx
                 + (abs(self.state[4]) > 2)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)) # delta phi
         return done

@@ -206,7 +206,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     def __init__(
         self,
         ref_vx: float = 20,
-        pre_horizon: int = 50,
+        pre_horizon: int = 30,
         device: Union[torch.device, str, None] = None,
         max_torque: float = 100,
         max_steer: float = 0.5,
@@ -353,24 +353,24 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         kappa_ref = 0#vx / self.vehicle_dynamics.Rw
 
         return -(
-            1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 1.0 * (vx - ref_vx) ** 2
-            + 1.0 * (vy) ** 2
-            + 1.0 * (phi-ref_phi) ** 2
-            + 0.5 * (gamma) ** 2
-            + 0.5 * torch.sum((action) ** 2)
-            + 0.8 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
-            + 0.8 * (beta-beta_ref) ** 2
-            + 0.8 * (gamma - gamma_ref) ** 2
-            + 1.0 * I_rollover ** 2
-            + 2.0 * torch.sum((action - self.action_last) ** 2)
+            0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+            + 0.08 * (vx - ref_vx) ** 2
+            + 0.02 * (vy) ** 2
+            + 0.02 * (phi-ref_phi) ** 2
+            + 0.01 * (gamma) ** 2
+            + 0.01 * torch.sum((action) ** 2)
+            + 0.01 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
+            + 0.01 * (beta-beta_ref) ** 2
+            + 0.01 * (gamma - gamma_ref) ** 2
+            + 0.01 * I_rollover ** 2
+            + 0.02 * torch.sum((action - self.action_last) ** 2)
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
         delta_y, delta_phi, vx, vy = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[3], obs[:, 3]/self.obs_scale[4]
         done = (
-                (torch.abs(delta_y) > 5)
-                | (torch.abs(vx) > 5)
+                (torch.abs(delta_y) > 3)
+                | (torch.abs(vx) > 3)
                 | (torch.abs(vy) > 2)
                 | (torch.abs(delta_phi) > np.pi/2)
         )
