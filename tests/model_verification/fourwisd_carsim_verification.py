@@ -26,7 +26,7 @@ def read_path(root_path):
     state_traj[:, 1] = state_2
     return state_traj
 
-def unit_transform_2A(state):
+def unit_transform_4wisd(state):
     state[0] = state[0]  # x
     state[1] = state[1]  # y
     state[2] = state[2] / 180 * np.pi  # yaw
@@ -38,7 +38,7 @@ def unit_transform_2A(state):
     state[7] = state[7] / 180 * np.pi  # roll rate
 
     state[8] = state[8]  # kappa_1
-    state[9] = state[9]  # kappa_2
+    state[9] = state[9]  # kappa_2 rpm to rad/s
     state[10] = state[10] # kappa_3
     state[11] = state[11] # kappa_4
     # control feedback
@@ -50,7 +50,9 @@ def unit_transform_2A(state):
     state[17] = state[17] / 180 * np.pi  # steering angle on wheel 3
     state[18] = state[18]
     state[19] = state[19] / 180 * np.pi  # steering angle on wheel 4
-    state[20] = state[20]/ 180 * np.pi # beta
+    state[20] = state[20] / 180 * np.pi # beta
+    state[21] = state[21] * 9.8 # acceleration
+    state[30] = state[30] / 3.6  # vw L1
     return state
 
 
@@ -58,14 +60,14 @@ def model_compare_4wisd(env_id):
     run_step = 12000
     delta_t = 0.0005
     model_mechnical = gym.make(env_id, disable_env_checker=True)
-    state = model_mechnical.reset()
+    state, _ = model_mechnical.reset()
 
     # state
-    state = unit_transform_2A(state)
+    state = unit_transform_4wisd(state)
     model_self = create_env(env_id)
     # 4dof
     state_python = state[:12]
-    print(state[21:])
+    print(state[22:])
     step_sim = 0
     vx_self = []
     vx_carsim = []
@@ -84,10 +86,14 @@ def model_compare_4wisd(env_id):
     yaw_self = []
     yaw_carsim = []
     kappa_1_self = []
+    kappa_2_self = []
+    kappa_3_self = []
     kappa_4_self = []
     kappa_1_carsim = []
+    kappa_2_carsim = []
+    kappa_3_carsim = []
     kappa_4_carsim = []
-    
+    ax_self = []
     
     Qw1_self = []
     Qw1_carsim = []
@@ -107,11 +113,11 @@ def model_compare_4wisd(env_id):
 
     Qw4_self = []
     Qw4_carsim = []
-    
+    ax_carsim = []
     
 
     for i in range(run_step):
-        drive_torque = 80
+        drive_torque = 298 * np.sin(np.pi * 2 / 10000 * i)
         # if i< 4000 :
         #     steering_angle_degree = 0
         # # elif i>500and i<1000 :
@@ -124,17 +130,22 @@ def model_compare_4wisd(env_id):
         steering_angle_rad = steering_angle_degree / 180 * 3.14
         control_carsim = np.array([drive_torque, steering_angle_degree,
                                      drive_torque, steering_angle_degree,
-                                     drive_torque, 0,
-                                     drive_torque, 0])
+                                     drive_torque, steering_angle_degree,
+                                     drive_torque, steering_angle_degree])
         control = np.array([drive_torque, steering_angle_rad,
                             drive_torque, steering_angle_rad,
-                            drive_torque, 0,
-                            drive_torque, 0])
+                            drive_torque, steering_angle_rad,
+                            drive_torque, steering_angle_rad,
+                                       0, 0,
+                                       0, 0,
+                                       0, 0,
+                                       0, 0])
 
         state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t)
 
-        state, _ = model_mechnical.step(control_carsim)  # carsim
-        state = unit_transform_2A(state)
+        # print(state_python)
+        state, _, _, _ = model_mechnical.step(control_carsim)  # carsim
+        state = unit_transform_4wisd(state)
         
         # 4dof
         x_self.append(state_python[0])
@@ -147,6 +158,8 @@ def model_compare_4wisd(env_id):
         rollrate_self.append(state_python[7])
 
         kappa_1_self.append(state_python[8])
+        kappa_2_self.append(state_python[9])
+        kappa_3_self.append(state_python[10])
         kappa_4_self.append(state_python[11])
         Qw1_self.append(control[0])
         delta_w1_self.append(control[1])
@@ -158,7 +171,7 @@ def model_compare_4wisd(env_id):
         
         Qw4_self.append(control[6])
         delta_w4_self.append(control[7])
-
+        ax_self.append(state[21])
 
         # -------------------------------
         x_carsim.append(state[0])
@@ -169,8 +182,10 @@ def model_compare_4wisd(env_id):
         yawrate_carsim.append(state[5])
         roll_carsim.append(state[6])
         rollrate_carsim.append(state[7])
-
+        kappa1_carsim = (state[3] - state[30])/max(state[3], state[30])
         kappa_1_carsim.append(state[8])
+        kappa_2_carsim.append(state[9])
+        kappa_3_carsim.append(state[10])
         kappa_4_carsim.append(state[11])
         
         
@@ -182,6 +197,7 @@ def model_compare_4wisd(env_id):
         delta_w3_carsim.append(state[17])
         Qw4_carsim.append(state[18])
         delta_w4_carsim.append(state[19])
+        ax_carsim.append(state[21])
         step_sim += 1
     print("run finished")
     data_result = pd.DataFrame(
@@ -218,6 +234,20 @@ def model_compare_4wisd(env_id):
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.savefig(os.path.join(picture_dir, "-kappa1.png"))
 
+    f21 = plt.figure("-accel", figsize=(8, 5))
+    ax = f21.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, ax_self, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, ax_carsim, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+               ncol=2)
+    plt.ylabel(r"$a_x$ [m/s^2]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-ax.png"))
+
     f12 = plt.figure("-kappa4", figsize=(8, 5))
     ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
     l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_4_self, lw=2, color="darkviolet")
@@ -231,6 +261,34 @@ def model_compare_4wisd(env_id):
     plt.grid(axis='both', ls='-.')
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.savefig(os.path.join(picture_dir, "-kappa4.png"))
+
+    f12 = plt.figure("-kappa3", figsize=(8, 5))
+    ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_self, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_carsim, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+               ncol=2)
+    plt.ylabel(r"$\kappa_3$ [-]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-kappa3.png"))
+
+    f12 = plt.figure("-kappa2", figsize=(8, 5))
+    ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_self, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_carsim, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+               ncol=2)
+    plt.ylabel(r"$\kappa_2$ [-]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-kappa2.png"))
     
     
     f0 = plt.figure("-vx", figsize=(8, 5))

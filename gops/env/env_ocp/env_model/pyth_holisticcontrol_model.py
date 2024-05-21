@@ -13,7 +13,6 @@ from typing import Dict, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
 import torch
-
 from gops.env.env_ocp.env_model.pyth_base_model import PythBaseModel
 from gops.env.env_ocp.pyth_holisticcontrol import angle_normalize, VehicleDynamicsData
 from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel
@@ -59,7 +58,9 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         self.ms = DynamicsData.vehicle_params["ms"]
         self.mu = DynamicsData.vehicle_params["mu"]
         self.g = DynamicsData.vehicle_params["g"]
+        self.mu_r = DynamicsData.vehicle_params["mu_r"]
         self.Rw = DynamicsData.vehicle_params["Rw"]
+        self.Iw = DynamicsData.vehicle_params["Iw"]
 
         self.lw = DynamicsData.vehicle_params["lw"]
         self.lf = DynamicsData.vehicle_params["lf"]  # Distance between the center of gravity (CG)and its front axle [m]
@@ -90,17 +91,19 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
     def f_xu(self, state, action, delta_t):
         self.batch_size = len(state[:, 0])
-        x, y, phi, \
-            v_x, v_y, gamma, varphi, varphi_dot,  \
-            kappa1, kappa2, kappa3, kappa4 = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
-            state[:, 4], state[:, 5],state[:, 6], state[:, 7],\
-            state[:, 8], state[:, 9],state[:, 10], state[:, 11]
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action[:, 0], action[:, 1], action[:, 2], action[:, 3], \
-            action[:, 4], action[:, 5], action[:, 6], action[:, 7]
+        x, y, phi, v_x, v_y, gamma, varphi, varphi_dot,  kappa1, kappa2, kappa3, kappa4 = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
+            state[:, 4], state[:, 5],state[:, 6], state[:, 7], state[:, 8], state[:, 9],state[:, 10], state[:, 11]
+
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4, \
+        dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4 = \
+            action[:, 0], action[:, 1], action[:, 2], action[:, 3], \
+            action[:, 4], action[:, 5], action[:, 6], action[:, 7],\
+            action[:, 8], action[:, 9], action[:, 10], action[:, 11], \
+            action[:, 12], action[:, 13], action[:, 14], action[:, 15]
 
         X = torch.tensor(state[:, 3:8])
-        D = action
-        U = torch.zeros_like(D)
+        D = action[:, :8]
+        U = action[:, 8:]
 
 
         state_next = torch.zeros_like(state)
@@ -145,10 +148,9 @@ class VehicleDynamicsModel(VehicleDynamicsData):
             = -self.lw / 2, self.lf, self.lw / 2, self.lf, \
               -self.lw / 2, -self.lr, self.lw / 2, -self.lr
 
-
         Ec_matrix = torch.eye(8)
-
-        Ew_matrix = torch.diag(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0.]))
+        # active control bool matrix
+        Ew_matrix = torch.eye(8) # torch.diag(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0.]))
 
         A1_matrix = torch.zeros((8, 5))
 
@@ -165,9 +167,13 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         B1_matrix = torch.diag(B1)
         X_dot_batch = torch.zeros((self.batch_size, 5))
+        dt_matrix = torch.zeros((self.batch_size, 8))
+        dt_matrix[:, 0], dt_matrix[:, 2], dt_matrix[:, 4], dt_matrix[:, 6] =\
+            -1 / 4 * self.m * self.g * self.mu_r, -1 / 4 * self.m * self.g * self.mu_r, \
+            -1 / 4 * self.m * self.g * self.mu_r, -1 / 4 * self.m * self.g * self.mu_r
         for batch in range(self.batch_size):
             temp = torch.matmul(A1_matrix, X[batch]) + torch.matmul(B1_matrix, D[batch]) + torch.matmul(
-                torch.matmul(Ew_matrix, B1_matrix), U[batch])
+                torch.matmul(Ew_matrix, B1_matrix), U[batch])+dt_matrix[batch]
             Mw1 = torch.tensor([[torch.cos(delta1[batch]), -torch.sin(delta1[batch])],
                                 [torch.sin(delta1[batch]), torch.cos(delta1[batch])]])
             Mw2 = torch.tensor([[torch.cos(delta2[batch]), -torch.sin(delta2[batch])],
@@ -187,29 +193,31 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         state_next[:, 2] = phi + delta_t * gamma
         state_next[:, 3:8] = state[:, 3:8] + delta_t * X_dot_batch
 
-        state_next[:, 8] = ((4 * (kappa1 + 1) / (self.m * v_x) + (kappa1 + 1) ** 2 * self.Rw **2 / (self.Izz * v_x)) *
-                         self.C_slip1 * delta_t + 1) * kappa1 - (kappa1 + 1) ** 2 * self.Rw * delta_t * Q1 / (
-                                    self.Izz * v_x)
+        state_next[:, 8] = kappa1 + delta_t * (
+                    self.Rw * (Q1 - self.Rw * self.C_slip1 * kappa1) / (v_x * self.Iw) - (1 + kappa1) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 9] = kappa2 + delta_t * (
+                    self.Rw * (Q2 - self.Rw * self.C_slip2 * kappa2) / (v_x * self.Iw) - (1 + kappa2) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 10] = kappa3 + delta_t * (
+                    self.Rw * (Q3 - self.Rw * self.C_slip3 * kappa3) / (v_x * self.Iw) - (1 + kappa3) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 11] = kappa4 + delta_t * (
+                    self.Rw * (Q4 - self.Rw * self.C_slip4 * kappa4) / (v_x * self.Iw) - (1 + kappa4) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
 
-        state_next[:, 9] = ((4 * (kappa2 + 1) / (self.m * v_x) + (kappa2 + 1) ** 2 * self.Rw **2 / (self.Izz * v_x)) *
-                         self.C_slip2 * delta_t + 1) * kappa2 - (kappa2 + 1) ** 2 * self.Rw * delta_t * Q2 / (
-                                    self.Izz * v_x)
-        state_next[:, 10] = ((4 * (kappa3 + 1) / (self.m * v_x) + (kappa3 + 1) ** 2 * self.Rw **2 / (self.Izz * v_x)) *
-                          self.C_slip3 * delta_t + 1) * kappa3 - (kappa3 + 1) ** 2 * self.Rw * delta_t * Q3 / (
-                                     self.Izz * v_x)
-        state_next[:, 11] = ((4 * (kappa4 + 1) / (self.m * v_x) + (kappa4 + 1) ** 2 * self.Rw **2 / (self.Izz * v_x)) *
-                          self.C_slip4 * delta_t + 1) * kappa4 - (kappa4 + 1) ** 2 * self.Rw * delta_t * Q4 / (
-                                     self.Izz * v_x)
         return state_next
 
 class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     def __init__(
         self,
-        ref_vx: float = 20,
-        pre_horizon: int = 30,
+        ref_vx: float = 10,
+        pre_horizon: int = 20,
         device: Union[torch.device, str, None] = None,
-        max_torque: float = 100,
+        max_torque: float = 298,
         max_steer: float = 0.5,
+        max_delta_torque=10,
+        max_delta_str=0.1,
         **kwargs,
     ):
         """
@@ -227,15 +235,15 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
-            action_dim=8,
+            action_dim=16,
             dt=0.01,
-            action_lower_bound=[0, -max_steer]*4,
-            action_upper_bound=[max_torque, max_steer]*4,
+            action_lower_bound=[-max_torque, -max_steer]*4+[-max_delta_torque, -max_delta_str]*4,
+            action_upper_bound=[max_torque, max_steer]*4+[max_delta_torque, max_delta_str]*4,
             device=device,
         )
 
         self.ref_traj = Ref_Route(self.ref_vx)
-        self.action_last = torch.zeros((1, 8))
+        self.action_last = torch.zeros((1, 16))
 
     def forward(
         self,
@@ -263,7 +271,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
 
         next_obs = self.get_obs(next_state, next_ref_points)
 
-        isdone = self.judge_done(next_obs)
+        isdone = self.judge_done(next_state, next_ref_points)
 
         next_info = {}
         for key, value in info.items():
@@ -287,7 +295,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         ego_obs = torch.stack(
             (ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_vx_tf[:, 0]*self.obs_scale[3],
              state[:, 4]*self.obs_scale[4], state[:, 5]*self.obs_scale[5], state[:, 6]*self.obs_scale[6], state[:, 7]*self.obs_scale[7],
-             state[:, 8]*self.obs_scale[8], state[:, 9]*self.obs_scale[9], state[:, 10]*self.obs_scale[10], state[:, 11]*self.obs_scale[11]), dim=1)
+             state[:, 8]*self.obs_scale[8], state[:, 9]*self.obs_scale[9], state[:, 10]*self.obs_scale[10], state[:, 11]*self.obs_scale[11]), dim=1) #
         ref_obs = torch.stack((ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_vx_tf*self.obs_scale[3]), 2)[
             :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
@@ -300,11 +308,15 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     ) -> torch.Tensor:
         px, py, phi, vx, vy, gamma, varphi, \
         varphi_dot, \
-        kappa1, kappa2, kappa3, kappa4 = state[0, 0], state[0, 1],state[0, 2], state[0, 3],\
-            state[0, 4], state[0, 5], state[0, 6], state[0, 7],\
-            state[0, 8], state[0, 9], state[0, 10], state[0, 11]
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action[0, 0], action[0, 1], action[0, 2], action[0, 3], \
-            action[0, 4], action[0, 5], action[0, 6], action[0, 7]
+         kappa1, kappa2, kappa3, kappa4= state[0, 0], state[0, 1],state[0, 2], state[0, 3],\
+            state[0, 4], state[0, 5], state[0, 6], state[0, 7],state[0, 8], state[0, 9], state[0, 10], state[0, 11]
+
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4, \
+        dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4 = \
+            action[0, 0], action[0, 1], action[0, 2], action[0, 3], \
+            action[0, 4], action[0, 5], action[0, 6], action[0, 7],\
+            action[0, 8], action[0, 9], action[0, 10], action[0, 11], \
+            action[0, 12], action[0, 13], action[0, 14], action[0, 15]
         ref_x, ref_y, ref_phi, ref_vx = ref_points[:, 0, 0], ref_points[:, 0, 1], ref_points[:, 0, 2], ref_points[:, 0, 3]
         beta = torch.arctan(vy / vx)
         I_matrix = torch.tensor([[(self.vehicle_dynamics.k_alpha1 + self.vehicle_dynamics.k_alpha2 +
@@ -337,8 +349,8 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         delta_matrix = torch.tensor([[delta1], [delta2], [delta3], [delta4]])
 
         later_ref = torch.matmul(torch.matmul(torch.linalg.inv(I_matrix), k_matrix), delta_matrix)
-        beta_ref = later_ref[0][0]
-        gamma_ref = later_ref[1][0]
+        beta_ref = 0#later_ref[0][0]
+        gamma_ref = 0#later_ref[1][0]
         C_varphi = 2 / (self.vehicle_dynamics.m * self.vehicle_dynamics.g * self.vehicle_dynamics.lw) * \
                    (self.vehicle_dynamics.K_varphi * (1 + (self.vehicle_dynamics.ms * self.vehicle_dynamics.hr +
                                                            self.vehicle_dynamics.mu * self.vehicle_dynamics.hu) /
@@ -350,30 +362,59 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
                                    self.vehicle_dynamics.ms * self.vehicle_dynamics.hr + self.vehicle_dynamics.mu * self.vehicle_dynamics.hu) /
                          (self.vehicle_dynamics.ms * self.vehicle_dynamics.hs)))
         I_rollover = C_varphi * varphi + C_varphi_dot * varphi_dot
-        kappa_ref = 0#vx / self.vehicle_dynamics.Rw
+        kappa_constant = 0.1#vx / self.vehicle_dynamics.Rw
+        r_action_Q = torch.sum((action[0, 0:8:2]) ** 2)
+        r_action_str = torch.sum((action[0, 1:8:2]) ** 2)
+        r_action_Qdot = torch.sum((action[0, 0:8:2] - self.action_last[0, 0:8:2]) ** 2)
+        r_action_strdot = torch.sum((action[0, 1:8:2] - self.action_last[0, 1:8:2]) ** 2)
 
+        r_action_deltaQ = torch.sum((action[0, 8:16:2]) ** 2)
+        r_action_deltastr = torch.sum((action[0, 9:16:2]) ** 2)
+        r_action_deltaQdot = torch.sum((action[0, 8:16:2] - self.action_last[0, 8:16:2]) ** 2)
+        r_action_deltastrdot = torch.sum((action[0, 9:16:2] - self.action_last[0, 9:16:2]) ** 2)
+        # print(((1 / ((kappa1) ** 2 + kappa_constant ** 2)) +
+        #                   (1 / ((kappa2) ** 2 + kappa_constant ** 2)) +
+        #                   (1 / ((kappa3) ** 2 + kappa_constant ** 2)) +
+        #                   (1 / ((kappa4) ** 2 + kappa_constant ** 2))))
         return -(
-            0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 0.08 * (vx - ref_vx) ** 2
-            + 0.02 * (vy) ** 2
-            + 0.02 * (phi-ref_phi) ** 2
-            + 0.01 * (gamma) ** 2
-            + 0.01 * torch.sum((action) ** 2)
-            + 0.01 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
-            + 0.01 * (beta-beta_ref) ** 2
-            + 0.01 * (gamma - gamma_ref) ** 2
-            + 0.01 * I_rollover ** 2
-            + 0.02 * torch.sum((action - self.action_last) ** 2)
+                1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+                + 2.0 * (vx - ref_vx) ** 2
+                + 1.0 * angle_normalize(phi - ref_phi) ** 2
+                + 0.3 * (gamma - gamma_ref) ** 2
+                + 0.5 * (beta - beta_ref) ** 2
+                + 0.5 * I_rollover ** 2
+                # + 0.5 * (1 / (kappa1 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa2 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa3 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa4 ** 2 + kappa_constant ** 2))
+                + 0.5 * ((kappa1 - kappa_constant) ** 2 +
+                         (kappa1 - kappa_constant) ** 2 +
+                         (kappa1 - kappa_constant) ** 2 +
+                         (kappa1 - kappa_constant) ** 2)
+                + 1e-8 * r_action_Q
+                + 1e-4 * r_action_str
+                # + 0.2 * r_action_Qdot
+                # + 0.2 * r_action_strdot
+                # + 0.5 * r_action_deltaQ
+                # + 0.5 * r_action_deltastr
+                # + 2.0 * r_action_deltaQdot
+                # + 2.0 * r_action_deltastrdot
         )
 
-    def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, vx, vy = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[3], obs[:, 3]/self.obs_scale[4]
+    def judge_done(self, state: torch.Tensor,
+        ref_points: torch.Tensor) -> torch.Tensor:
+        ref_x_tf, delta_y, delta_phi, delta_vx = \
+            state_error_calculate(
+                state[:, 0], state[:, 1], state[:, 2], state[:, 3],
+                ref_points[..., 0], ref_points[..., 1], ref_points[..., 2], ref_points[..., 3],
+            )
         done = (
                 (torch.abs(delta_y) > 3)
-                | (torch.abs(vx) > 3)
-                | (torch.abs(vy) > 2)
+                | (torch.abs(delta_vx) > 3)
+                # | (torch.abs(delta_vy) > 2)
                 | (torch.abs(delta_phi) > np.pi/2)
         )
+        done  = False
         return done
 
 

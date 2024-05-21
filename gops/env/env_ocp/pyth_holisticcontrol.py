@@ -61,6 +61,8 @@ class VehicleDynamicsData:
             ms=2257,  # Sprung mass[kg]
             g=9.81,
             Rw=0.368,
+            Iw=3.1,  # wheel spin inertia [kg m2]
+            mu_r=0.015,  # rolling resistence coefficient
             lw=0.8625 * 2,
             lf=1.33,  # Distance between the center of gravity (CG)and its front axle [m]
             lr=3.140 - 1.33,  # Distance between the CGand its rear axle [m]
@@ -74,10 +76,10 @@ class VehicleDynamicsData:
             k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
             k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
             k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
-            C_slip1=-8.885 * 1.525 * 1.062e+04,
-            C_slip2=-8.885 * 1.525 * 1.062e+04,
-            C_slip3=-8.885 * 1.525 * 1.062e+04,
-            C_slip4=-8.885 * 1.525 * 1.062e+04,
+            C_slip1=8.885 * 1.525 * 1.062e+04,  # N
+            C_slip2=8.885 * 1.525 * 1.062e+04,  # N
+            C_slip3=8.885 * 1.525 * 1.062e+04,  # N
+            C_slip4=8.885 * 1.525 * 1.062e+04,  # N
 
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of tire [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
@@ -87,19 +89,21 @@ class VehicleDynamicsData:
         self.mu = self.vehicle_params["mu"]
         self.ms = self.vehicle_params["ms"]  # Sprung mass[kg]
         self.g = self.vehicle_params["g"]
+        self.mu_r = self.vehicle_params["mu_r"]
         self.Rw = self.vehicle_params["Rw"]
-    
+        self.Iw = self.vehicle_params["Iw"]
+
         self.lw = self.vehicle_params["lw"]
         self.lf = self.vehicle_params["lf"]  # Distance between the center of gravity (CG)and its front axle [m]
         self.lr = self.vehicle_params["lr"]  # Distance between the CGand its rear axle [m]
-    
+
         self.hs = self.vehicle_params["hs"]  # Height of the CG of the sprung mass for the tractor [m]
         self.hr = self.vehicle_params["hr"]
         self.hu = self.vehicle_params["hu"]
         self.Izz = self.vehicle_params["Izz"]  # Yaw moment of inertia of the whole mass[kg m^2]
         self.Ixx = self.vehicle_params["Ixx"]  # Roll moment of inertia of the sprung mass[kg m^2]
         self.Ixz = self.vehicle_params["Ixz"]  # Roll–yaw product of inertia of the sprung mass[kg m^2]
-    
+
         self.k_alpha1 = self.vehicle_params["k_alpha1"]  # Tire cornering stiffness of the 1st wheel[N/rad]
         self.k_alpha2 = self.vehicle_params["k_alpha2"]  # Tire cornering stiffness of the 1st wheel[N/rad]
         self.k_alpha3 = self.vehicle_params["k_alpha3"]  # Tire cornering stiffness of the rear axle[N/rad]
@@ -108,18 +112,18 @@ class VehicleDynamicsData:
         self.C_slip2 = self.vehicle_params["C_slip2"]
         self.C_slip3 = self.vehicle_params["C_slip3"]
         self.C_slip4 = self.vehicle_params["C_slip4"]
-    
+
         self.K_varphi = self.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
         self.C_varphi = self.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
 
     def f_xu(self, states, actions, delta_t):
-        x, y, phi, v_x, v_y, gamma, varphi, varphi_dot, kappa1, kappa2, kappa3, kappa4 = states
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = actions
+        x, y, phi, v_x, v_y, gamma, varphi, varphi_dot, kappa1, kappa2, kappa3, kappa4 = states #
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4,dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4 = actions
 
-        D = np.array(actions).reshape(8, 1)
-        U = np.zeros((8, 1))
-
+        D = np.array([Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4]).reshape(8, 1)
+        U = np.array([dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4]).reshape(8, 1)
         X = np.array(states[3:8]).reshape(5, 1)
+
         state_next = np.empty_like(states)
         dividend = (self.m * self.Ixx * self.Izz - self.Izz * self.ms ** 2 * self.hs ** 2 - self.m * self.Ixz ** 2)
         A_matrix = np.zeros((5, 5))
@@ -176,7 +180,7 @@ class VehicleDynamicsData:
 
         Mw_matrix = block_diag(Mw1, Mw2, Mw3, Mw4)
 
-        Ew = [0, 0, 0, 0, 0, 0, 0, 0]
+        Ew = [1, 1, 1, 1, 1, 1, 1, 1] # delta action bool matrix[0, 0, 0, 0, 0, 0, 0, 0]
         Ew_matrix = np.diag(Ew)
 
         A1_matrix = np.zeros((8, 5))
@@ -194,8 +198,10 @@ class VehicleDynamicsData:
               1/self.Rw, self.k_alpha3, 1/self.Rw, self.k_alpha4]
 
         B1_matrix = np.diag(B1)
-
-        temp = np.matmul(A1_matrix, X) + np.matmul(B1_matrix, D) + np.matmul(np.matmul(Ew_matrix, B1_matrix), U)
+        dt_matrix = np.zeros((8, 1))
+        dt_matrix[0], dt_matrix[2], dt_matrix[4], dt_matrix[
+            6] = -1 / 4 * self.m * self.g * self.mu_r, -1 / 4 * self.m * self.g * self.mu_r, -1 / 4 * self.m * self.g * self.mu_r, -1 / 4 * self.m * self.g * self.mu_r
+        temp = np.matmul(A1_matrix, X) + np.matmul(B1_matrix, D) + np.matmul(np.matmul(Ew_matrix, B1_matrix), U)+dt_matrix
 
         X_dot = (np.matmul(A_matrix, X) + np.matmul(np.matmul(np.matmul(np.matmul(
             B_matrix, Lc_matrix), Ec_matrix), Mw_matrix), temp)).squeeze()
@@ -205,15 +211,10 @@ class VehicleDynamicsData:
         state_next[2] = phi + delta_t * gamma
         state_next[3:8] = states[3:8] + delta_t * X_dot
 
-        state_next[8] = ((4*(kappa1+1)/(self.m*v_x)+(kappa1+1)**2*self.Rw**2/(self.Izz*v_x))*
-                         self.C_slip1*delta_t+1)*kappa1-(kappa1+1)**2*self.Rw*delta_t*Q1/(self.Izz*v_x)
-
-        state_next[9] = ((4*(kappa2+1)/(self.m*v_x)+(kappa2+1)**2*self.Rw**2/(self.Izz*v_x))*
-                         self.C_slip2*delta_t+1)*kappa2-(kappa2+1)**2*self.Rw*delta_t*Q2/(self.Izz*v_x)
-        state_next[10] = ((4*(kappa3+1)/(self.m*v_x)+(kappa3+1)**2*self.Rw**2/(self.Izz*v_x))*
-                         self.C_slip3*delta_t+1)*kappa3-(kappa3+1)**2*self.Rw*delta_t*Q3/(self.Izz*v_x)
-        state_next[11] = ((4*(kappa4+1)/(self.m*v_x)+(kappa4+1)**2*self.Rw**2/(self.Izz*v_x))*
-                         self.C_slip4*delta_t+1)*kappa4-(kappa4+1)**2*self.Rw*delta_t*Q4/(self.Izz*v_x)
+        state_next[8] = kappa1+delta_t*(self.Rw*(Q1-self.Rw*self.C_slip1*kappa1)/(v_x*self.Iw)-(1+kappa1)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[9] = kappa2+delta_t*(self.Rw*(Q2-self.Rw*self.C_slip2*kappa2)/(v_x*self.Iw)-(1+kappa2)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[10] = kappa3+delta_t*(self.Rw*(Q3-self.Rw*self.C_slip3*kappa3)/(v_x*self.Iw)-(1+kappa3)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[11] = kappa4+delta_t*(self.Rw*(Q4-self.Rw*self.C_slip4*kappa4)/(v_x*self.Iw)-(1+kappa4)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
 
         return state_next
 
@@ -224,18 +225,20 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
 
     def __init__(
         self,
-        ref_vx: float = 20,
+        ref_vx: float = 10,
         pre_horizon: int = 30,
-        max_torque: float = 100,
+        max_torque: float = 298,
         max_steer: float = 0.5,
+        max_delta_torque=10,
+        max_delta_str=0.1,
         **kwargs,
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
             # initial range of [x, y, yaw, vx, vy, yaw rate, roll, roll rate, slip_ratio_1, slip_ratio_2, slip_ratio_3, slip_ratio_4]
             # 用高斯分布去采样
-            init_high = np.array([200, 2, 0.1, 22, 0.1, 0.1, 0.1, 0.1,  0.01, 0.01, 0.01, 0.01], dtype=np.float32)
-            init_low = np.array([0, -2, -0.1, 18, -0.1, -0.1, -0.1, -0.1,  -0.01, -0.01, -0.01, -0.01], dtype=np.float32)
+            init_high = np.array([200, 2, 0.1, 12, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+            init_low = np.array([0, -2, -0.1, 8, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Fourwsdvehicleholisticcontrol, self).__init__(work_space=work_space, **kwargs)
         
@@ -252,8 +255,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Box(
-            low=np.array([0, -max_steer]*4),
-            high=np.array([max_torque, max_steer]*4),
+            low=np.array([-max_torque, -max_steer]*4+[-max_delta_torque, -max_delta_str]*4),
+            high=np.array([max_torque, max_steer]*4+[max_delta_torque, max_delta_str]*4),
             dtype=np.float32,
         )
         obs_scale_default = [1/100, 1/100, 1/10,
@@ -262,7 +265,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 200
+        self.max_episode_steps = 300
 
         self.state = None
         self.ref_x = None
@@ -304,8 +307,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         ) # vx
 
         # # # run mode
-        # state[0] = 0
-        # state[3] = 18
+        state[0] = 0
+        state[3] = 8
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]
@@ -316,7 +319,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         self.ref_points = self.ref_traj.find_nearest_point(np.array(traj_points))  # x, y, phi, u
 
         obs = self.get_obs()
-        self.action_last = 0
+        self.action_last = np.zeros(16)
         return obs, self.info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
@@ -335,11 +338,10 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         new_ref_point = self.ref_traj.find_nearest_point(np.array(traj_points))  # x, y, phi, u
         self.ref_points[-1] = new_ref_point
 
-
         obs = self.get_obs()
         self.done = self.judge_done()
 
-        self.action_last = action[0]
+        self.action_last = action
         return obs, reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -356,8 +358,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
 
         ego_obs = np.concatenate(
             ([ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_vx_tf[0]*self.obs_scale[3]],
-             self.state[4:8]*self.obs_scale[4:8],
-             self.state[8:12]*self.obs_scale[8:12]))
+             self.state[4:8]*self.obs_scale[4:8], self.state[8:12]*self.obs_scale[8:12]
+             )) #
         # ref_obs: [
         # y_err, phi_err, vx_err (of the second to last reference point)
         # ]
@@ -366,8 +368,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
 
     def compute_reward(self, action: np.ndarray) -> float:
         px, py, phi, vx, vy, gamma, varphi, varphi_dot,  \
-        kappa1, kappa2, kappa3, kappa4 = self.state
-        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action
+         kappa1, kappa2, kappa3, kappa4 = self.state
+        Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4, dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4 = action
         beta = np.arctan(vy/vx)
         ref_x, ref_y, ref_phi, ref_vx = self.ref_points[0]
         I_matrix = np.array([[(self.vehicle_dynamics.k_alpha1+self.vehicle_dynamics.k_alpha2+
@@ -390,8 +392,8 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         delta_matrix = np.array([[delta1], [delta2], [delta3], [delta4]])
 
         later_ref = np.matmul(np.matmul(np.linalg.inv(I_matrix), k_matrix), delta_matrix)
-        beta_ref = later_ref[0][0]
-        gamma_ref = later_ref[1][0]
+        beta_ref = 0#later_ref[0][0]
+        gamma_ref = 0#later_ref[1][0]
         C_varphi = 2/(self.vehicle_dynamics.m*self.vehicle_dynamics.g*self.vehicle_dynamics.lw)*\
                    (self.vehicle_dynamics.K_varphi*(1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+
                                                        self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
@@ -401,20 +403,38 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
         I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
-        kappa_ref = 0#vx/self.vehicle_dynamics.Rw
-
+        kappa_constant = 0.1#vx/self.vehicle_dynamics.Rw
+        r_action_Q = np.sum((action[0:8:2]) ** 2)
+        r_action_str = np.sum((action[1:8:2]) ** 2)
+        r_action_Qdot = np.sum((action[0:8:2]-self.action_last[0:8:2]) ** 2)
+        r_action_strdot = np.sum((action[1:8:2]-self.action_last[1:8:2]) ** 2)
+        r_action_deltaQ = dQ1 ** 2 + dQ2 ** 2 + dQ3 ** 2 + dQ4 ** 2
+        r_action_deltastr = np.sum((action[9:16:2]) ** 2)
+        r_action_deltaQdot = np.sum((action[8:16:2]-self.action_last[8:16:2]) ** 2)
+        r_action_deltastrdot = np.sum((action[9:16:2]-self.action_last[9:16:2]) ** 2)
         return -(
-            0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-            + 0.08 * (vx - ref_vx) ** 2
-            + 0.02 * vy ** 2
-            + 0.02 * angle_normalize(phi - ref_phi) ** 2
-            + 0.01 * gamma ** 2
-            + 0.01 * np.sum((action) ** 2)
-            + 0.01 * ((kappa1-kappa_ref) ** 2+(kappa2-kappa_ref) ** 2+(kappa3-kappa_ref) ** 2+(kappa4-kappa_ref) ** 2)
-            + 0.01 * (beta-beta_ref) ** 2
-            + 0.01 * (gamma - gamma_ref) ** 2
-            + 0.01 * I_rollover ** 2
-            + 0.02 * np.sum((action - self.action_last) ** 2)
+                1 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+                + 2.0 * (vx - ref_vx) ** 2
+                + 1.0 * angle_normalize(phi - ref_phi) ** 2
+                + 0.3 * (gamma - gamma_ref) ** 2
+                + 0.5 * (beta - beta_ref) ** 2
+                + 0.5 * I_rollover ** 2
+                # + 0.5 * (1 / (kappa1 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa2 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa3 ** 2 + kappa_constant ** 2) +
+                #           1 / (kappa4 ** 2 + kappa_constant ** 2))
+                + 0.5 * ((kappa1-kappa_constant) ** 2 +
+                         (kappa1-kappa_constant) ** 2 +
+                         (kappa1-kappa_constant) ** 2 +
+                         (kappa1-kappa_constant) ** 2)
+                + 1e-8 * r_action_Q
+                + 1e-4 * r_action_str
+                # + 0.2 * r_action_Qdot
+                # + 0.2 * r_action_strdot
+                # + 0.5 * r_action_deltaQ
+                # + 0.5 * r_action_deltastr
+                # + 2.0 * r_action_deltaQdot
+                # + 2.0 * r_action_deltastrdot
         )
 
     def judge_done(self) -> bool:
@@ -422,6 +442,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
                 + (abs(self.state[3]-self.ref_points[0, 3]) > 3)  # delta_vx
                 + (abs(self.state[4]) > 2)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)) # delta phi
+        done=False
         return done
 
     @property
