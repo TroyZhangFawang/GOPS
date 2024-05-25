@@ -1693,7 +1693,39 @@ class PolicyRunner_Multiopt:
                     os.path.join(self.save_path, "Ref-State-Error{}.csv".format(j + 1)),
                     encoding="gbk",
                 )
+        # plot calculation time
+        path_state_fmt = os.path.join(
+            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
 
+        # save state data to csv
+        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
+        state_data.to_csv(
+            os.path.join(self.save_path, "Calc time.csv"),
+            encoding="gbk",
+        )
+
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel(x_label, default_cfg["label_font"])
+        plt.ylabel("Single Step Calculation Time [ms]", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
         # plot constraint value
         if self.constrained_env:
             for j in range(constrain_dim):
@@ -1926,40 +1958,6 @@ class PolicyRunner_Multiopt:
                 print("GOPS: Policy {}".format(key))
                 for key, value in value.items():
                     print(key, value)
-
-        # plot calculation time
-        path_state_fmt = os.path.join(
-            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
-        )
-        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
-
-        # save state data to csv
-        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
-        state_data.to_csv(
-            os.path.join(self.save_path, "Calc time.csv"),
-            encoding="gbk",
-        )
-
-        for i in range(policy_num):
-            legend = (
-                self.legend_list[i]
-                if len(self.legend_list) == policy_num
-                else self.algorithm_list[i]
-            )
-            sns.lineplot(
-                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
-            )
-        plt.tick_params(labelsize=default_cfg["tick_size"])
-        labels = ax.get_xticklabels() + ax.get_yticklabels()
-        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
-        plt.xlabel(x_label, default_cfg["label_font"])
-        plt.ylabel("Single Step Calculation Time [ms]", default_cfg["label_font"])
-        plt.legend(loc="best", prop=default_cfg["legend_font"])
-        fig.tight_layout(pad=default_cfg["pad"])
-        plt.savefig(
-            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
-        )
-        plt.close()
 
 class OptRunner:
     """Plot module for trained policy
@@ -2956,7 +2954,6 @@ class OptRunner:
                 print("GOPS: Policy {}".format(key))
                 for key, value in value.items():
                     print(key, value)
-
 
 class OptRunner_CoSimulation:
     """Plot module for trained policy
