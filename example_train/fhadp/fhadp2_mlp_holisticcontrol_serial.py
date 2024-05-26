@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # Key Parameters for users
     parser.add_argument("--env_id", type=str, default="pyth_holisticcontrol")
     parser.add_argument("--algorithm", type=str, default="FHADP2")
-    parser.add_argument("--pre_horizon", type=int, default=50)
+    parser.add_argument("--pre_horizon", type=int, default=30)
     parser.add_argument("--enable_cuda", default=False)
     ################################################
     # 1. Parameters for environment

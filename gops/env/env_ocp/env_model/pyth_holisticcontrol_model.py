@@ -211,7 +211,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
     def __init__(
         self,
         ref_vx: float = 10,
-        pre_horizon: int = 20,
+        pre_horizon: int = 30,
         device: Union[torch.device, str, None] = None,
         max_torque: float = 298,
         max_steer: float = 0.5,
@@ -269,7 +269,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
 
         next_obs = self.get_obs(next_state, next_ref_points)
 
-        isdone = self.judge_done(next_state, next_ref_points)
+        isdone = self.judge_done(next_obs)
 
         next_info = {}
         for key, value in info.items():
@@ -386,13 +386,8 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
                 + 1e-1 * r_action_deltastrdot
         )
 
-    def judge_done(self, state: torch.Tensor,
-        ref_points: torch.Tensor) -> torch.Tensor:
-        ref_x_tf, delta_y, delta_phi, delta_vx = \
-            state_error_calculate(
-                state[:, 0], state[:, 1], state[:, 2], state[:, 3],
-                ref_points[..., 0], ref_points[..., 1], ref_points[..., 2], ref_points[..., 3],
-            )
+    def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
+        delta_y, delta_phi, delta_vx = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2],obs[:, 2]/self.obs_scale[3],
         done = (
                 (torch.abs(delta_y) > 3)
                 | (torch.abs(delta_vx) > 3)
