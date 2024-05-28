@@ -30,7 +30,7 @@ def read_path(root_path):
 
 class Ref_Route:
     def __init__(self, ref_vx):
-        self.preview_index = 5
+        self.preview_index = 2
         current_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = current_dir+"/../resources/cury.csv"
         self.ref_traj = read_path(root_dir)
@@ -91,7 +91,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
     def f_xu(self, state, action, delta_t):
         self.batch_size = len(state[:, 0])
-        x, y, phi, v_x, v_y, gamma, varphi, varphi_dot  = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
+        x, y, phi, v_x, v_y, gamma, varphi, varphi_dot = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
             state[:, 4], state[:, 5],state[:, 6], state[:, 7]
         # kappa1, kappa2, kappa3, kappa4  state[:, 8], state[:, 9],state[:, 10], state[:, 11]
         Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4, \
@@ -229,7 +229,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         ego_obs_dim = 7
         ref_obs_dim = 3
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1, 1/50]
+                             1/100, 1/100, 1/10, 1/10, 1/50]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,

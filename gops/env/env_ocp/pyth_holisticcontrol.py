@@ -30,7 +30,7 @@ def read_path(root_path):
 
 class Ref_Route:
     def __init__(self, ref_vx):
-        self.preview_index = 5
+        self.preview_index = 2
         current_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = current_dir+"/resources/cury.csv"
 
@@ -258,11 +258,11 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             dtype=np.float32,
         )
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1, 1/50]
+                             1/100, 1/100, 1/10, 1/10, 1/50]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 300
+        self.max_episode_steps = 200
 
         self.state = None
         self.ref_x = None
@@ -303,9 +303,9 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
             low=self.init_space[0][3], high=self.init_space[1][3]
         ) # vx
 
-        # # # run mode
-        state[0] = 0
-        state[3] = 8
+        # # # # run mode
+        # state[0] = 0
+        # state[3] = 8
         self.state = state
         self.ref_x, self.ref_y = state[0], state[1]
         traj_points = [[self.ref_x, self.ref_y]]
