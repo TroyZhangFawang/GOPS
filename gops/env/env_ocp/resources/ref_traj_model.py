@@ -230,3 +230,51 @@ class CircleRefTrajModel(RefTrajModel):
         for i, ref_speed in enumerate(self.ref_speeds):
             arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
         return self.r * (torch.cos(arc_len / self.r) - 1)
+
+
+@dataclass
+class UTurnRefTrajData(RefTrajModel):
+    r: float  # 转弯半径
+    l1: float  # 第一段直线长度
+    l2: float  # 第二段直线长度
+
+    def compute_x(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        distance = torch.zeros_like(t)
+        for i, ref_speed in enumerate(self.ref_speeds):
+            distance = distance + (speed_num == i) * ref_speed.compute_integrate_u(t)
+        return self._compute_x_from_distance(distance)
+
+    def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        distance = torch.zeros_like(t)
+        for i, ref_speed in enumerate(self.ref_speeds):
+            distance = distance + (speed_num == i) * ref_speed.compute_integrate_u(t)
+        return self._compute_y_from_distance(distance)
+
+    def _compute_x_from_distance(self, distance: torch.Tensor) -> torch.Tensor:
+        if distance <= self.l1:  # 第一段直线
+            return distance
+        elif distance <= self.l1 + torch.pi * self.r:  # 半圆弧
+            arc_length = distance - self.l1
+            return self.l1 + self.r * torch.sin(arc_length / self.r)
+        else:  # 第二段直线
+            return self.l1 - (distance - self.l1 - torch.pi * self.r)
+
+    def _compute_y_from_distance(self, distance: torch.Tensor) -> torch.Tensor:
+        if distance <= self.l1:  # 第一段直线
+            return torch.zeros_like(distance)
+        elif distance <= self.l1 + torch.pi * self.r:  # 半圆弧
+            arc_length = distance - self.l1
+            return self.r * (1 - torch.cos(arc_length / self.r))
+        else:  # 第二段直线
+            return 2 * self.r
+
+
+@dataclass
+class WaterDropRefTrajModel(RefTrajModel):
+    a: float
+    b: float
+    def compute_x(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        return self.a*torch.cos(t)*torch.cos(t)
+
+    def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        return self.a**2*(torch.cos(t)**3)*torch.sin(t) / self.b

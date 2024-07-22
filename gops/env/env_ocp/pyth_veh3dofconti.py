@@ -158,7 +158,7 @@ class SimuVeh3dofconti(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1, 2, 3])
+            self.path_num = self.np_random.choice([3, 4, 5, 6])
 
         if u_num is not None:
             self.u_num = u_num

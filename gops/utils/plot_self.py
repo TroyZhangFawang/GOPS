@@ -13,28 +13,29 @@ import matplotlib.patches as mpatches
 import pandas as pd
 import matplotlib.animation as animation
 import matplotlib.font_manager as fm
+from tkinter import *
 from matplotlib.legend_handler import HandlerPathCollection, HandlerLine2D
-zhfont1 = fm.FontProperties(fname='./resources/SIMSUN.ttf')
+zhfont1 = fm.FontProperties(fname='./SIMSUN.ttf')
+y_formatter = FormatStrFormatter('%1')
 
 default_cfg = dict()
 default_cfg["fig_size"] = (12, 9)
-default_cfg["dpi"] = 300
+default_cfg["dpi"] = 500
 default_cfg["pad"] = 0.5
 
-default_cfg["tick_size"] = 8
+default_cfg["tick_size"] = 15#8
 default_cfg["tick_label_font"] = "Times New Roman"
 default_cfg["legend_font"] = {
     "family": "Times New Roman",
-    "size": "12",
+    "size": "17",#"12"
     "weight": "normal",
 }
 default_cfg["label_font"] = {
-    "family": "Times New Roman", #zhfont1
-    "size": "9",
-    "weight": "normal",
-}
-default_cfg["img_fmt"] = "png"
 
+    "size": "15", #"9",
+    "weight": "normal",
+}#    "family": "Times New Roman", #zhfont1
+default_cfg["img_fmt"] = "png"
 
 def cm2inch(*tupl):
     inch = 2.54
@@ -51,7 +52,6 @@ def read_csv(root_path, line_num):
     for num in range(line_num):
         data_numi = np.array(data_result.iloc[num+1, 1:], dtype='float32')
         data_pool[num+1, :] = data_numi
-
     return data_pool
 
 def plot_single(data_read, args):
@@ -75,14 +75,15 @@ def plot_single(data_read, args):
             if len(legend_list) == line_num
             else print("line_num != len of legend_list")
         )
-        sns.lineplot(x=data_read[0, :]*dt, y=data_read[i+1, :]) #, label="{}".format(legend), linewidth=2
-
+        sns.lineplot(x=data_read[0, :]*dt, y=data_read[i+1, :], label="{}".format(legend)) #, linewidth=2
+    # x = [0, 5, 10, 15, 20]
+    plt.xticks(range(0,8,1))
     plt.tick_params(labelsize=default_cfg["tick_size"])
     labels = ax.get_xticklabels() + ax.get_yticklabels()
     [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
-    plt.xlabel(args["x_label"], default_cfg["label_font"])
-    plt.ylabel(args["y_label"], default_cfg["label_font"])
-    # plt.legend(loc="best", prop=default_cfg["legend_font"])
+    plt.xlabel(args["x_label"], default_cfg["label_font"], fontproperties=zhfont1)
+    plt.ylabel(args["y_label"], default_cfg["label_font"], fontproperties=zhfont1)
+    plt.legend(loc="best", prop=default_cfg["legend_font"])
     fig.tight_layout(pad=default_cfg["pad"])
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
@@ -90,21 +91,19 @@ def plot_single(data_read, args):
     plt.close()
 
 
-
-
-
 if __name__ == "__main__":
     # Parameters Setup
     parser = argparse.ArgumentParser()
     parser.add_argument("--time_step", type=float, default=0.01)
-    parser.add_argument("--csv_file_name", type=str, default="State-8")
+    parser.add_argument("--csv_file_name", type=str, default="Calc time")
     parser.add_argument("--line_num", type=int, default=4)
-    parser.add_argument("--x_label", type=str, default=r"Time $/\mathrm{s}$")
-    parser.add_argument("--y_label", type=str, default=r"$\dot\varphi_2 /\mathrm{rad/s}$")
+    parser.add_argument("--x_label", type=str, default=r"时间 $/\mathrm{s}$")
+    parser.add_argument("--y_label", type=str, default=r"单步求解耗时 $/\mathrm{ms}$") #·s^{-1}
     parser.add_argument("--legend_list", type=list, default=
-    ["FHADP", "Bilevel", "PDP", "MPC"]) #, "Ref"
+    ["FHADP", "Bilevel", "PDP", "MPC"]) #
     parser.add_argument("--figures_root", type=str,
                         default='../../figures/FHADP2-FHADP2-pyth_semitruckpu7dof/240401-100557/')
+    # default='../../results/pyth_semitruckpu7dof/FHADP2_240426-091408-upper_20-inner_50000/'
     # Get parameter dictionary
     args = vars(parser.parse_args())
     read_path = args["figures_root"]+args["csv_file_name"]+".csv"

@@ -80,7 +80,7 @@ class VehicleDynamicsData:
             C_slip2=8.885 * 1.525 * 1.062e+04,  # N
             C_slip3=8.885 * 1.525 * 1.062e+04,  # N
             C_slip4=8.885 * 1.525 * 1.062e+04,  # N
-            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of tire [N-m/rad] /3.14*180
+            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
         )
     
@@ -262,7 +262,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 200
+        self.max_episode_steps = 300
 
         self.state = None
         self.ref_x = None
@@ -411,7 +411,7 @@ class Fourwsdvehicleholisticcontrol(PythBaseEnv):
         return -(
                 1.8 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
                 + 3.6 * (vx - ref_vx) ** 2
-                + 1.0 * angle_normalize(phi - ref_phi) ** 2
+                + 1.2 * angle_normalize(phi - ref_phi) ** 2
                 + 0.3 * (gamma - gamma_ref) ** 2
                 + 0.5 * (beta - beta_ref) ** 2
                 + 0.5 * I_rollover ** 2
@@ -494,3 +494,5 @@ def env_creator(**kwargs):
     make env `pyth_semitruckpu7dof`
     """
     return Fourwsdvehicleholisticcontrol(**kwargs)
+
+

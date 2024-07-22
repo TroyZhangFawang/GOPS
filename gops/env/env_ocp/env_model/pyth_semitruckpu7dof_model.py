@@ -22,36 +22,6 @@ from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel
 from gops.utils.gops_typing import InfoDict
 
 
-def read_path(root_path):
-    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
-    state_1 = np.array(data_result.iloc[1:, 0], dtype='float32') #x
-    state_2 = np.array(data_result.iloc[1:, 1], dtype='float32')  #y
-    state_traj = np.zeros((len(state_1), 2))
-    state_traj[:, 0] = state_1
-    state_traj[:, 1] = state_2
-    return state_traj
-
-class Ref_Route:
-    def __init__(self):
-        self.preview_index = 5
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = current_dir+"/../resources/cury.csv"
-        self.ref_traj = read_path(root_dir)
-        # 将NumPy数组转换为PyTorch张量
-        self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)
-
-    def find_nearst_point(self, traj_points):
-        # 计算两组点之间的距离
-        traj_points_expanded = traj_points.unsqueeze(1)  # 在第二维上扩展以便能够逐元素相减
-        distances = torch.norm(traj_points_expanded - self.ref_traj_tensor, dim=2)
-
-        # 找到每个轨迹点在参考轨迹上的最近点的索引
-        nearest_point_indices = torch.argmin(distances, dim=1)+self.preview_index
-        ref_x = self.ref_traj_tensor[nearest_point_indices][:, 0]
-        ref_y = self.ref_traj_tensor[nearest_point_indices][:, 1]
-        ref_heading = torch.atan2((ref_y - self.ref_traj_tensor[nearest_point_indices - 1][:, 1]), (ref_x - self.ref_traj_tensor[nearest_point_indices - 1][:, 0]))
-        return torch.stack([ref_x, ref_y, ref_heading], 1)
-
 class VehicleDynamicsModel(VehicleDynamicsData):
     def __init__(self):
         self.v_x = 20
@@ -427,6 +397,8 @@ class Semitruckpu7dofModel(PythBaseModel):
         self,
         pre_horizon: int = 100,
         device: Union[torch.device, str, None] = None,
+        path_para: Optional[Dict[str, Dict]] = None,
+        u_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = 0.5,
         **kwargs,
     ):
@@ -438,8 +410,8 @@ class Semitruckpu7dofModel(PythBaseModel):
         self.batch_size = kwargs["replay_batch_size"]
         self.state_dim = 15
         self.cost_dim = 7+2
-        ego_obs_dim = 13
-        ref_obs_dim = 4
+        ego_obs_dim = 15
+        ref_obs_dim = 6
         obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10, 1, 1, 1, 1,
                              1, 1, 1, 1,
                              1/100]
@@ -453,7 +425,7 @@ class Semitruckpu7dofModel(PythBaseModel):
             device=device,
         )
 
-        self.ref_traj = Ref_Route()
+        self.ref_traj = MultiRefTrajModel(path_para, u_para)
         self.action_last = torch.zeros((1, ))
         self.action_last_np = 0
         self.cost_paras = np.array(kwargs["cost_paras"])
@@ -465,26 +437,51 @@ class Semitruckpu7dofModel(PythBaseModel):
         info: InfoDict,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, InfoDict]:
         state = info["state"]
-        ref_x = info["ref_x"]
-        ref_y = info["ref_y"]
-        ref_x2 = info["ref_x2"]
-        ref_y2 = info["ref_y2"]
         ref_points = info["ref_points"]
-        target_speed = info["target_speed"]
+        t = info["ref_time"]
+        t2 = info["ref_time2"]
+        path_num = info["path_num"]
+        u_num = info["u_num"]
 
         reward = self.compute_reward(obs, action)
 
         next_state = self.vehicle_dynamics.f_xu(state, action, self.dt)
 
+        next_t = t + self.dt
+        next_t2 = t2 + self.dt
+
+
         next_ref_points = ref_points.clone()
         next_ref_points[:, :-1] = ref_points[:, 1:]
-        next_ref_x = ref_x + self.dt * target_speed
-        next_ref_y = ref_y + self.dt * state[:, 14]
-        new_ref_point = self.ref_traj.find_nearst_point(torch.stack([next_ref_x, next_ref_y], 1))
+        new_ref_point = torch.stack(
+            (
+                self.ref_traj.compute_x(
+                    next_t + self.pre_horizon * self.dt, path_num, u_num
+                ),
+                self.ref_traj.compute_y(
+                    next_t + self.pre_horizon * self.dt, path_num, u_num
+                ),
+                self.ref_traj.compute_phi(
+                    next_t + self.pre_horizon * self.dt, path_num, u_num
+                ),
+            ),
+            dim=1,
+        )
 
-        next_ref_x2 = ref_x2 + self.dt * target_speed
-        next_ref_y2 = ref_y2 + self.dt * state[:, 14]
-        new_ref_point_2 = self.ref_traj.find_nearst_point(torch.stack([next_ref_x2, next_ref_y2], 1))
+        new_ref_point_2 = torch.stack(
+            (
+                self.ref_traj.compute_x(
+                    next_t2 + self.pre_horizon * self.dt, path_num, u_num
+                ),
+                self.ref_traj.compute_y(
+                    next_t2 + self.pre_horizon * self.dt, path_num, u_num
+                ),
+                self.ref_traj.compute_phi(
+                    next_t2 + self.pre_horizon * self.dt, path_num, u_num
+                ),
+            ),
+            dim=1,
+        )
         next_ref_points[:, -1] = torch.cat((new_ref_point, new_ref_point_2), 1)
 
 
@@ -497,29 +494,29 @@ class Semitruckpu7dofModel(PythBaseModel):
             next_info[key] = value.detach().clone()
         next_info.update({
             "state": next_state,
-            "ref_x": next_ref_x,
-            "ref_y": next_ref_y,
-            "ref_x2": next_ref_x2,
-            "ref_y2": next_ref_y2,
-            "ref_points": next_ref_points
+            "ref_points": next_ref_points,
+            "path_num": path_num,
+            "u_num": u_num,
+            "ref_time": next_t,
+            "ref_time2": next_t2,
         })
         self.action_last = action.clone().detach()
         return next_obs, reward, isdone, next_info
 
     def get_obs(self, state, ref_points):
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 state[:, 0], state[:, 1], state[:, 2],
                 ref_points[..., 0], ref_points[..., 1], ref_points[..., 2],
             )
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 state[:, 3], state[:, 4], state[:, 5],
                 ref_points[..., 3], ref_points[..., 4], ref_points[..., 5],
             )
-        ego_obs = torch.concat((torch.stack((ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_y2_tf[:, 0]*self.obs_scale[4], ref_phi2_tf[:, 0]*self.obs_scale[5]), dim=1),
+        ego_obs = torch.concat((torch.stack((ref_x_tf[:, 0]*self.obs_scale[0], ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_x2_tf[:, 0]*self.obs_scale[3], ref_y2_tf[:, 0]*self.obs_scale[4], ref_phi2_tf[:, 0]*self.obs_scale[5]), dim=1),
                                 state[:, 6:14], state[:, 14:]*self.obs_scale[14]), dim=1)
-        ref_obs = torch.stack((ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_y2_tf*self.obs_scale[4], ref_phi2_tf*self.obs_scale[5]), 2)[
+        ref_obs = torch.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_x2_tf*self.obs_scale[3], ref_y2_tf*self.obs_scale[4], ref_phi2_tf*self.obs_scale[5]), 2)[
             :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
 
@@ -543,7 +540,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[4], obs[:, 3]/self.obs_scale[5], obs[:, 12]/self.obs_scale[14]
         done = (
                 (torch.abs(delta_y) > 3)
-                | (torch.abs(vy1) > 2)
+                | (torch.abs(vy1) > 5)
                 | (torch.abs(delta_phi) > np.pi/2)
                 | (torch.abs(delta_y2) > 3)
                 | (torch.abs(delta_phi2) > np.pi / 2)

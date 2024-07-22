@@ -33,7 +33,7 @@ class Ref_Route:
     def __init__(self):
         self.preview_index = 5
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = current_dir + "/../resources/cury.csv"
+        root_dir = current_dir + "/../resources/u_turn.csv"
         self.ref_traj = read_path(root_dir)
         # 将NumPy数组转换为PyTorch张量
         self.ref_traj_tensor = torch.tensor(self.ref_traj, dtype=torch.float32)

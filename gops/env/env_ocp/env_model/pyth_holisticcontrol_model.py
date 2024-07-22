@@ -372,7 +372,7 @@ class FourwsdvehicleholisticcontrolModel(PythBaseModel):
         return -(
                 1.8 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
                 + 3.6 * (vx - ref_vx) ** 2
-                + 1.0 * angle_normalize(phi - ref_phi) ** 2
+                + 1.2 * angle_normalize(phi - ref_phi) ** 2
                 + 0.3 * (gamma - gamma_ref) ** 2
                 + 0.5 * (beta - beta_ref) ** 2
                 + 0.5 * I_rollover ** 2

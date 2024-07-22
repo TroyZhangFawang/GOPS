@@ -18,36 +18,6 @@ from gops.env.env_ocp.pyth_base_env import PythBaseEnv
 from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
 from gops.utils.math_utils import angle_normalize
 
-def read_path(root_path):
-    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
-    state_1 = np.array(data_result.iloc[1:, 0], dtype='float32') #x
-    state_2 = np.array(data_result.iloc[1:, 1], dtype='float32')  #y
-    state_traj = np.zeros((len(state_1), 2))
-    state_traj[:, 0] = state_1
-    state_traj[:, 1] = state_2
-    return state_traj
-
-class Ref_Route:
-    def __init__(self):
-        self.preview_index = 5
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = current_dir + "/resources/cury.csv"
-        print(root_dir)
-        self.ref_traj = read_path(root_dir)
-
-    def find_nearest_point(self, traj_points):
-        # 计算两组点之间的距离
-        traj_points_expanded = np.expand_dims(traj_points, axis=1)
-        distances = np.linalg.norm(traj_points_expanded - self.ref_traj, axis=2)
-
-        # 找到每个轨迹点在参考轨迹上的最近点的索引
-        nearest_point_index = np.argmin(distances, axis=1)+self.preview_index
-        ref_x = self.ref_traj[nearest_point_index][:, 0]
-        ref_y = self.ref_traj[nearest_point_index][:, 1]
-        prev_index = np.maximum(nearest_point_index - 1, 0)
-        ref_heading = np.arctan2((ref_y - self.ref_traj[prev_index][:, 1]),
-                                 (ref_x - self.ref_traj[prev_index][:, 0]))
-        return np.stack([ref_x, ref_y, ref_heading], axis=1)
 
 class VehicleDynamicsData:
     def __init__(self):
@@ -70,7 +40,6 @@ class VehicleDynamicsData:
 
         self.I1zz = 34802.6  # Yaw moment of inertia of the whole mass of the tractor [kg m^2]
         self.I1xx = 2283  # Roll moment of inertia of the sprung mass of the tractor [kg m^2]
-        self.I1yy = 35402
         self.I1xz = 1626  # Roll–yaw product of inertia of the sprung mass of the tractor [kg m^2]
         self.I2zz = 250416  # Yaw moment of inertia of the whole mass of the semitrailer [kg m^2]
         self.I2xx = 22330  # Roll moment of inertia of the sprung mass of the semitrailer [kg m^2]
@@ -159,8 +128,7 @@ class VehicleDynamicsData:
     def f_xu(self, states, actions, delta_t):
         state_next = np.empty_like(states)
         self.state_dim = 15
-        #[beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot,
-         # psi1, psi2, vy1,py1
+
         X_matrix = np.hstack((states[6:14], states[2], states[5], states[14], states[1], states[4]))
         M_matrix = np.zeros((self.state_dim - 2, self.state_dim - 2))
         M_matrix[0, 0] = self.M11
@@ -234,29 +202,32 @@ class Semitruckpu7dof(PythBaseEnv):
     def __init__(
         self,
         pre_horizon: int = 100,
+        path_para: Optional[Dict[str, Dict]] = None,
+        u_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = 0.5,
         **kwargs,
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
-            # initial range of px1, py1, psi1, px2, py2, psi2,
+            # initial range of delta_px1, delta_py1, delta_psi1, delta_px2, delta_py2, delta_psi2,
             # beta1, psi1_dot, varphi1, varphi1_dot, \
             # beta2, psi2_dot, varphi2, varphi2_dot, vy1]
             # 用高斯分布去采样
-            init_high = np.array([200, 2, 0.1, 200, 2, 0.1,
+            init_high = np.array([2, 2, 0.1, 2, 2, 0.1,
                                   0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
-            init_low = np.array([0, -2,  -0.1, 0, -2, -0.1,
+            init_low = np.array([-2, -2,  -0.1, -2, -2, -0.1,
                                  -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, ], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
         super(Semitruckpu7dof, self).__init__(work_space=work_space, **kwargs)
 
         self.vehicle_dynamics = VehicleDynamicsData()
         self.target_speed = self.vehicle_dynamics.v_x
-        self.ref_traj = Ref_Route()
+        self.ref_traj = MultiRefTrajData(path_para, u_para)
+
         self.state_dim = 15
         self.pre_horizon = pre_horizon
-        ego_obs_dim = 13
-        ref_obs_dim = 4
+        ego_obs_dim = 15
+        ref_obs_dim = 6
         self.observation_space = gym.spaces.Box(
             low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
             high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
@@ -274,24 +245,20 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 2000
+        self.max_episode_steps = 300
 
         self.state = None
-        self.ref_x = None
-        self.ref_y = None
-        self.ref_x2 = None
-        self.ref_y2 = None
         self.ref_points = None
 
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
             "ref_points": {"shape": (self.pre_horizon + 1, 6), "dtype": np.float32},
-            "ref_x": {"shape": (), "dtype": np.float32},
-            "ref_y": {"shape": (), "dtype": np.float32},
-            "ref_x2": {"shape": (), "dtype": np.float32},
-            "ref_y2": {"shape": (), "dtype": np.float32},
             "ref": {"shape": (6,), "dtype": np.float32},
+            "path_num": {"shape": (), "dtype": np.uint8},
+            "u_num": {"shape": (), "dtype": np.uint8},
             "target_speed": {"shape": (), "dtype": np.float32},
+            "ref_time": {"shape": (), "dtype": np.float32},
+            "ref_time2": {"shape": (), "dtype": np.float32},
         }
 
         self.seed()
@@ -303,43 +270,69 @@ class Semitruckpu7dof(PythBaseEnv):
     def reset(
         self,
         init_state: Optional[Sequence] = None,
-        ref_x: Optional[float] = None,
-        ref_y: Optional[int] = None,
+        ref_time: Optional[float] = None,
+        ref_num: Optional[int] = None,
         **kwargs,
     ) -> Tuple[np.ndarray, dict]:
 
-        if init_state is not None:
-            state = np.array(init_state, dtype=np.float32)
+        if ref_time is not None:
+            self.t = ref_time
         else:
-            state = self.sample_initial_state()
+            self.t = 10.0 * self.np_random.uniform(0.0, 1.0)
+        print(self.t)
+        # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
+        if ref_num is None:
+            path_num = None
+            u_num = None
+        else:
+            path_num = int(ref_num / 2)
+            u_num = int(ref_num % 2)
+
+        # If no ref_num, then randomly select path and speed
+        if path_num is not None:
+            self.path_num = path_num
+        else:
+            self.path_num = self.np_random.choice([0, 1, 2, 3, 4, 5, 6])
+
+        if u_num is not None:
+            self.u_num = u_num
+        else:
+            self.u_num = self.np_random.choice([1])
 
 
+        ref_points = []
+        for i in range(self.pre_horizon + 1):
+            ref_x = self.ref_traj.compute_x(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y = self.ref_traj.compute_y(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi = self.ref_traj.compute_phi(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
 
-        # 训练用，run的时候注释掉
-        state[0] = self.np_random.uniform(
-            low=self.init_space[0][0], high=self.init_space[1][0]
+            self.t2 = self.t - (self.vehicle_dynamics.c+self.vehicle_dynamics.e)/self.target_speed
+            ref_x2 = self.ref_traj.compute_x(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y2 = self.ref_traj.compute_y(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi2 = self.ref_traj.compute_phi(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_points.append([ref_x, ref_y, ref_phi, ref_x2, ref_y2, ref_phi2])
+        self.ref_points = np.array(ref_points, dtype=np.float32)
+
+        if init_state is not None:
+            delta_state = np.array(init_state, dtype=np.float32)
+        else:
+            delta_state = self.sample_initial_state()
+
+        self.state = np.concatenate(
+            (self.ref_points[0] + delta_state[:6], delta_state[6:])
         )
-        # state[0] = 0
-        state[3] = state[0] - self.vehicle_dynamics.b * np.cos(state[2]) - self.vehicle_dynamics.e * np.cos(
-            state[5])  # posx_trailer
-        state[4] = state[1] - self.vehicle_dynamics.b * np.sin(state[2]) - self.vehicle_dynamics.e * np.sin(
-            state[5])  # posy_trailer
-        self.state = state
-        self.ref_x, self.ref_y = state[0], state[1]
-        traj_points = [[self.ref_x, self.ref_y]]
-        for k in range(self.pre_horizon):
-            self.ref_x += self.target_speed * self.dt
-            self.ref_y += state[14] * self.dt
-            traj_points.append([self.ref_x, self.ref_y])
-
-        self.ref_x2, self.ref_y2 = state[3], state[4]
-        traj_points_2 = [[self.ref_x2, self.ref_y2]]
-        for k in range(self.pre_horizon):
-            self.ref_x2 += self.target_speed * self.dt
-            self.ref_y2 += state[14] * self.dt
-            traj_points_2.append([self.ref_x2, self.ref_y2])
-
-        self.ref_points = np.hstack((self.ref_traj.find_nearest_point(np.array(traj_points)), self.ref_traj.find_nearest_point(np.array(traj_points_2))))  # x, y, phi, u,# x, y, phi, u
         obs = self.get_obs()
         self.action_last = 0
         return obs, self.info
@@ -350,21 +343,39 @@ class Semitruckpu7dof(PythBaseEnv):
         reward = self.compute_reward(action)
 
         self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
-
-        self.ref_x, self.ref_y = self.state[0], self.state[1]
+        self.t = self.t + self.dt
+        self.t2 = self.t2 + self.dt
 
         self.ref_points[:-1] = self.ref_points[1:]
-        self.ref_x += self.target_speed * self.dt
-        self.ref_y += self.state[14] * self.dt
-        traj_points = [[self.ref_x, self.ref_y]]
-        new_ref_point = self.ref_traj.find_nearest_point(np.array(traj_points))  # x, y, phi, u
+        new_ref_point = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+            ],
+            dtype=np.float32,
+        )
 
-
-        self.ref_x2, self.ref_y2 = self.state[3], self.state[4]
-        self.ref_x2 += self.target_speed * self.dt
-        self.ref_y2 += self.state[14] * self.dt
-        traj_points_2 = [[self.ref_x2, self.ref_y2]]
-        new_ref_point_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
+        new_ref_point_2 = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+            ],
+            dtype=np.float32,
+        )
         self.ref_points[-1] = np.hstack((new_ref_point, new_ref_point_2))
 
         obs = self.get_obs()
@@ -375,13 +386,13 @@ class Semitruckpu7dof(PythBaseEnv):
 
     def get_obs(self) -> np.ndarray:
         ref_x_tf, ref_y_tf, ref_psi_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 self.state[0], self.state[1], self.state[2],
                 self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2],
             )
 
         ref_x2_tf, ref_y2_tf, ref_psi2_tf = \
-            state_error_calculate(
+            ego_vehicle_coordinate_transform(
                 self.state[3], self.state[4], self.state[5],
                 self.ref_points[:, 3], self.ref_points[:, 4], self.ref_points[:, 5],
             )
@@ -392,12 +403,12 @@ class Semitruckpu7dof(PythBaseEnv):
         # ]
 
         ego_obs = np.concatenate(
-            ([ref_y_tf[0]*self.obs_scale[1], ref_psi_tf[0]*self.obs_scale[2], ref_y2_tf[0]*self.obs_scale[4], ref_psi2_tf[0]*self.obs_scale[5]],
+            ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_psi_tf[0]*self.obs_scale[2], ref_x2_tf[0]*self.obs_scale[3], ref_y2_tf[0]*self.obs_scale[4], ref_psi2_tf[0]*self.obs_scale[5]],
              self.state[6:14], self.state[14:]*self.obs_scale[14]))
         # ref_obs: [
         # delta_y, delta_psi (of the second to last reference point)
         # ]
-        ref_obs = np.stack((ref_y_tf*self.obs_scale[1], ref_psi_tf*self.obs_scale[2], ref_y2_tf*self.obs_scale[4], ref_psi2_tf*self.obs_scale[5]), 1)[1:].flatten()
+        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_psi_tf*self.obs_scale[2], ref_x2_tf*self.obs_scale[3],ref_y2_tf*self.obs_scale[4], ref_psi2_tf*self.obs_scale[5]), 1)[1:].flatten()
         return np.concatenate((ego_obs, ref_obs))
 
     def compute_reward(self, action: np.ndarray) -> float:
@@ -421,7 +432,7 @@ class Semitruckpu7dof(PythBaseEnv):
 
     def judge_done(self) -> bool:
         done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
-                + (abs(self.state[14]) > 2)  # delta_vy
+                + (abs(self.state[14]) > 3)  # delta_vy
                   + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)  # delta_psi1
                   + (abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
                   + (abs(self.state[5]-self.ref_points[0, 5]) > np.pi / 2))  # delta_psi2
@@ -432,12 +443,12 @@ class Semitruckpu7dof(PythBaseEnv):
         return {
             "state": self.state.copy(),
             "ref_points": self.ref_points.copy(),
-            "ref_x": self.ref_x,
-            "ref_y": self.ref_y,
-            "ref_x2": self.ref_x2,
-            "ref_y2": self.ref_y2,
             "ref": self.ref_points[0].copy(),
             "target_speed": self.target_speed,
+            "path_num": self.path_num,
+            "u_num": self.u_num,
+            "ref_time": self.t,
+            "ref_time2": self.t2,
         }
 
 
