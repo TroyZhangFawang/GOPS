@@ -12,23 +12,23 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-
+result_path = "../results/pyth_holisticcontrol/DSACT_240526-151339"
 runner = PolicyRunner(
-    log_policy_dir_list=["/home/bit/Troy.Z/1_code/GOPS/results/pyth_veh3dofconti/FHADP_240315-142233"],
-    trained_policy_iteration_list=["87000_opt"],
-    is_init_info=False,
-    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0, 0]}, # ref_num = [0, 1, 2,..., 7]
+    log_policy_dir_list=[result_path],
+    trained_policy_iteration_list=["1000000"],
+    is_init_info=True,
+    init_info={"init_state": [0, -1.0, 0, 9, 0.0, 0, 0, 0]},
     save_render=False,
-    legend_list=["FHADP2"],
-    use_opt=True, # Use optimal solution for comparison
+    legend_list=["DSACT"],
+    use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
         "num_pred_step": 30,
-        "gamma": 0.99,
+        "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
-            "max_iter": 50,
-            "tol": 1e-4,
+            "max_iter": 10,
+            "tol": 1e-5,
             "acceptable_tol": 1e-2,
             "acceptable_iter": 10,
         },
@@ -36,7 +36,7 @@ runner = PolicyRunner(
     },
     constrained_env=False,
     is_tracking=True,
-    dt=0.1,
+    dt=0.01,
 )
 
 runner.run()

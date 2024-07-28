@@ -179,7 +179,7 @@ class VehicleDynamicsData:
 
         Mw_matrix = block_diag(Mw1, Mw2, Mw3, Mw4)
 
-        Ew = [1, 1, 1, 1, 1, 1, 1, 1] # delta action bool matrix[0, 0, 0, 0, 0, 0, 0, 0]
+        Ew = [0, 0, 0, 0, 0, 0, 0, 0]#[1, 1, 1, 1, 1, 1, 1, 1] # delta action bool matrix
         Ew_matrix = np.diag(Ew)
 
         A1_matrix = np.zeros((8, 5))

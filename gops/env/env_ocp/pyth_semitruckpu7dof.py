@@ -245,7 +245,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 300
+        self.max_episode_steps = 3000
 
         self.state = None
         self.ref_points = None
@@ -279,7 +279,7 @@ class Semitruckpu7dof(PythBaseEnv):
             self.t = ref_time
         else:
             self.t = 10.0 * self.np_random.uniform(0.0, 1.0)
-        print(self.t)
+
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
             path_num = None
@@ -329,6 +329,13 @@ class Semitruckpu7dof(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
+
+        # delta_state[0] = 0  # 该起始位置对cury效果比较好 5-jturn
+        # delta_state[1] = 0
+        # delta_state[3] = delta_state[0] - self.vehicle_dynamics.b * np.cos(delta_state[2]) - self.vehicle_dynamics.e * np.cos(
+        #     delta_state[5])  # posx_trailer
+        # delta_state[4] = delta_state[1] - self.vehicle_dynamics.b * np.sin(delta_state[2]) - self.vehicle_dynamics.e * np.sin(
+        #     delta_state[5])  # posy_trailer
 
         self.state = np.concatenate(
             (self.ref_points[0] + delta_state[:6], delta_state[6:])
@@ -431,11 +438,12 @@ class Semitruckpu7dof(PythBaseEnv):
         )
 
     def judge_done(self) -> bool:
-        done = ((abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
-                + (abs(self.state[14]) > 3)  # delta_vy
-                  + (abs(self.state[2]-self.ref_points[0, 2]) > np.pi/2)  # delta_psi1
+        done = ((abs(self.state[0]-self.ref_points[0, 0]) > 5)  # delta_x1
+                 +(abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
+                  + (abs(angle_normalize(self.state[2]-self.ref_points[0, 2])) > np.pi)  # delta_psi1
+                + (abs(self.state[3] - self.ref_points[0, 3]) > 5)  # delta_y2
                   + (abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
-                  + (abs(self.state[5]-self.ref_points[0, 5]) > np.pi / 2))  # delta_psi2
+                  + (abs(angle_normalize(self.state[5]-self.ref_points[0, 5])) > np.pi))  # delta_psi2
         return done
 
     @property

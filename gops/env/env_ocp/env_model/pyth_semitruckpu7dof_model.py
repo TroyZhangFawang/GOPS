@@ -525,7 +525,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         obs: torch.Tensor,
         action: torch.Tensor) -> torch.Tensor:
         return -(
-            self.cost_paras[0] * ((obs[:, 0]/self.obs_scale[1]) ** 2)
+            self.cost_paras[0] * ((obs[:, 1]/self.obs_scale[1]) ** 2)
             + self.cost_paras[1] * (obs[:, 14]/self.obs_scale[14]) ** 2
             + self.cost_paras[2] * (obs[:, 2]/self.obs_scale[2]) ** 2
             + self.cost_paras[3] * obs[:, 7] ** 2
@@ -537,13 +537,13 @@ class Semitruckpu7dofModel(PythBaseModel):
         )
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
-        delta_y, delta_phi, delta_y2, delta_phi2, vy1 = obs[:, 0]/self.obs_scale[1], obs[:, 1]/self.obs_scale[2], obs[:, 2]/self.obs_scale[4], obs[:, 3]/self.obs_scale[5], obs[:, 12]/self.obs_scale[14]
-        done = (
-                (torch.abs(delta_y) > 3)
-                | (torch.abs(vy1) > 5)
-                | (torch.abs(delta_phi) > np.pi/2)
+        delta_x, delta_y, delta_phi, delta_x2, delta_y2, delta_phi2 = obs[:, 0]/self.obs_scale[0], obs[:, 1]/self.obs_scale[1], obs[:, 2]/self.obs_scale[2], obs[:, 3]/self.obs_scale[3], obs[:, 4]/self.obs_scale[4], obs[:, 5]/self.obs_scale[5]
+        done = ((torch.abs(delta_x) > 5)
+                |(torch.abs(delta_y) > 3)
+                | (torch.abs(delta_phi) > np.pi)
+                | (torch.abs(delta_x2) > 5)
                 | (torch.abs(delta_y2) > 3)
-                | (torch.abs(delta_phi2) > np.pi / 2)
+                | (torch.abs(delta_phi2) > np.pi )
         )
         return done
 

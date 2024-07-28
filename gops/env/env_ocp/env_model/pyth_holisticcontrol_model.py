@@ -149,7 +149,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         Ec_matrix = torch.eye(8)
         # active control bool matrix
-        Ew_matrix = torch.eye(8) # torch.diag(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0.]))
+        Ew_matrix =  torch.diag(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0.])) #torch.eye(8)
 
         A1_matrix = torch.zeros((8, 5))
 

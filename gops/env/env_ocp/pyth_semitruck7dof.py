@@ -31,7 +31,7 @@ class Ref_Route:
     def __init__(self):
         self.preview_index = 5
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = current_dir + "/resources/cury.csv"
+        root_dir = current_dir + "/resources/DLC_path.csv"
         self.ref_traj = read_path(root_dir)
 
     def find_nearest_point(self, traj_points):

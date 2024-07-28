@@ -22,7 +22,7 @@ class Env(gym.Env):
     """
 
     def __init__(self, **kwargs):
-        self.env = gym.make("CarRacing-v1")
+        self.env = gym.make("CarRacing-v2")
         # self.env.seed(0)
         self.reward_threshold = self.env.spec.reward_threshold
         self.action_repeat = 4

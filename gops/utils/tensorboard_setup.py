@@ -20,7 +20,7 @@ import signal
 
 import tensorboard.backend.application
 
-DEFAULT_TB_PORT = 6001
+DEFAULT_TB_PORT = 6002
 
 
 def read_tensorboard(path):

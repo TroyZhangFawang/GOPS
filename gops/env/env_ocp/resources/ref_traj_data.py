@@ -286,4 +286,4 @@ def plot_traj(t, dt):
     plt.grid(True)
     plt.show()
 
-plot_traj(t=0, dt=0.01)
+# plot_traj(t=0, dt=0.01)

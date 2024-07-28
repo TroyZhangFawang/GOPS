@@ -26,7 +26,7 @@ from gops.utils.tensorboard_setup import start_tensorboard, save_tb_to_csv
 
 
 if __name__ == "__main__":
-    # Parameters Setup
+# Parameters Setup
     parser = argparse.ArgumentParser()
 
     ################################################
