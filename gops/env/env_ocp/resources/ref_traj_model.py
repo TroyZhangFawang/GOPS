@@ -49,6 +49,9 @@ class MultiRefTrajModel:
             DoubleLaneRefTrajModel(ref_speeds, **self.path_param["double_lane"]),
             TriangleRefTrajModel(ref_speeds, **self.path_param["triangle"]),
             CircleRefTrajModel(ref_speeds, **self.path_param["circle"]),
+            TriangleRefTrajModel(ref_speeds, **self.path_param["straight_lane"]),
+            UTurnRefTrajModel(ref_speeds, **self.path_param["u_turn"]),
+            WaterDropRefTrajModel(ref_speeds, **self.path_param["water_drop"]),
         ]
 
     def compute_x(
@@ -233,7 +236,7 @@ class CircleRefTrajModel(RefTrajModel):
 
 
 @dataclass
-class UTurnRefTrajData(RefTrajModel):
+class UTurnRefTrajModel(RefTrajModel):
     r: float  # 转弯半径
     l1: float  # 第一段直线长度
     l2: float  # 第二段直线长度
@@ -251,22 +254,23 @@ class UTurnRefTrajData(RefTrajModel):
         return self._compute_y_from_distance(distance)
 
     def _compute_x_from_distance(self, distance: torch.Tensor) -> torch.Tensor:
-        if distance <= self.l1:  # 第一段直线
-            return distance
-        elif distance <= self.l1 + torch.pi * self.r:  # 半圆弧
-            arc_length = distance - self.l1
-            return self.l1 + self.r * torch.sin(arc_length / self.r)
-        else:  # 第二段直线
-            return self.l1 - (distance - self.l1 - torch.pi * self.r)
+        mask1 = distance <= self.l1  # 第一段直线
+        x1 = distance
+        mask2 = distance <= self.l1 + torch.pi * self.r  # 半圆弧
+        x2 = self.l1 + self.r * torch.sin((distance - self.l1) / self.r)
+        mask3 = distance > self.l1 + torch.pi * self.r
+        x3 = self.l1 - (distance - self.l1 - torch.pi * self.r)# 第二段直线
+        return x1 * mask1 + x2 * mask2 + x3 * mask3
 
     def _compute_y_from_distance(self, distance: torch.Tensor) -> torch.Tensor:
-        if distance <= self.l1:  # 第一段直线
-            return torch.zeros_like(distance)
-        elif distance <= self.l1 + torch.pi * self.r:  # 半圆弧
-            arc_length = distance - self.l1
-            return self.r * (1 - torch.cos(arc_length / self.r))
-        else:  # 第二段直线
-            return 2 * self.r
+        mask1 = distance <= self.l1  # 第一段直线
+        y1 = torch.zeros_like(distance)
+        mask2 = distance <= self.l1 + torch.pi * self.r  # 半圆弧
+        y2 = self.r * (1 - torch.cos((distance - self.l1) / self.r))
+        mask3 = distance > self.l1 + torch.pi * self.r
+        y3 = 2 * self.r# 第二段直线
+        return y1 * mask1 + y2 * mask2 + y3 * mask3
+
 
 
 @dataclass

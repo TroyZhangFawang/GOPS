@@ -459,8 +459,6 @@ class Semitruckpu7dof(PythBaseEnv):
             "ref_time2": self.t2,
         }
 
-
-
 def state_error_calculate(
     ego_x: np.ndarray,
     ego_y: np.ndarray,

@@ -565,10 +565,16 @@ class Semitruckpu7dofModel(PythBaseModel):
                                                                        self.action_dim)), \
                                                              torch.zeros((step + 1, self.batch_size,
                                                                           self.state_dim, 1))
+        path_num_rollout = torch.zeros((step + 1, self.batch_size))
+        u_num_rollout = torch.zeros((step + 1, self.batch_size))
+        ref_time2_rollout = torch.zeros((step + 1, self.batch_size))
         state = info["state"]
         ref_tractor = info["ref_points"]
         state_traj_opt[0, :, :] = state[:, :].clone().detach()
         costate_traj_opt[step, :, :] = 0
+        ref_time2_rollout[0, :] = info["ref_time2"]
+        path_num_rollout[0, :] = info["path_num"]
+        u_num_rollout[0, :] = info["u_num"]
         a = networks.policy.forward_all_policy(o)
         for k in range(step):
             if k == 0:
@@ -580,7 +586,6 @@ class Semitruckpu7dofModel(PythBaseModel):
             a.requires_grad_(True)
             dfx_jacobian_list = []
             dcx_jacobian_list = []
-
             for i in range(self.batch_size):
                 action_last_i = self.action_last[i, 0]
                 dfx_jacobian_i = jacobian(self.vehicle_dynamics.stepPhysics_i,
@@ -599,11 +604,16 @@ class Semitruckpu7dofModel(PythBaseModel):
             state_traj_opt[k+1, :, :] = state[:, :].detach()
             state = info["state"]
             ref_tractor = info["ref_points"]
-
+            ref_time2_rollout[k+1, :] = info["ref_time2"]
+            path_num_rollout[k+1, :] = info["path_num"]
+            u_num_rollout[k+1, :] = info["u_num"]
         costate_traj_opt = torch.reshape(costate_traj_opt, (step + 1, self.batch_size, self.state_dim))
         traj = {"state_traj_opt": state_traj_opt,
                 "control_traj_opt": control_traj_opt,
-                "costate_traj_opt": costate_traj_opt.detach().numpy()}
+                "costate_traj_opt": costate_traj_opt.detach().numpy(),
+                "ref_time2_rollout": ref_time2_rollout,
+                "path_num_rollout": path_num_rollout,
+                "u_num_rollout": u_num_rollout}
         return traj
 
     # def Rollout_Trajectory_PDP(self, obs, info, controller, step, cost_paras):
