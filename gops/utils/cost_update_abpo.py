@@ -66,8 +66,8 @@ class cost_update:
 
             dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
             x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
-            # ((x2-x2_ref)**2+(y2-y2_ref)**2) +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2
-            dloss = jacobian(sum1(sum2(((x_1[3] - x_2[0]) ** 2+(x_1[4] - x_2[1]) ** 2)+x_1[12]**2+x_1[13]**2+x_1[10]**2+(x_1[11])**2+(x_1[5]-x_2[2])**2)), x_1)
+            # ((x2-x2_ref)**2+(y2-y2_ref)**2) +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2 ((x_1[3] - x_2[0]) ** 2+)
+            dloss = jacobian(sum1(sum2((x_1[4] - x_2[1]) ** 2+x_1[12]**2+x_1[13]**2+x_1[10]**2+(x_1[11])**2+(x_1[5]-x_2[2])**2)), x_1)
             dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
             for i_step in range(self.horizon):
                 next_t2 = traj['ref_time2_rollout'][i_step, i]
@@ -117,9 +117,9 @@ class cost_update:
             file_handle.write("-------" + str(iter_up) + " th upper iters-------" + '\n')
             file_handle.write(str({'results': save_data}) + '\n')
         return cost_paras
-
+    #(state[:, :,  3] - state_up[:, :, 0]) ** 2+
     def loss_upper_evaluator_3d(self, state, state_up):
-        L = (((state[:, :,  3] - state_up[:, :, 0]) ** 2+(state[:, :,  4] - state_up[:, :, 1]) ** 2) +
+        L = (((state[:, :,  4] - state_up[:, :, 1]) ** 2) +
              state[:, :, 12] ** 2 +
              state[:, :, 13] ** 2 +
              state[:, :, 10] ** 2 +

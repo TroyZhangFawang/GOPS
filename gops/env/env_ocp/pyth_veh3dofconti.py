@@ -111,7 +111,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             dtype=np.float32,
         )
         self.dt = 0.1
-        self.max_episode_steps = 200
+        self.max_episode_steps = 3000
 
         self.state = None
         self.path_num = None

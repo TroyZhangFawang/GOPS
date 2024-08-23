@@ -174,16 +174,16 @@ class VehicleDynamicsData:
         B_matrix[0, 0] = self.B11
         B_matrix[1, 0] = self.B21
         B_matrix[2, 0] = self.B31
-        # beta1dot, psi1_dotdot, phi1dot, phi1_dotdot,
-        # beta2dot, psi2_dotdot, phi2dot, phi2_dotdot,
+        # beta1dot, phi1_dotdot, psi1dot, psi1_dotdot,
+        # beta2dot, phi2_dotdot, psi2dot, psi2_dotdot,
         # psi1dot, psi2dot, vy1dot py1dot,
         X_dot = (np.matmul(np.matmul(np.linalg.inv(M_matrix), A_matrix), X_matrix) + np.matmul(
             np.linalg.inv(M_matrix), np.matmul(B_matrix, actions))).squeeze()
 
         #px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
-        state_next[0] = states[0] + delta_t * self.v_x
-        state_next[1] = states[1] + delta_t * X_dot[11]
+        state_next[0] = states[0] + delta_t * (self.v_x * np.cos(states[2]) - states[14] * np.sin(states[2]))
+        state_next[1] = states[1] + delta_t * (self.v_x * np.sin(states[2]) + states[14] * np.cos(states[2]))
         state_next[2] = states[2] + delta_t * X_dot[8]
         state_next[3] = state_next[0] - self.b * np.cos(states[2]) - self.e * np.cos(
             states[5])  # posx_trailer
@@ -209,9 +209,11 @@ class Semitruckpu7dof(PythBaseEnv):
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
-            # initial range of delta_px1, delta_py1, delta_psi1, delta_px2, delta_py2, delta_psi2,
-            # beta1, psi1_dot, varphi1, varphi1_dot, \
-            # beta2, psi2_dot, varphi2, varphi2_dot, vy1]
+            # initial range of delta_px1, delta_py1, delta_phi1, delta_px2, delta_py2, delta_phi2,
+            # beta1, phi1_dot, varphi1, varphi1_dot, \
+            # beta2, phi2_dot, varphi2, varphi2_dot, \
+            # vy1]
+
             # 用高斯分布去采样
             init_high = np.array([2, 2, 0.1, 2, 2, 0.1,
                                   0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
@@ -249,6 +251,10 @@ class Semitruckpu7dof(PythBaseEnv):
 
         self.state = None
         self.ref_points = None
+        self.t = None
+        self.t2 = None
+        self.path_num = None
+        self.u_num = None
 
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
@@ -278,7 +284,7 @@ class Semitruckpu7dof(PythBaseEnv):
         if ref_time is not None:
             self.t = ref_time
         else:
-            self.t = 10.0 * self.np_random.uniform(0.0, 1.0)
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
 
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
@@ -292,12 +298,12 @@ class Semitruckpu7dof(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1, 2, 3, 4, 5, 6])
+            self.path_num = self.np_random.choice([0, 1, 2, 3, 4, 5]) #, 6
 
         if u_num is not None:
             self.u_num = u_num
         else:
-            self.u_num = self.np_random.choice([1])
+            self.u_num = 0#self.np_random.choice([1])
 
 
         ref_points = []
@@ -329,13 +335,6 @@ class Semitruckpu7dof(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-
-        # delta_state[0] = 0  # 该起始位置对cury效果比较好 5-jturn
-        # delta_state[1] = 0
-        # delta_state[3] = delta_state[0] - self.vehicle_dynamics.b * np.cos(delta_state[2]) - self.vehicle_dynamics.e * np.cos(
-        #     delta_state[5])  # posx_trailer
-        # delta_state[4] = delta_state[1] - self.vehicle_dynamics.b * np.sin(delta_state[2]) - self.vehicle_dynamics.e * np.sin(
-        #     delta_state[5])  # posy_trailer
 
         self.state = np.concatenate(
             (self.ref_points[0] + delta_state[:6], delta_state[6:])
@@ -392,44 +391,44 @@ class Semitruckpu7dof(PythBaseEnv):
         return obs, reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
-        ref_x_tf, ref_y_tf, ref_psi_tf = \
+        ref_x_tf, ref_y_tf, ref_phi_tf = \
             ego_vehicle_coordinate_transform(
                 self.state[0], self.state[1], self.state[2],
                 self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2],
             )
 
-        ref_x2_tf, ref_y2_tf, ref_psi2_tf = \
+        ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
             ego_vehicle_coordinate_transform(
                 self.state[3], self.state[4], self.state[5],
                 self.ref_points[:, 3], self.ref_points[:, 4], self.ref_points[:, 5],
             )
 
         # ego_obs: [
-        # delta_y, delta_psi, delta_y2, delta_psi2 (of the first reference point)
+        # delta_y, delta_phi, delta_y2, delta_phi2 (of the first reference point)
         # v, w, varphi (of ego vehicle, including tractor and trailer)
         # ]
 
         ego_obs = np.concatenate(
-            ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_psi_tf[0]*self.obs_scale[2], ref_x2_tf[0]*self.obs_scale[3], ref_y2_tf[0]*self.obs_scale[4], ref_psi2_tf[0]*self.obs_scale[5]],
+            ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_x2_tf[0]*self.obs_scale[3], ref_y2_tf[0]*self.obs_scale[4], ref_phi2_tf[0]*self.obs_scale[5]],
              self.state[6:14], self.state[14:]*self.obs_scale[14]))
         # ref_obs: [
-        # delta_y, delta_psi (of the second to last reference point)
+        # delta_y, delta_phi (of the second to last reference point)
         # ]
-        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_psi_tf*self.obs_scale[2], ref_x2_tf*self.obs_scale[3],ref_y2_tf*self.obs_scale[4], ref_psi2_tf*self.obs_scale[5]), 1)[1:].flatten()
+        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_x2_tf*self.obs_scale[3],ref_y2_tf*self.obs_scale[4], ref_phi2_tf*self.obs_scale[5]), 1)[1:].flatten()
         return np.concatenate((ego_obs, ref_obs))
 
     def compute_reward(self, action: np.ndarray) -> float:
-        px1, py1, psi1, px2, py2, psi2, beta1, psi1_dot, varphi1, varphi1_dot, \
-        beta2, psi2_dot, varphi2, varphi2_dot, \
+        px1, py1, phi1, px2, py2, phi2, beta1, phi1_dot, varphi1, varphi1_dot, \
+        beta2, phi2_dot, varphi2, varphi2_dot, \
         vy1 = self.state
 
-        ref_x, ref_y, ref_psi = self.ref_points[0][0:3]
+        ref_x, ref_y, ref_phi = self.ref_points[0][0:3]
         steer = action[0]
         return -(
             1 * ((px1 - ref_x) ** 2 + (py1 - ref_y) ** 2)
             + 0.9 * vy1 ** 2
-            + 0.8 * angle_normalize(psi1 - ref_psi) ** 2
-            + 0.5 * psi1_dot ** 2
+            + 0.8 * angle_normalize(phi1 - ref_phi) ** 2
+            + 0.5 * phi1_dot ** 2
             + 0.5 * beta1 ** 2
             + 0.5 * varphi1 ** 2
             + 0.5 * varphi1_dot ** 2
@@ -438,12 +437,12 @@ class Semitruckpu7dof(PythBaseEnv):
         )
 
     def judge_done(self) -> bool:
-        done = ((abs(self.state[0]-self.ref_points[0, 0]) > 5)  # delta_x1
-                 +(abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
-                  + (abs(angle_normalize(self.state[2]-self.ref_points[0, 2])) > np.pi)  # delta_psi1
-                + (abs(self.state[3] - self.ref_points[0, 3]) > 5)  # delta_y2
-                  + (abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
-                  + (abs(angle_normalize(self.state[5]-self.ref_points[0, 5])) > np.pi))  # delta_psi2
+        done = ((np.abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
+                  + (np.abs(angle_normalize(self.state[2]-self.ref_points[0, 2])) > np.pi)  # delta_phi1
+                  + (np.abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
+                  + (np.abs(angle_normalize(self.state[5]-self.ref_points[0, 5])) > np.pi))  # delta_phi2
+        #(np.abs(self.state[0]-self.ref_points[0, 0]) > 5)+   # delta_x1
+        #+ (np.abs(self.state[3] - self.ref_points[0, 3]) > 5)  # delta_x2
         return done
 
     @property

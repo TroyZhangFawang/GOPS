@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="pyth_semitruckpu7dof")
     parser.add_argument("--cost_paras", type=list, default=[1, 0.9, 0.8, 0.5, 0.5, 0.5, 0.5, 0.4, 2.0])#[1.0827611 , 1.00093552, 0.80229881, 0.57172105, 0.50084567, 0.50005888, 0.5023708 , 0.35336234, 1.95336234]
     parser.add_argument("--algorithm", type=str, default="FHADP2")
-    parser.add_argument("--pre_horizon", type=int, default=30)
+    parser.add_argument("--pre_horizon", type=int, default=100)
     parser.add_argument("--enable_cuda", default=False)
     ################################################
     # 1. Parameters for environment
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=50000)
+    parser.add_argument("--max_iteration", type=int, default=100000)
     parser.add_argument("--max_iteration_upper", type=int, default=20)  # iteration of outer loop (Theta update)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_folder", type=str, default=None)
     parser.add_argument("--save_folder_upper", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=5000)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=10000)
     # Save key info every N updates
     parser.add_argument("--log_save_interval", type=int, default=2000)
 

@@ -29,16 +29,15 @@ DEFAULT_PATH_PARAM = {
     "triangle": {"A": 3.0, "T": 10.0, },
     "circle": {"r": 100.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
-    "u_turn": {"r": 15.0, "l1": 30.0,  "l2": 30.0},
-    "water_drop": {"a": 40.0,
-        "b": 50.0}
+    "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
+    "figure_eight": {"a": 200.0}
 }
 
 DEFAULT_SPEED_PARAM = {
-    "sine": {"A": 1.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 5.0,},
     "constant": {"u": 20.0, },
+    # "sine": {"A": 1.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 5.0,},
 }
-
+#
 
 class MultiRefTrajData:
     def __init__(
@@ -57,9 +56,10 @@ class MultiRefTrajData:
                 self.speed_param[k].update(v)
 
         ref_speeds = [
-            SineRefSpeedData(**self.speed_param["sine"]),
             ConstantRefSpeedData(**self.speed_param["constant"]),
+            # SineRefSpeedData(**self.speed_param["sine"]),
         ]
+        #
 
         self.ref_trajs: Sequence[RefTrajData] = [
             SineRefTrajData(ref_speeds, **self.path_param["sine"]),
@@ -68,7 +68,7 @@ class MultiRefTrajData:
             CircleRefTrajData(ref_speeds, **self.path_param["circle"]),
             TriangleRefTrajData(ref_speeds, **self.path_param["straight_lane"]),
             UTurnRefTrajData(ref_speeds, **self.path_param["u_turn"]),
-            WaterDropRefTrajData(ref_speeds, **self.path_param["water_drop"])
+            FigureEightRefTrajData(ref_speeds, **self.path_param["figure_eight"])
         ]
 
     def compute_x(self, t: float, path_num: int, speed_num: int) -> float:
@@ -233,11 +233,12 @@ class UTurnRefTrajData(RefTrajData):
     def _compute_x_from_distance(self, distance: float) -> float:
         if distance <= self.l1:  # 第一段直线
             return distance
+
         elif distance <= self.l1 + np.pi * self.r:  # 半圆弧
             arc_length = distance - self.l1
             return self.l1 + self.r * np.sin(arc_length / self.r)
         else:  # 第二段直线
-            return self.l1 - (distance - self.l1 - np.pi * self.r)
+            return self.l2 - (distance - self.l1 - np.pi * self.r)
 
     def _compute_y_from_distance(self, distance: float) -> float:
         if distance <= self.l1:  # 第一段直线
@@ -253,10 +254,26 @@ class WaterDropRefTrajData(RefTrajData):
     a: float
     b: float
     def compute_x(self, t: float, speed_num: int) -> float:
-        return self.a * (np.cos(t)) * np.cos(t)
+        return -self.a * (np.cos(t)/(1+np.sin(t)**2)-1)
 
     def compute_y(self, t: float, speed_num: int) -> float:
-        return self.a**2 * (np.cos(t)) * (np.cos(t)**2) * np.sin(t) / self.b
+        return -self.b * np.cos(t) * np.sin(t)/(1+np.sin(t)**2)
+
+
+@dataclass
+class FigureEightRefTrajData(RefTrajData):
+    a: float  # 控制八字形大小的参数
+
+    def compute_x(self, t: float, speed_num: int) -> float:
+        arc_len = self.ref_speeds[speed_num].compute_integrate_u(t)
+        theta = arc_len / self.a
+        return self.a * np.sin(theta) / (1 + np.cos(theta)**2)
+
+    def compute_y(self, t: float, speed_num: int) -> float:
+        arc_len = self.ref_speeds[speed_num].compute_integrate_u(t)
+        theta = arc_len / self.a
+        return self.a * np.sin(theta) * np.cos(theta) / (1 + np.cos(theta)**2)
+
 
 
 import matplotlib.pyplot as plt
@@ -265,11 +282,11 @@ def plot_traj(t, dt):
     path_para = None
     u_para = None
     ref_traj = MultiRefTrajData(path_para, u_para)
-    path_num = 3
-    u_num = 1
+    path_num = 6
+    u_num = 0
     x = []
     y = []
-    for i in range(1500):
+    for i in range(10000):
         ref_x = ref_traj.compute_x(
             t + i * dt, path_num, u_num
         )

@@ -40,10 +40,10 @@ class MultiRefTrajModel:
                 self.speed_param[k].update(v)
 
         ref_speeds = [
-            SineRefSpeedModel(**self.speed_param["sine"]),
+
             ConstantRefSpeedModel(**self.speed_param["constant"]),
         ]
-
+        #SineRefSpeedModel(**self.speed_param["sine"]),
         self.ref_trajs: Sequence[RefTrajModel] = [
             SineRefTrajModel(ref_speeds, **self.path_param["sine"]),
             DoubleLaneRefTrajModel(ref_speeds, **self.path_param["double_lane"]),
@@ -51,7 +51,7 @@ class MultiRefTrajModel:
             CircleRefTrajModel(ref_speeds, **self.path_param["circle"]),
             TriangleRefTrajModel(ref_speeds, **self.path_param["straight_lane"]),
             UTurnRefTrajModel(ref_speeds, **self.path_param["u_turn"]),
-            WaterDropRefTrajModel(ref_speeds, **self.path_param["water_drop"]),
+            FigureEightRefTrajModel(ref_speeds, **self.path_param["figure_eight"]),
         ]
 
     def compute_x(
@@ -259,7 +259,7 @@ class UTurnRefTrajModel(RefTrajModel):
         mask2 = distance <= self.l1 + torch.pi * self.r  # 半圆弧
         x2 = self.l1 + self.r * torch.sin((distance - self.l1) / self.r)
         mask3 = distance > self.l1 + torch.pi * self.r
-        x3 = self.l1 - (distance - self.l1 - torch.pi * self.r)# 第二段直线
+        x3 = self.l2 - (distance - self.l1 - torch.pi * self.r)# 第二段直线
         return x1 * mask1 + x2 * mask2 + x3 * mask3
 
     def _compute_y_from_distance(self, distance: torch.Tensor) -> torch.Tensor:
@@ -274,11 +274,21 @@ class UTurnRefTrajModel(RefTrajModel):
 
 
 @dataclass
-class WaterDropRefTrajModel(RefTrajModel):
+class FigureEightRefTrajModel(RefTrajModel):
     a: float
-    b: float
     def compute_x(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
-        return self.a*torch.cos(t)*torch.cos(t)
+        arc_len = torch.zeros_like(t)
+        for i, ref_speed in enumerate(self.ref_speeds):
+            arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
+        theta = arc_len / self.a
+        return self.a * torch.sin(theta) / (1 + torch.cos(theta)**2)
+
 
     def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
-        return self.a**2*(torch.cos(t)**3)*torch.sin(t) / self.b
+        arc_len = torch.zeros_like(t)
+        for i, ref_speed in enumerate(self.ref_speeds):
+            arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
+        theta = arc_len / self.a
+
+        return self.a * torch.sin(theta) * torch.cos(theta) / (1 + torch.cos(theta)**2)
+

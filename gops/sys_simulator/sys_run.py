@@ -2620,7 +2620,32 @@ class OptRunner:
                 path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
             )
             plt.close()
+        # plot state x-y
+        path_state_fmt = os.path.join(
+            self.save_path, "State-xy.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
 
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=state_list[i][:, 0], y=state_list[i][:, 1], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel("x", default_cfg["label_font"])
+        plt.ylabel("y", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
         # plot tracking
         if self.is_tracking:
             # find index of the longest trajectory

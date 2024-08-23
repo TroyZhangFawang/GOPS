@@ -189,11 +189,11 @@ class VehicleDynamicsModel(VehicleDynamicsData):
                                   X_matrix[batch, :]) +
                      torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, actions[batch, :]))).squeeze()
             X_dot_batch[batch, :] = X_dot
-        state_next[:, 0] = states[:, 0] + delta_t * self.v_x  # x_tractor
-        state_next[:, 1] = states[:, 1] + delta_t * X_dot_batch[:, 11]
+
+        state_next[:, 0] = states[:, 0] + delta_t * (self.v_x * torch.cos(states[:, 2].clone()) - states[:, 14].clone() * torch.sin(states[:, 2].clone()))  # x_tractor
+        state_next[:, 1] = states[:, 1] + delta_t * (self.v_x * torch.sin(states[:, 2].clone()) + states[:, 14].clone() * torch.cos(states[:, 2].clone()))
         state_next[:, 2] = states[:, 2] + delta_t * X_dot_batch[:, 8]
-        state_next[:, 3] = state_next[:, 0].clone() - self.b * torch.cos(
-            states[:, 2].clone()) - self.e * torch.cos(states[:, 5].clone())  # x_trailer
+        state_next[:, 3] = state_next[:, 0].clone() - self.b * torch.cos(states[:, 2].clone()) - self.e * torch.cos(states[:, 5].clone())  # x_trailer
         state_next[:, 4] = state_next[:, 1].clone() - self.b * torch.sin(
             states[:, 2].clone()) - self.e * torch.sin(states[:, 5].clone())  # posy_trailer
         state_next[:, 5] = states[:, 5] + delta_t * X_dot_batch[:, 9]
@@ -289,8 +289,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         X_dot = mtimes(mtimes(inv(M_matrix), A_matrix), X_matrix) + mtimes(mtimes(inv(M_matrix), B_matrix), self.U)
         # px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
-        self.dyn = vertcat(self.X[0] + delta_t * self.v_x,
-                           self.X[1] + delta_t * X_dot[11],
+        self.dyn = vertcat(self.X[0] + delta_t * (self.v_x * cos(self.X[2]) - self.X[14] * sin(self.X[2])),
+                           self.X[1] + delta_t * (self.v_x * sin(self.X[2]) + self.X[14] * cos(self.X[2])),
                            self.X[2] + delta_t * X_dot[8],
                            self.X[0] - self.b * cos(self.X[2]) - self.e * cos(self.X[5]),
                            self.X[1] - self.b * sin(self.X[2]) - self.e * sin(self.X[5]),
@@ -366,8 +366,8 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix), X_matrix)  +
                  torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, action))).squeeze()
 
-        state_next[0] = state_curr[0] + self.dt * self.v_x
-        state_next[1] = state_curr[1] + self.dt * X_dot[11]
+        state_next[0] = state_curr[0] + self.dt * (self.v_x * torch.cos(state_curr[2].clone()) - state_curr[14] * torch.sin(state_curr[2].clone()))
+        state_next[1] = state_curr[1] + self.dt * (self.v_x * torch.sin(state_curr[2].clone()) + state_curr[14] * torch.cos(state_curr[2].clone()))
         state_next[2] = state_curr[2] + self.dt * X_dot[8]
         state_next[3] = state_next[0] - self.b * torch.cos(state_curr[2].clone()) - self.e * torch.cos(
             state_curr[5].clone())  # posx_trailer
@@ -412,7 +412,8 @@ class Semitruckpu7dofModel(PythBaseModel):
         self.cost_dim = 7+2
         ego_obs_dim = 15
         ref_obs_dim = 6
-        obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10, 1, 1, 1, 1,
+        obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10,
+                             1, 1, 1, 1,
                              1, 1, 1, 1,
                              1/100]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
@@ -525,7 +526,7 @@ class Semitruckpu7dofModel(PythBaseModel):
         obs: torch.Tensor,
         action: torch.Tensor) -> torch.Tensor:
         return -(
-            self.cost_paras[0] * ((obs[:, 1]/self.obs_scale[1]) ** 2)
+            self.cost_paras[0] * ((obs[:, 0]/self.obs_scale[0]) ** 2+(obs[:, 1]/self.obs_scale[1]) ** 2)
             + self.cost_paras[1] * (obs[:, 14]/self.obs_scale[14]) ** 2
             + self.cost_paras[2] * (obs[:, 2]/self.obs_scale[2]) ** 2
             + self.cost_paras[3] * obs[:, 7] ** 2
@@ -538,13 +539,14 @@ class Semitruckpu7dofModel(PythBaseModel):
 
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
         delta_x, delta_y, delta_phi, delta_x2, delta_y2, delta_phi2 = obs[:, 0]/self.obs_scale[0], obs[:, 1]/self.obs_scale[1], obs[:, 2]/self.obs_scale[2], obs[:, 3]/self.obs_scale[3], obs[:, 4]/self.obs_scale[4], obs[:, 5]/self.obs_scale[5]
-        done = ((torch.abs(delta_x) > 5)
-                |(torch.abs(delta_y) > 3)
+        done = ((torch.abs(delta_y) > 3)
                 | (torch.abs(delta_phi) > np.pi)
-                | (torch.abs(delta_x2) > 5)
+
                 | (torch.abs(delta_y2) > 3)
-                | (torch.abs(delta_phi2) > np.pi )
+                | (torch.abs(delta_phi2) > np.pi)
         )
+        # (torch.abs(delta_x) > 5)|
+        #| (torch.abs(delta_x2) > 5)
         return done
 
     def update_cost_paras(self, cost_paras):
