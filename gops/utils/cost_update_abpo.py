@@ -66,7 +66,7 @@ class cost_update:
 
             dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
             x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
-            # ((x2-x2_ref)**2+(y2-y2_ref)**2) +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2 ((x_1[3] - x_2[0]) ** 2+)
+            # ((y2-y2_ref)**2) +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2 ((x_1[3] - x_2[0]) ** 2+)
             dloss = jacobian(sum1(sum2((x_1[4] - x_2[1]) ** 2+x_1[12]**2+x_1[13]**2+x_1[10]**2+(x_1[11])**2+(x_1[5]-x_2[2])**2)), x_1)
             dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
             for i_step in range(self.horizon):

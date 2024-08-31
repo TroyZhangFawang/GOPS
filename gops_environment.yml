@@ -5,9 +5,9 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.8
-  - pytorch>=1.13.0
-  - numpy>1.16.0
+  - python=3.7.9
+  - pytorch
+  - numpy
   - ray-default>=1.0.0
   - pandas
   - tensorboard>=2.5.0

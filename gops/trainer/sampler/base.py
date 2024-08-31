@@ -23,6 +23,7 @@ from gops.env.vector.vector_env import VectorEnv
 from gops.utils.common_utils import set_seed
 from gops.utils.explore_noise import GaussNoise, EpsilonGreedy
 from gops.utils.tensorboard_setup import tb_tags
+from gops.utils.control.SimpleController import SimpleController
 
 
 class Experience(NamedTuple):
@@ -38,15 +39,16 @@ class Experience(NamedTuple):
 
 class BaseSampler(metaclass=ABCMeta):
     def __init__(
-        self, 
-        sample_batch_size,
-        index=0, 
-        noise_params=None,
-        **kwargs
+            self,
+            sample_batch_size,
+            index=0,
+            noise_params=None,
+            **kwargs
     ):
         self.env = create_env(**kwargs)
-        _, self.env = set_seed(kwargs["trainer"], kwargs["seed"], index + 200, self.env)  #? seed here?
+        _, self.env = set_seed(kwargs["trainer"], kwargs["seed"], index + 200, self.env)  # ? seed here?
         self.networks = create_approx_contrainer(**kwargs)
+        self.networks.eval()
         self.noise_params = noise_params
         self.sample_batch_size = sample_batch_size
         if isinstance(self.env, VectorEnv):
@@ -61,13 +63,13 @@ class BaseSampler(metaclass=ABCMeta):
             self.num_envs = 1
             self.horizon = self.sample_batch_size
         self.action_type = kwargs["action_type"]
-        self.reward_scale = 1.0  #? why hard-coded?
+        self.reward_scale = 1.0  # ? why hard-coded?
         if self.noise_params is not None:
             if self.action_type == "continu":
                 self.noise_processor = GaussNoise(**self.noise_params)
             elif self.action_type == "discret":
                 self.noise_processor = EpsilonGreedy(**self.noise_params)
-        
+
         self.total_sample_number = 0
         self.obs, self.info = self.env.reset()
         if self._is_vector:
@@ -75,8 +77,11 @@ class BaseSampler(metaclass=ABCMeta):
             # e.g. next_info = {"a": [1, 2, 3], "b": [4, 5, 6]} ->
             #      unbatched_infos = [{"a": 1, "b": 4}, {"a": 2, "b": 5}, {"a": 3, "b": 6}]
             # ref: https://stackoverflow.com/questions/5558418/list-of-dicts-to-from-dict-of-lists
-            self.info = [dict(zip(self.info, t)) for t in zip(*self.info.values())] if self.info else [{}] * self.num_envs
-
+            self.info = [dict(zip(self.info, t)) for t in zip(*self.info.values())] if self.info else [
+                                                                                                          {}] * self.num_envs
+        self.controller = SimpleController()
+        self.kwargs = kwargs
+        # self.env.close()
     def load_state_dict(self, state_dict):
         self.networks.load_state_dict(state_dict)
 
@@ -90,14 +95,14 @@ class BaseSampler(metaclass=ABCMeta):
         end_time = time.perf_counter()
         tb_info[tb_tags["sampler_time"]] = (end_time - start_time) * 1000
         return data, tb_info
-    
+
     @abstractmethod
     def _sample(self) -> Union[List[Experience], dict]:
         pass
 
     def get_total_sample_number(self) -> int:
         return self.total_sample_number
-    
+
     def _step(self) -> List[Experience]:
         # take action using behavior policy
         if not self._is_vector:
@@ -119,17 +124,26 @@ class BaseSampler(metaclass=ABCMeta):
 
         if self.noise_params is not None:
             action = self.noise_processor.sample(action)
-        
+
         if self.action_type == "continu":
             action_clip = action.clip(
                 self.env.action_space.low, self.env.action_space.high
             )
         else:
             action_clip = action
-        
+
+        #  above action means the trajectory in planning task, unput the traj to the controller to get the control command
+
+        if "task" in self.kwargs.keys():
+            self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
+            action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
+            # add 0 to match the dimension of the env
+            action_clip = np.hstack((action_control, np.array([0] * 18)))
         # interact with environment
         if self._is_vector:
+            curr_obs = self.obs.copy()
             next_obs, reward, terminated, truncated, next_info = self.env.step(action_clip)
+            self.obs = next_obs.copy()
             # For vector env, next_obs, reward, terminated, truncated, and next_info are batched data,
             # and vector env will automatically reset the environment when terminated or truncated is True,
             # So we need to get real final observation and info from next_info.
@@ -139,26 +153,26 @@ class BaseSampler(metaclass=ABCMeta):
                 # get the index where next_info["_final_observation"] is True
                 index = np.where(next_info["_final_observation"])[0]
                 next_obs[index, :] = np.stack(next_info["final_observation"][index])
-                
-            
+
             # convert a dict of batched data to a list of dicts of unbatched data
             # e.g. next_info = {"a": [1, 2, 3], "b": [4, 5, 6]} ->
             #      unbatched_infos = [{"a": 1, "b": 4}, {"a": 2, "b": 5}, {"a": 3, "b": 6}]
             # ref: https://stackoverflow.com/questions/5558418/list-of-dicts-to-from-dict-of-lists
             unbatched_infos = [dict(zip(next_info, t)) for t in zip(*next_info.values())]
-            
+
             # Get real final info
             if "final_info" in next_info.keys():
                 for i in index:
                     unbatched_infos[i] = next_info["final_info"][i]
 
-            experiences = [Experience(*e) for e in zip(self.obs, action, reward, terminated, self.info, next_obs, unbatched_infos, logp)]
+            experiences = [Experience(*e) for e in
+                           zip(curr_obs, action, reward, terminated, self.info, next_obs, unbatched_infos, logp)]
 
-            self.obs = next_obs
+            # self.obs = next_obs
             self.info = unbatched_infos
 
             return experiences
-            
+
         else:
             next_obs, reward, done, next_info = self.env.step(action_clip)
 
@@ -167,7 +181,7 @@ class BaseSampler(metaclass=ABCMeta):
                 next_info["TimeLimit.truncated"] = False
             if next_info["TimeLimit.truncated"]:
                 done = False
-        
+
             experience = Experience(
                 obs=self.obs.copy(),
                 action=action,
@@ -178,7 +192,7 @@ class BaseSampler(metaclass=ABCMeta):
                 next_info=next_info,
                 logp=logp,
             )
-            
+
             self.obs = next_obs
             self.info = next_info
             if done or next_info["TimeLimit.truncated"]:

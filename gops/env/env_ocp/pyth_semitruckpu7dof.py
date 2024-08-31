@@ -183,7 +183,7 @@ class VehicleDynamicsData:
         #px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
         state_next[0] = states[0] + delta_t * (self.v_x * np.cos(states[2]) - states[14] * np.sin(states[2]))
-        state_next[1] = states[1] + delta_t * (self.v_x * np.sin(states[2]) + states[14] * np.cos(states[2]))
+        state_next[1] = states[1] + delta_t * X_dot[11]#(self.v_x * np.sin(states[2]) + states[14] * np.cos(states[2]))
         state_next[2] = states[2] + delta_t * X_dot[8]
         state_next[3] = state_next[0] - self.b * np.cos(states[2]) - self.e * np.cos(
             states[5])  # posx_trailer
@@ -247,7 +247,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 3000
+        self.max_episode_steps = 300
 
         self.state = None
         self.ref_points = None
@@ -425,7 +425,7 @@ class Semitruckpu7dof(PythBaseEnv):
         ref_x, ref_y, ref_phi = self.ref_points[0][0:3]
         steer = action[0]
         return -(
-            1 * ((px1 - ref_x) ** 2 + (py1 - ref_y) ** 2)
+            1 * ((py1 - ref_y) ** 2) #(px1 - ref_x) ** 2 +
             + 0.9 * vy1 ** 2
             + 0.8 * angle_normalize(phi1 - ref_phi) ** 2
             + 0.5 * phi1_dot ** 2
