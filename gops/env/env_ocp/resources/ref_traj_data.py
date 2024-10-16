@@ -27,7 +27,7 @@ DEFAULT_PATH_PARAM = {
         "y2": 3.5,
     },
     "triangle": {"A": 3.0, "T": 10.0, },
-    "circle": {"r": 100.0, },
+    "circle": {"r": 50.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 200.0}
@@ -35,9 +35,13 @@ DEFAULT_PATH_PARAM = {
 
 DEFAULT_SPEED_PARAM = {
     "constant": {"u": 20.0, },
-    # "sine": {"A": 1.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 5.0,},
+    "sine": {"A": 1.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
 }
-#
+
+DEFAULT_SLOPE_PARAM = {
+    "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
+    "sine": {"A": 0.1, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+}
 
 class MultiRefTrajData:
     def __init__(
@@ -57,7 +61,7 @@ class MultiRefTrajData:
 
         ref_speeds = [
             ConstantRefSpeedData(**self.speed_param["constant"]),
-            # SineRefSpeedData(**self.speed_param["sine"]),
+            SineRefSpeedData(**self.speed_param["sine"]),
         ]
         #
 
@@ -84,6 +88,28 @@ class MultiRefTrajData:
         return self.ref_trajs[path_num].compute_phi(t, speed_num)
 
 
+class MultiRoadSlopeData:
+    def __init__(
+        self,
+        slope_param: Optional[Dict[str, Dict]] = None,
+    ):
+        self.slope_param = deepcopy(DEFAULT_SLOPE_PARAM)
+        if slope_param is not None:
+            for k, v in slope_param.items():
+                self.slope_param[k].update(v)
+
+        self.ref_slope = [
+            ConstantRefSlopeData(**self.slope_param["constant"]),
+            SineRefSlopeData(**self.slope_param["sine"]),
+        ]
+
+    def compute_longislope(self, t: float, slope_num: int) -> float:
+        return self.ref_slope[slope_num].compute_longislope(t)
+
+    def compute_latslope(self, t: float, slope_num: int) -> float:
+        return self.ref_slope[slope_num].compute_latslope(t)
+
+
 class RefSpeedData(metaclass=ABCMeta):
     @abstractmethod
     def compute_u(self, t: float) -> float:
@@ -93,6 +119,15 @@ class RefSpeedData(metaclass=ABCMeta):
     def compute_integrate_u(self, t: float) -> float:
         ...
 
+
+class RefSlopeData(metaclass=ABCMeta):
+    @abstractmethod
+    def compute_longislope(self, t: float) -> float:
+        ...
+
+    @abstractmethod
+    def compute_latslope(self, t: float) -> float:
+        ...
 
 @dataclass
 class ConstantRefSpeedData(RefSpeedData):
@@ -275,6 +310,31 @@ class FigureEightRefTrajData(RefTrajData):
         return self.a * np.sin(theta) * np.cos(theta) / (1 + np.cos(theta)**2)
 
 
+@dataclass
+class ConstantRefSlopeData(RefSlopeData):
+    longi_slope: float
+    lat_slope: float
+
+    def compute_longislope(self, t: float) -> float:
+        return self.longi_slope
+
+    def compute_latslope(self, t: float) -> float:
+        return self.lat_slope
+
+
+@dataclass
+class SineRefSlopeData(RefSlopeData):
+    A: float
+    omega: float
+    phi: float
+    b: float
+
+    def compute_longislope(self, t: float) -> float:
+        return self.A * np.sin(self.omega * t + self.phi) + self.b
+
+    def compute_latslope(self, t: float) -> float:
+        return self.A * np.sin(self.omega * t + self.phi) + self.b
+
 
 import matplotlib.pyplot as plt
 
@@ -303,4 +363,31 @@ def plot_traj(t, dt):
     plt.grid(True)
     plt.show()
 
+
+def plot_slope(t, dt):
+    slope_para = None
+    ref_slope = MultiRoadSlopeData(slope_para)
+    slope_num = 1
+    longislope = []
+    latslope = []
+    time = []
+    for i in range(10000):
+        ref_longislope = ref_slope.compute_longislope(
+            t + i * dt, slope_num
+        )
+        ref_latslope = ref_slope.compute_latslope(
+            t + i * dt, slope_num
+        )
+        longislope.append(ref_longislope)
+        latslope.append(ref_latslope)
+        time.append(t + i * dt)
+    plt.figure()
+    plt.plot(time, longislope)
+    plt.xlabel("Time")
+    plt.ylabel("Longislope")
+    # plt.axis('equal')
+    plt.grid(True)
+    plt.show()
+
 # plot_traj(t=0, dt=0.01)
+# plot_slope(t=0, dt=0.01)

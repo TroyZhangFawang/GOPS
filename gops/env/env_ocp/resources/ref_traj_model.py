@@ -20,6 +20,7 @@ import torch
 from gops.env.env_ocp.resources.ref_traj_data import (
     DEFAULT_PATH_PARAM,
     DEFAULT_SPEED_PARAM,
+    DEFAULT_SLOPE_PARAM,
 )
 
 
@@ -40,10 +41,9 @@ class MultiRefTrajModel:
                 self.speed_param[k].update(v)
 
         ref_speeds = [
-
             ConstantRefSpeedModel(**self.speed_param["constant"]),
+            SineRefSpeedModel(**self.speed_param["sine"]),
         ]
-        #SineRefSpeedModel(**self.speed_param["sine"]),
         self.ref_trajs: Sequence[RefTrajModel] = [
             SineRefTrajModel(ref_speeds, **self.path_param["sine"]),
             DoubleLaneRefTrajModel(ref_speeds, **self.path_param["double_lane"]),
@@ -87,6 +87,37 @@ class MultiRefTrajModel:
         return phi
 
 
+class MultiRoadSlopeModel:
+    def __init__(
+        self,
+        slope_param: Optional[Dict[str, Dict]] = None,
+    ):
+        self.slope_param = deepcopy(DEFAULT_SLOPE_PARAM)
+        if slope_param is not None:
+            for k, v in slope_param.items():
+                self.slope_param[k].update(v)
+
+        self.ref_slope: Sequence[RefSlopeModel] = [
+            ConstantRefSlopeModel(**self.slope_param["constant"]),
+            SineRefSlopeModel(**self.slope_param["sine"]),
+        ]
+
+    def compute_longislope(
+        self, t: torch.Tensor, slope_num: torch.Tensor) -> torch.Tensor:
+        longi_slope = torch.zeros_like(t)
+        for i, ref_slope in enumerate(self.ref_slope):
+            longi_slope = (slope_num == i) * ref_slope.compute_longislope(t)
+        return longi_slope
+
+    def compute_latslope(
+        self, t: torch.Tensor, slope_num: torch.Tensor) -> torch.Tensor:
+        lat_slope = torch.zeros_like(t)
+        for i, ref_slope in enumerate(self.ref_slope):
+            lat_slope = (slope_num == i) * ref_slope.compute_latslope(t)
+        return lat_slope
+
+
+
 class RefSpeedModel(metaclass=ABCMeta):
     @abstractmethod
     def compute_u(self, t: torch.Tensor) -> torch.Tensor:
@@ -94,6 +125,15 @@ class RefSpeedModel(metaclass=ABCMeta):
 
     @abstractmethod
     def compute_integrate_u(self, t: torch.Tensor) -> torch.Tensor:
+        ...
+
+class RefSlopeModel(metaclass=ABCMeta):
+    @abstractmethod
+    def compute_longislope(self, t: torch.Tensor) -> torch.Tensor:
+        ...
+
+    @abstractmethod
+    def compute_latslope(self, t: torch.Tensor) -> torch.Tensor:
         ...
 
 
@@ -127,6 +167,32 @@ class SineRefSpeedModel(RefSpeedModel):
 
 
 @dataclass
+class ConstantRefSlopeModel(RefSlopeModel):
+    longi_slope: float
+    lat_slope: float
+
+    def compute_longislope(self, t: torch.Tensor) -> torch.Tensor:
+        return self.longi_slope * torch.ones_like(t)
+
+    def compute_latslope(self, t: torch.Tensor) -> torch.Tensor:
+        return self.lat_slope * torch.ones_like(t)
+
+
+@dataclass
+class SineRefSlopeModel(RefSlopeModel):
+    A: float
+    omega: float
+    phi: float
+    b: float
+
+    def compute_longislope(self, t: torch.Tensor) -> torch.Tensor:
+        return self.A * torch.sin(self.omega * t + self.phi) + self.b
+
+    def compute_latslope(self, t: torch.Tensor) -> torch.Tensor:
+        return self.A * torch.sin(self.omega * t + self.phi) + self.b
+
+
+@dataclass
 class RefTrajModel(metaclass=ABCMeta):
     ref_speeds: Sequence[RefSpeedModel]
 
@@ -149,6 +215,19 @@ class RefTrajModel(metaclass=ABCMeta):
         dx = self.compute_x(t + dt, speed_num) - self.compute_x(t, speed_num)
         dy = self.compute_y(t + dt, speed_num) - self.compute_y(t, speed_num)
         return torch.atan2(dy, dx)
+
+@dataclass
+class RefSlopeModel(metaclass=ABCMeta):
+    ref_slope: Sequence[RefSlopeModel]
+
+    @abstractmethod
+    def compute_longislope(self, t: torch.Tensor, slope_num: torch.Tensor) -> torch.Tensor:
+        ...
+
+    @abstractmethod
+    def compute_latslope(self, t: torch.Tensor, slope_num: torch.Tensor) -> torch.Tensor:
+        ...
+
 
 
 @dataclass

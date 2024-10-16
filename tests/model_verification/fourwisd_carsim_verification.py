@@ -20,10 +20,10 @@ def stiffness_fitting(x, a, b, c, d):
 def read_path(root_path):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     state_1 = np.array(data_result.iloc[:, 0], dtype='float32') #x
-    state_2 = np.array(data_result.iloc[:, 1], dtype='float32')  #y
-    state_traj = np.zeros((len(state_1), 2))
+    # state_2 = np.array(data_result.iloc[:, 1], dtype='float32')  #y
+    state_traj = np.zeros((len(state_1), 1))
     state_traj[:, 0] = state_1
-    state_traj[:, 1] = state_2
+    # state_t[:, 1] = state_2
     return state_traj
 
 def unit_transform_4wisd(state):
@@ -53,11 +53,16 @@ def unit_transform_4wisd(state):
     state[20] = state[20] / 180 * np.pi # beta
     state[21] = state[21] * 9.8 # acceleration
     state[30] = state[30] / 3.6  # vw L1
+    state[31] = -state[31] / 180 * np.pi  # longitudinal slope of road
+    state[32] = state[32] / 180 * np.pi  # lateral slope of road
+    state[33] = -state[33] / 180 * np.pi  # longitudinal slope of road
+    state[34] = state[34] / 180 * np.pi  # lateral slope of road
+    state[35] = -state[35]   # longitudinal slope of road
+    state[36] = state[36]   # lateral slope of road
     return state
 
-
 def model_compare_4wisd(env_id):
-    run_step = 12000
+    run_step = 20000
     delta_t = 0.0005
     model_mechnical = gym.make(env_id, disable_env_checker=True)
     state, _ = model_mechnical.reset()
@@ -66,7 +71,8 @@ def model_compare_4wisd(env_id):
     state = unit_transform_4wisd(state)
     model_self = create_env(env_id)
     # 4dof
-    state_python = state[:12]
+    state_python = state[:8]
+
     print(state[22:])
     step_sim = 0
     vx_self = []
@@ -94,6 +100,7 @@ def model_compare_4wisd(env_id):
     kappa_3_carsim = []
     kappa_4_carsim = []
     ax_self = []
+
     
     Qw1_self = []
     Qw1_carsim = []
@@ -114,10 +121,14 @@ def model_compare_4wisd(env_id):
     Qw4_self = []
     Qw4_carsim = []
     ax_carsim = []
+
+    longi_slope = []
+    lateral_slope = []
     
 
     for i in range(run_step):
-        drive_torque = 298 * np.sin(np.pi * 2 / 10000 * i)
+        road_info = state[31:37]
+        drive_torque = 298 #* np.sin(np.pi * 2 / 10000 * i)
         # if i< 4000 :
         #     steering_angle_degree = 0
         # # elif i>500and i<1000 :
@@ -126,7 +137,7 @@ def model_compare_4wisd(env_id):
         # #     steering_angle_degree = -3
         # else:
         #     steering_angle_degree = 3
-        steering_angle_degree = 3 * np.sin(np.pi * 2 / 5000 * i)
+        steering_angle_degree = 2#3 * np.sin(np.pi * 2 / 5000 * i)
         steering_angle_rad = steering_angle_degree / 180 * 3.14
         control_carsim = np.array([drive_torque, steering_angle_degree,
                                      drive_torque, steering_angle_degree,
@@ -140,13 +151,14 @@ def model_compare_4wisd(env_id):
                                        0, 0,
                                        0, 0,
                                        0, 0])
+        print("road_info", road_info)
 
-        state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t)
+        state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t, road_info)
+        # state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t)
 
         # print(state_python)
         state, _, _, _ = model_mechnical.step(control_carsim)  # carsim
         state = unit_transform_4wisd(state)
-        
         # 4dof
         x_self.append(state_python[0])
         y_self.append(state_python[1])
@@ -157,10 +169,10 @@ def model_compare_4wisd(env_id):
         roll_self.append(state_python[6])
         rollrate_self.append(state_python[7])
 
-        kappa_1_self.append(state_python[8])
-        kappa_2_self.append(state_python[9])
-        kappa_3_self.append(state_python[10])
-        kappa_4_self.append(state_python[11])
+        kappa_1_self.append(state[8])
+        kappa_2_self.append(state[9])
+        kappa_3_self.append(state[10])
+        kappa_4_self.append(state[11])
         Qw1_self.append(control[0])
         delta_w1_self.append(control[1])
 
@@ -198,6 +210,8 @@ def model_compare_4wisd(env_id):
         Qw4_carsim.append(state[18])
         delta_w4_carsim.append(state[19])
         ax_carsim.append(state[21])
+        longi_slope.append(road_info[0])
+        lateral_slope.append(road_info[1])
         step_sim += 1
     print("run finished")
     data_result = pd.DataFrame(
@@ -214,11 +228,12 @@ def model_compare_4wisd(env_id):
          'y_self': y_self, 'y_carsim': y_carsim,
          'vx_self': vx_self, 'vx_carsim': vx_carsim,
          'vy_self': vy_self, 'vy_carsim': vy_carsim,
-         'Qw3_self': Qw3_self, 'Qw3_carsim': Qw3_carsim, })
-    data_result.to_csv('./result_4wisd.csv', encoding='gbk')
+         'Qw3_self': Qw3_self, 'Qw3_carsim': Qw3_carsim,
+         'longi_slope': longi_slope, 'lateral_slope': lateral_slope})
+    data_result.to_csv('./result_4wisd_slope.csv', encoding='gbk')
 
     # '--------------------出图-----------------------'
-    picture_dir = "./plot_4wisd/"
+    picture_dir = "plot_4wisd_slope/"
     os.makedirs(picture_dir, exist_ok=True)
     f9 = plt.figure("-kappa1", figsize=(8, 5))
     ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
@@ -499,11 +514,24 @@ def model_compare_4wisd(env_id):
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.savefig(os.path.join(picture_dir, "-Qw4.png"))
 
+    f33 = plt.figure("-road info", figsize=(8, 5))
+    ax = f1.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, longi_slope, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, lateral_slope, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['pitch road', 'roll road'], prop={'size': 10}, loc=2, ncol=2)
+    plt.ylabel(r"angle [rad]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-road info.png"))
+
     # plt.show()
 
 if __name__ == '__main__':
-    model_compare_4wisd(env_id='pyth_holisticcontrol')
-    # root_path = "C:/Users/Troy.Z/Desktop/lat.csv"
+    model_compare_4wisd(env_id='pyth_stabilitycontrol')
+    # root_path = "C:/Users/Troy.Z/Desktop/steering wheel angle.csv"
     # re = read_path(root_path)
     # x = re[:, 0]
     # y = re[:, 1]
