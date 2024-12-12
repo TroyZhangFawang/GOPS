@@ -57,13 +57,13 @@ def unit_transform_4wisd(state):
     state[32] = state[32] / 180 * np.pi  # lateral slope of road
     state[33] = -state[33] / 180 * np.pi  # longitudinal slope of road
     state[34] = state[34] / 180 * np.pi  # lateral slope of road
-    state[35] = -state[35]   # longitudinal slope of road
-    state[36] = state[36]   # lateral slope of road
+    state[35] = -state[35]/180*np.pi   # longitudinal slope of road
+    state[36] = state[36]/180*np.pi   # lateral slope of road
     return state
 
 def model_compare_4wisd(env_id):
-    run_step = 20000
-    delta_t = 0.0005
+    run_step = 2000
+    delta_t = 0.01
     model_mechnical = gym.make(env_id, disable_env_checker=True)
     state, _ = model_mechnical.reset()
 
@@ -127,8 +127,8 @@ def model_compare_4wisd(env_id):
     
 
     for i in range(run_step):
-        road_info = state[31:37]
-        drive_torque = 298 #* np.sin(np.pi * 2 / 10000 * i)
+        road_info = state[31:33]
+        drive_torque = 183.475 * np.sin(np.pi * 2 / 10000 * i) + 114.525
         # if i< 4000 :
         #     steering_angle_degree = 0
         # # elif i>500and i<1000 :
@@ -137,20 +137,14 @@ def model_compare_4wisd(env_id):
         # #     steering_angle_degree = -3
         # else:
         #     steering_angle_degree = 3
-        steering_angle_degree = 2#3 * np.sin(np.pi * 2 / 5000 * i)
+        steering_angle_degree = 3 * np.sin(np.pi * 2 / 1000 * i)
         steering_angle_rad = steering_angle_degree / 180 * 3.14
-        control_carsim = np.array([drive_torque, steering_angle_degree,
-                                     drive_torque, steering_angle_degree,
-                                     drive_torque, steering_angle_degree,
-                                     drive_torque, steering_angle_degree])
-        control = np.array([drive_torque, steering_angle_rad,
-                            drive_torque, steering_angle_rad,
-                            drive_torque, steering_angle_rad,
-                            drive_torque, steering_angle_rad,
-                                       0, 0,
-                                       0, 0,
-                                       0, 0,
-                                       0, 0])
+        control_carsim = np.array([drive_torque,drive_torque,
+                                   drive_torque, drive_torque,
+                                   steering_angle_degree*18])
+        control = np.array([drive_torque, drive_torque,
+                            drive_torque, drive_torque,
+                            steering_angle_rad])
         print("road_info", road_info)
 
         state_python = model_self.vehicle_dynamics.f_xu(state_python, control, delta_t, road_info)
@@ -174,15 +168,15 @@ def model_compare_4wisd(env_id):
         kappa_3_self.append(state[10])
         kappa_4_self.append(state[11])
         Qw1_self.append(control[0])
-        delta_w1_self.append(control[1])
+        delta_w1_self.append(control[4])
 
-        delta_w2_self.append(control[3])
+        # delta_w2_self.append(control[3])
         
-        Qw3_self.append(control[4])
-        delta_w3_self.append(control[5])
+        Qw3_self.append(control[2])
+        # delta_w3_self.append(control[5])
         
-        Qw4_self.append(control[6])
-        delta_w4_self.append(control[7])
+        Qw4_self.append(control[3])
+        # delta_w4_self.append(control[4])
         ax_self.append(state[21])
 
         # -------------------------------
@@ -222,18 +216,19 @@ def model_compare_4wisd(env_id):
          'delta_w1_self': delta_w1_self, 'delta_w1_carsim': delta_w1_carsim,
          'roll_self': roll_self, 'roll_carsim': roll_carsim,
          'rollrate_self': rollrate_self, 'rollrate_carsim': rollrate_carsim,
-         'delta_w2_self': delta_w2_self, 'delta_w2_carsim': delta_w2_carsim,
-         'delta_w3_self': delta_w3_self, 'delta_w3_carsim': delta_w3_carsim,
-         'delta_w4_self': delta_w4_self, 'delta_w4_carsim': delta_w4_carsim,
+         # 'delta_w2_self': delta_w2_self, 'delta_w2_carsim': delta_w2_carsim,
+         # 'delta_w3_self': delta_w3_self, 'delta_w3_carsim': delta_w3_carsim,
+         # 'delta_w4_self': delta_w4_self, 'delta_w4_carsim': delta_w4_carsim,
          'y_self': y_self, 'y_carsim': y_carsim,
          'vx_self': vx_self, 'vx_carsim': vx_carsim,
          'vy_self': vy_self, 'vy_carsim': vy_carsim,
          'Qw3_self': Qw3_self, 'Qw3_carsim': Qw3_carsim,
          'longi_slope': longi_slope, 'lateral_slope': lateral_slope})
-    data_result.to_csv('./result_4wisd_slope.csv', encoding='gbk')
-
+    picture_dir = "plot_4wisd_test/"
+    os.makedirs(picture_dir, exist_ok=True)
+    data_result.to_csv('./plot_4wisd_test/result_4wisd_test.csv', encoding='gbk')
     # '--------------------出图-----------------------'
-    picture_dir = "plot_4wisd_slope/"
+    picture_dir = "plot_4wisd_test/"
     os.makedirs(picture_dir, exist_ok=True)
     f9 = plt.figure("-kappa1", figsize=(8, 5))
     ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
@@ -445,47 +440,47 @@ def model_compare_4wisd(env_id):
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.savefig(os.path.join(picture_dir, "-delta_w1.png"))
 
-    f8 = plt.figure("-delta_w2", figsize=(8, 5))
-    ax = f8.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w2_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w2_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\delta_{w2}$ [rad]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-delta_w2.png"))
+    # f8 = plt.figure("-delta_w2", figsize=(8, 5))
+    # ax = f8.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w2_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w2_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\delta_{w2}$ [rad]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-delta_w2.png"))
 
-    f9 = plt.figure("-delta_w3", figsize=(8, 5))
-    ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w3_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w3_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\delta_{w3}$ [rad]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-delta_w3.png"))
+    # f9 = plt.figure("-delta_w3", figsize=(8, 5))
+    # ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w3_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w3_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\delta_{w3}$ [rad]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-delta_w3.png"))
 
-    f10 = plt.figure("-delta_w4", figsize=(8, 5))
-    ax = f10.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w4_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w4_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\delta_{w4}$ [rad]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-delta_w4.png"))
+    # f10 = plt.figure("-delta_w4", figsize=(8, 5))
+    # ax = f10.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w4_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1)*delta_t, delta_w4_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\delta_{w4}$ [rad]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-delta_w4.png"))
 
     f14 = plt.figure("-Qw3", figsize=(8, 5))
     ax = f14.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]

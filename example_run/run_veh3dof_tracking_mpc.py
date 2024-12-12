@@ -8,27 +8,28 @@
 #
 #  Description: run a closed-loop system
 
-
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 from gops.sys_simulator.sys_run import OptRunner
 
 
 runner = OptRunner(
     log_policy_dir_list=[
-        "../results/pyth_veh3dofconti/"
+        "../results/pyth_veh3dofconti_surrcstr_penalty_planning/"
     ],
     is_init_info=True,
     init_info={
         # parameters of env.reset()
         "init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         "ref_time": 0.0,
-        "ref_num": 12,
+        "ref_num": 0,
     },
-    save_render=False,
+    save_render=True,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 20,
+        "num_pred_step": 30,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
@@ -39,7 +40,7 @@ runner = OptRunner(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=False,
+    constrained_env=True,
     is_tracking=True,
     dt=0.1,
 )

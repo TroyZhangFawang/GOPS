@@ -29,14 +29,14 @@ class cost_update:
 
     def step(self, iter_up, traj, cost_paras):
         self.writer_up.add_scalar(tb_tags["Q_y1_tt"], cost_paras[0], iter_up)
-        self.writer_up.add_scalar(tb_tags["Q_v1_tt"], cost_paras[1], iter_up)
+        self.writer_up.add_scalar(tb_tags["Q_u1_tt"], cost_paras[1], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_psi1_tt"], cost_paras[2], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_psi1dot_tt"], cost_paras[3], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_beta1_tt"], cost_paras[4], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_phi1_tt"], cost_paras[5], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_phi1dot_tt"], cost_paras[6], iter_up)
-        self.writer_up.add_scalar(tb_tags["R_str_tt"], cost_paras[7], iter_up)
-        self.writer_up.add_scalar(tb_tags["R_strdot_tt"], cost_paras[8], iter_up)
+        self.writer_up.add_scalar(tb_tags["R_u_tt"], cost_paras[7], iter_up)
+        self.writer_up.add_scalar(tb_tags["R_udot_tt"], cost_paras[8], iter_up)
         ref_state_traj = np.zeros((self.horizon+1, self.batch_size, 3))
         dp = torch.zeros(cost_paras.shape)
         print("Training ends!")
@@ -67,7 +67,7 @@ class cost_update:
             dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
             x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
             # ((y2-y2_ref)**2) +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2 ((x_1[3] - x_2[0]) ** 2+)
-            dloss = jacobian(sum1(sum2((x_1[4] - x_2[1]) ** 2+x_1[12]**2+x_1[13]**2+x_1[10]**2+(x_1[11])**2+(x_1[5]-x_2[2])**2)), x_1)
+            dloss = jacobian(sum1(sum2((x_1[5] - x_2[1]) ** 2+x_1[13]**2+x_1[14]**2+x_1[11]**2+(x_1[12])**2+(x_1[6]-x_2[2])**2)), x_1)
             dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
             for i_step in range(self.horizon):
                 next_t2 = traj['ref_time2_rollout'][i_step, i]
@@ -119,12 +119,12 @@ class cost_update:
         return cost_paras
     #(state[:, :,  3] - state_up[:, :, 0]) ** 2+
     def loss_upper_evaluator_3d(self, state, state_up):
-        L = (((state[:, :,  4] - state_up[:, :, 1]) ** 2) +
-             state[:, :, 12] ** 2 +
+        L = (((state[:, :,  5] - state_up[:, :, 1]) ** 2) +
              state[:, :, 13] ** 2 +
-             state[:, :, 10] ** 2 +
-             (state[:, :, 5]-state_up[:, :, 2]) ** 2+
-             state[:, :, 11] ** 2).mean()
+             state[:, :, 14] ** 2 +
+             state[:, :, 11] ** 2 +
+             (state[:, :, 6]-state_up[:, :, 2]) ** 2+
+             state[:, :, 12] ** 2).mean()
         return L
 
 
@@ -161,7 +161,6 @@ tb_tags = {
     "Q_beta1_tt": "Weight/Weight on side slip angle_tractor",
     "Q_phi1_tt": "Weight/Weight on rollangle_tractor",
     "Q_phi1dot_tt": "Weight/Weight on roll rate_tractor",
-    "R_accel_tt": "Weight/Weight on acceleration action",
-    "R_str_tt": "Weight/Weight on steering angle action",
-    "R_strdot_tt": "Weight/Weight on steering angle action increment",
+    "R_u_tt": "Weight/Weight on acceleration action",
+    "R_udot_tt": "Weight/Weight on steering angle action increment",
 }

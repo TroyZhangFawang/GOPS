@@ -86,7 +86,6 @@ class MultiRefTrajModel:
             phi = phi + (path_num == i) * ref_traj.compute_phi(t, speed_num)
         return phi
 
-
 class MultiRoadSlopeModel:
     def __init__(
         self,
@@ -115,8 +114,6 @@ class MultiRoadSlopeModel:
         for i, ref_slope in enumerate(self.ref_slope):
             lat_slope = (slope_num == i) * ref_slope.compute_latslope(t)
         return lat_slope
-
-
 
 class RefSpeedModel(metaclass=ABCMeta):
     @abstractmethod
@@ -354,20 +351,22 @@ class UTurnRefTrajModel(RefTrajModel):
 
 @dataclass
 class FigureEightRefTrajModel(RefTrajModel):
-    a: float
+    a: float  # 表示在水平方向（𝑥）的振幅。
+    b: float  # 表示在垂直方向（𝑥）的振幅。
+    omega1: float  # 角频率 2pi/T, T为周期，T=10s, omega1 = pi/5
+    omega2: float  # 角频率 omega2 = 2 omega1
     def compute_x(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
         arc_len = torch.zeros_like(t)
         for i, ref_speed in enumerate(self.ref_speeds):
             arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
-        theta = arc_len / self.a
-        return self.a * torch.sin(theta) / (1 + torch.cos(theta)**2)
+
+        return self.a * torch.sin(self.omega1*arc_len)
 
 
     def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
         arc_len = torch.zeros_like(t)
         for i, ref_speed in enumerate(self.ref_speeds):
             arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
-        theta = arc_len / self.a
 
-        return self.a * torch.sin(theta) * torch.cos(theta) / (1 + torch.cos(theta)**2)
+        return self.b * torch.sin(self.omega2*arc_len)
 

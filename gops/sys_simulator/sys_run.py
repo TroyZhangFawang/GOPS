@@ -2399,7 +2399,8 @@ class OptRunner:
                         )
             next_obs, reward, done, info = env.step(action)
             # save the real action (without scaling)
-            action_list.append(info.get("raw_action", action))
+            # todo 若做model based planning, 需要把action的第0个存到action_list中
+            action_list.append(info.get("raw_action", action))#[0, :]
             step_list.append(step)
             reward_list.append(reward)
             info_list.append(info)
@@ -2433,8 +2434,6 @@ class OptRunner:
             tracking_dict = {}
 
         return eval_dict, tracking_dict
-
-
 
     def draw(self):
         fig_size = (

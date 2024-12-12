@@ -43,7 +43,7 @@ class SimuVeh3dofcontiSurrCstr(SimuVeh3dofconti):
         pre_horizon: int = 10,
         path_para: Optional[Dict[str, Dict]] = None,
         u_para: Optional[Dict[str, Dict]] = None,
-        surr_veh_num: int = 4,
+        surr_veh_num: int = 2,
         veh_length: float = 4.8,
         veh_width: float = 2.0,
         **kwargs: Any,

@@ -19,28 +19,36 @@ import numpy as np
 DEFAULT_PATH_PARAM = {
     "sine": {"A": 1.5, "omega": 2 * np.pi / 10, "phi": 0.0,},
     "double_lane": {
-        "t1": 5.0,
-        "t2": 9.0,
-        "t3": 14.0,
-        "t4": 18.0,
+        "t1": 1.35,
+        "t2": 6.75,
+        "t3": 8.1,
+        "t4": 13.5,
         "y1": 0.0,
         "y2": 3.5,
     },
+    # "double_lane": {
+    #     "t1": 5.0,
+    #     "t2": 9.0,
+    #     "t3": 14.0,
+    #     "t4": 18.0,
+    #     "y1": 0.0,
+    #     "y2": 3.5,
+    # },
     "triangle": {"A": 3.0, "T": 10.0, },
-    "circle": {"r": 50.0, },
+    "circle": {"r": 100.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
-    "figure_eight": {"a": 200.0}
+    "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100} #李萨如曲线
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 20.0, },
-    "sine": {"A": 1.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+    "constant": {"u": 22.22, },
+    "sine": {"A": 10.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
-    "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
-    "sine": {"A": 0.1, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+    "constant": {"longi_slope": 0.00, "lat_slope": 0.00},
+    "sine": {"A": 0.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
 }
 
 class MultiRefTrajData:
@@ -297,17 +305,17 @@ class WaterDropRefTrajData(RefTrajData):
 
 @dataclass
 class FigureEightRefTrajData(RefTrajData):
-    a: float  # 控制八字形大小的参数
-
+    a: float  #表示在水平方向（𝑥）的振幅。
+    b:float  #表示在垂直方向（𝑥）的振幅。
+    omega1:float # 角频率 2pi/T, T为周期，T=10s, omega1 = pi/5
+    omega2:float # 角频率 omega2 = 2 omega1
     def compute_x(self, t: float, speed_num: int) -> float:
         arc_len = self.ref_speeds[speed_num].compute_integrate_u(t)
-        theta = arc_len / self.a
-        return self.a * np.sin(theta) / (1 + np.cos(theta)**2)
+        return self.a * np.sin(self.omega1*arc_len)
 
     def compute_y(self, t: float, speed_num: int) -> float:
         arc_len = self.ref_speeds[speed_num].compute_integrate_u(t)
-        theta = arc_len / self.a
-        return self.a * np.sin(theta) * np.cos(theta) / (1 + np.cos(theta)**2)
+        return self.b * np.sin(self.omega2*arc_len)
 
 
 @dataclass
@@ -346,7 +354,7 @@ def plot_traj(t, dt):
     u_num = 0
     x = []
     y = []
-    for i in range(10000):
+    for i in range(50):
         ref_x = ref_traj.compute_x(
             t + i * dt, path_num, u_num
         )
@@ -359,7 +367,7 @@ def plot_traj(t, dt):
     plt.plot(x, y)
     plt.xlabel("X")
     plt.ylabel("Y")
-    # plt.axis('equal')
+    plt.axis('equal')
     plt.grid(True)
     plt.show()
 
@@ -385,7 +393,7 @@ def plot_slope(t, dt):
     plt.plot(time, longislope)
     plt.xlabel("Time")
     plt.ylabel("Longislope")
-    # plt.axis('equal')
+    plt.axis('equal')
     plt.grid(True)
     plt.show()
 

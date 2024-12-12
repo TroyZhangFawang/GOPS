@@ -10,10 +10,8 @@
 #  Update Date: 2021-05-55, Jiaxin Gao: create environment
 
 from typing import Dict, Optional, Sequence, Tuple
-
 import gym
 import numpy as np
-
 from gops.env.env_ocp.pyth_base_env import PythBaseEnv
 from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
 from gops.utils.math_utils import angle_normalize
@@ -197,7 +195,9 @@ class SimuVeh3dofconti(PythBaseEnv):
         # self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
         # reward = self.compute_reward(action)
 
-        # 新加的##########
+        # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
+        # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
+        # 如果要plot，还得在sys run里修改action_list
         self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], self.dt)
         self.state_full = np.empty((self.pre_horizon, self.state_dim))
         self.state_full[0, :] = self.state
@@ -208,8 +208,8 @@ class SimuVeh3dofconti(PythBaseEnv):
         for i in range(1, self.pre_horizon):
                 state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
                 self.state_full[i, :] = state
-
-        #############
+        #
+        # #############
 
         self.t = self.t + self.dt
 

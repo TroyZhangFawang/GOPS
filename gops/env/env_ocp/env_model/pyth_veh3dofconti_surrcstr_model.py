@@ -46,7 +46,7 @@ class Veh3dofcontiSurrCstrModel(Veh3dofcontiModel):
         device: Union[torch.device, str, None] = None,
         path_para: Optional[Dict[str, Dict]] = None,
         u_para: Optional[Dict[str, Dict]] = None,
-        surr_veh_num: int = 4,
+        surr_veh_num: int = 2,
         veh_length: float = 4.8,
         veh_width: float = 2.0,
         **kwargs: Any,

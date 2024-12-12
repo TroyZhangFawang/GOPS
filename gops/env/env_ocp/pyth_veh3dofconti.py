@@ -111,7 +111,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             dtype=np.float32,
         )
         self.dt = 0.1
-        self.max_episode_steps = 3000
+        self.max_episode_steps = 500
 
         self.state = None
         self.path_num = None
@@ -189,7 +189,6 @@ class SimuVeh3dofconti(PythBaseEnv):
         self.state = np.concatenate(
             (self.ref_points[0] + delta_state[:4], delta_state[4:])
         )
-
         return self.get_obs(), self.info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:

@@ -18,99 +18,73 @@ from gops.env.env_ocp.pyth_base_env import PythBaseEnv
 from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
 from gops.utils.math_utils import angle_normalize
 
-def read_path(root_path):
-    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
-    state_1 = np.array(data_result.iloc[1:, 0], dtype='float32') #x
-    state_2 = np.array(data_result.iloc[1:, 1], dtype='float32')  #y
-    state_traj = np.zeros((len(state_1), 2))
-    state_traj[:, 0] = state_1
-    state_traj[:, 1] = state_2
-    return state_traj
 
-class Ref_Route:
-    def __init__(self):
-        self.preview_index = 5
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = current_dir + "/resources/DLC_path.csv"
-        self.ref_traj = read_path(root_dir)
-
-    def find_nearest_point(self, traj_points):
-        # 计算两组点之间的距离
-        traj_points_expanded = np.expand_dims(traj_points, axis=1)
-        distances = np.linalg.norm(traj_points_expanded - self.ref_traj, axis=2)
-
-        # 找到每个轨迹点在参考轨迹上的最近点的索引
-        nearest_point_index = np.argmin(distances, axis=1)+self.preview_index
-        ref_x = self.ref_traj[nearest_point_index][:, 0]
-        ref_y = self.ref_traj[nearest_point_index][:, 1]
-        prev_index = np.maximum(nearest_point_index - 1, 0)
-        ref_heading = np.arctan2((ref_y - self.ref_traj[prev_index][:, 1]),
-                                 (ref_x - self.ref_traj[prev_index][:, 0]))
-        return np.stack([ref_x, ref_y, ref_heading], axis=1)
 
 class VehicleDynamicsData:
     def __init__(self):
-        self.v_x = 20
-        self.m1 = 4455.+168+679  # Total mass of the tractor [kg]
+        self.state_dim = 16
+        self.m1 = 5760.  # Total mass of the tractor [kg]
         self.m1s = 4455.  # Sprung mass of the tractor [kg]
-        self.m2 = 5500+769*3  # Total mass of the semitrailer [kg]
-        self.m2s = 5500  # Sprung mass of the semitrailer [kg]
+        self.m2 = 20665  # Total mass of the semitrailer [kg]
+        self.m2s = 20000  # Sprung mass of the semitrailer [kg]
         self.gravity = 9.81
         self.a = 1.1  # Distance between the center of gravity (CG) of the tractor and its front axle [m]
         self.b = 2.8  # Distance between the CG of the tractor and its rear axle [m]
         self.c = 1.9  # Distance between the hitch point and the center of gravity (CG) of the tractor [m]
-        self.e = 3.39031007  # Distance between the hitch point and the CG of the semitrailer [m]
-        self.d = 9.1-6.39031007  # Distance between the rear axle and the CG of the semitrailer [m]
+        self.e = 1.24  # Distance between the hitch point and the CG of the semitrailer [m]
+        self.d = 6.9  # Distance between the rear axle and the CG of the semitrailer [m]
 
-        self.h1 = 1.12610225  # Height of the CG of the sprung mass for the tractor [m]
-        self.h2 = 1.91144013  # Height of the CG of the sprung mass for the semitrailer [m]
-        self.h1c = 1.07  # Height of hitch point to the roll center of the sprung mass for the tractor [m]
-        self.h2c = 1.07  # Height of hitch point to the roll center of the sprung mass for the semitrailer [m]
+        self.h1 = 1.175  # Height of the CG of the sprung mass for the tractor [m]
+        self.h2 = 2.125  # Height of the CG of the sprung mass for the semitrailer [m]
+        self.h1c = 1.1  # Height of hitch point to the roll center of the sprung mass for the tractor [m]
+        self.h2c = 1.1  # Height of hitch point to the roll center of the sprung mass for the semitrailer [m]
 
         self.I1zz = 34802.6  # Yaw moment of inertia of the whole mass of the tractor [kg m^2]
         self.I1xx = 2283  # Roll moment of inertia of the sprung mass of the tractor [kg m^2]
-        self.I1yy = 35402
         self.I1xz = 1626  # Roll–yaw product of inertia of the sprung mass of the tractor [kg m^2]
         self.I2zz = 250416  # Yaw moment of inertia of the whole mass of the semitrailer [kg m^2]
         self.I2xx = 22330  # Roll moment of inertia of the sprung mass of the semitrailer [kg m^2]
         self.I2xz = 0.0  # Roll–yaw product of inertia of the sprung mass of the semitrailer [kg m^2]
 
-        self.kf = -259752  # Tire cornering stiffness of the front axle of the tractor [N/rad]
-        self.km = -259752  # Tire cornering stiffness of the rear axle of the tractor [N/rad]
-        self.kr = -259752*3  # Tire cornering stiffness of the rear axle of the trailer [N/rad]
-        self.kr1 = 85987.26  # roll stiffness of tire (front)[N/m]
-        self.kr2 = 515923.5668789808917  # roll stiffness of tire (rear)[N/m]
-        self.ka = 5732484.076433121019   # Roll stiffness of the articulation joint between the tractor and semitrailer [N m/rad]
-        self.c1 = 0  # Roll damping of the tractor's suspension [N-s/m]
-        self.c2 = 0  # Roll damping of the semitrailer's suspension [N-s/m]
+        self.kf = -4.0889e5  # Tire cornering stiffness of the front axle of the tractor [N/rad]
+        self.km = -9.1361e5  # Tire cornering stiffness of the rear axle of the tractor [N/rad]
+        self.kr = -6.5922e5  # Tire cornering stiffness of the rear axle of the trailer [N/rad]
+        self.kr1 = 9.1731e5  # roll stiffness of tire (front)[N/m]
+        self.kr2 = 2.6023e6  # roll stiffness of tire (rear)[N/m]
+        self.ka = 3.5503e6  # Roll stiffness of the articulation joint between the tractor and semitrailer [N m/rad]
+        self.c1 = 1.2727e6  # Roll damping of the tractor's suspension [N-s/m]
+        self.c2 = 4.1745e5  # Roll damping of the semitrailer's suspension [N-s/m]
 
-        self.M11 = self.m1 * self.v_x * self.c
+    def f_xu(self, states, actions, delta_t):
+        state_next = np.empty_like(states)
+        vx = states[15]
+        self.M11 = self.m1 * vx * self.c
         self.M12 = self.I1zz
         self.M13 = -self.m1s * self.h1c * self.c - self.I1xz
 
-        self.M21 = self.m1 * self.v_x * self.h1c - self.m1s * self.h1 * self.v_x
+        self.M21 = self.m1 * vx * self.h1c - self.m1s * self.h1 * vx
         self.M22 = -self.I1xz
         self.M24 = self.I1xx + 2 * self.m1s * self.h1 * self.h1 - self.m1s * self.h1 * self.h1c
 
-        self.M31 = self.m1 * self.v_x
+        self.M31 = self.m1 * vx
         self.M34 = -self.m1s * self.h1
-        self.M35 = self.m2 * self.v_x
+        self.M35 = self.m2 * vx
         self.M38 = -self.m2s * self.h2
 
-        self.M45 = self.m2 * self.v_x * self.e
+        self.M45 = self.m2 * vx * self.e
         self.M46 = -self.I2zz
         self.M48 = self.I2xz - self.m2s * self.h2 * self.e
 
-        self.M55 = self.m2 * self.v_x * self.h2c - self.m2s * self.h2 * self.v_x
+        self.M55 = self.m2 * vx * self.h2c - self.m2s * self.h2 * vx
         self.M56 = -self.I2xz
         self.M58 = self.I2xx + 2 * self.m2s * self.h2 * self.h2 - self.m2s * self.h2 * self.h2c
 
         self.M61 = 1
-        self.M62 = -self.c / self.v_x
-        self.M64 = -self.h1c / self.v_x
+        self.M62 = -self.c / vx
+        self.M64 = -self.h1c / vx
         self.M65 = -1
-        self.M66 = -self.e / self.v_x
-        self.M68 = self.h2c / self.v_x
+        self.M66 = -self.e / vx
+        self.M68 = self.h2c / vx
 
         self.M73 = 1
 
@@ -118,46 +92,45 @@ class VehicleDynamicsData:
 
         self.M99 = 1
         self.M1010 = 1
-        self.M111 = -self.v_x
+        self.M111 = -vx
         self.M1111 = 1
         self.M1212 = 1
         self.M1313 = 1
 
         self.A11 = (self.c + self.a) * self.kf + (self.c - self.b) * self.km
-        self.A12 = self.a * (self.c + self.a) * self.kf / self.v_x - self.b * (
-                self.c - self.b) * self.km / self.v_x - self.m1 * self.v_x * self.c
+        self.A12 = self.a * (self.c + self.a) * self.kf / vx - self.b * (
+                self.c - self.b) * self.km / vx - self.m1 * vx * self.c
         self.A21 = (self.kf + self.km) * self.h1c
-        self.A22 = (self.a * self.kf - self.b * self.km) * self.h1c / self.v_x + (
-                self.m1s * self.h1 - self.m1 * self.h1c) * self.v_x
+        self.A22 = (self.a * self.kf - self.b * self.km) * self.h1c / vx + (
+                self.m1s * self.h1 - self.m1 * self.h1c) * vx
         self.A23 = self.m1s * self.gravity * self.h1 - self.kr1 - self.ka
         self.A24 = -self.c1
         self.A27 = self.ka
 
         self.A31 = self.kf + self.km
-        self.A32 = (self.a * self.kf - self.b * self.km) / self.v_x - self.m1 * self.v_x
+        self.A32 = (self.a * self.kf - self.b * self.km) / vx - self.m1 * vx
         self.A35 = self.kr
-        self.A36 = -self.d * self.kr / self.v_x - self.m2 * self.v_x
+        self.A36 = -self.d * self.kr / vx - self.m2 * vx
 
         self.A45 = (self.e + self.d) * self.kr
-        self.A46 = -self.d * (self.e + self.d) * self.kr / self.v_x - self.m2 * self.v_x * self.e
+        self.A46 = -self.d * (self.e + self.d) * self.kr / vx - self.m2 * vx * self.e
         self.A53 = self.ka
         self.A55 = self.kr * self.h2c
-        self.A56 = (self.m2s * self.h2 - self.m2 * self.h2c) * self.v_x - self.d * self.kr * self.h2c / self.v_x
+        self.A56 = (self.m2s * self.h2 - self.m2 * self.h2c) * vx - self.d * self.kr * self.h2c / vx
         self.A57 = self.m2s * self.gravity * self.h2 - self.kr2 - self.ka
         self.A58 = -self.c2
         self.A62 = -1
         self.A66 = 1
         self.A74 = 1
         self.A88, self.A92, self.A106 = 1, 1, 1
-        self.A121, self.A129, self.A135, self.A1310 = self.v_x, self.v_x, self.v_x, self.v_x
+        self.A121, self.A129, self.A135, self.A1310 = vx, vx, vx, vx
 
         self.B11 = - (self.c + self.a) * self.kf
         self.B21 = -self.kf * self.h1c
         self.B31 = -self.kf
 
-    def f_xu(self, states, actions, delta_t):
-        state_next = np.empty_like(states)
-        self.state_dim = 15
+
+        X_matrix = np.hstack((states[6:14], states[2], states[5], states[14], states[1], states[4]))
         M_matrix = np.zeros((self.state_dim - 2, self.state_dim - 2))
         M_matrix[0, 0] = self.M11
         M_matrix[0, 1] = self.M12
@@ -202,18 +175,28 @@ class VehicleDynamicsData:
         B_matrix[0, 0] = self.B11
         B_matrix[1, 0] = self.B21
         B_matrix[2, 0] = self.B31
+        # beta1dot, phi1_dotdot, psi1dot, psi1_dotdot,
+        # beta2dot, phi2_dotdot, psi2dot, psi2_dotdot,
+        # psi1dot, psi2dot, vy1dot py1dot,
+        X_dot = (np.matmul(np.matmul(np.linalg.inv(M_matrix), A_matrix), X_matrix) + np.matmul(
+            np.linalg.inv(M_matrix), np.matmul(B_matrix, actions[0:1]))).squeeze()
 
-        X_dot = (np.matmul(np.matmul(np.linalg.inv(M_matrix), A_matrix), states[:self.state_dim - 2]) + np.matmul(
-            np.linalg.inv(M_matrix), np.matmul(B_matrix, actions))).squeeze()
-        state_next[:12] = states[:12] + delta_t * X_dot[:12]
-        state_next[12] = state_next[11] - self.b * np.sin(state_next[8]) - self.e * np.sin(
-            state_next[9])  # posy_trailer
-        state_next[13] = states[13] + delta_t * self.v_x
-        state_next[14] = state_next[13] - self.b * np.cos(states[8]) - self.e * np.cos(
-            states[9])  # posx_trailer
+        #px1, py1, psi1, px2, py2, psi2,
+        # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
+        state_next[0] = states[0] + delta_t * (vx * np.cos(states[2]) - states[14] * np.sin(states[2]))
+        state_next[1] = states[1] + delta_t * X_dot[11]#(vx * np.sin(states[2]) + states[14] * np.cos(states[2]))
+        state_next[2] = states[2] + delta_t * X_dot[8]
+        state_next[3] = state_next[0] - self.b * np.cos(states[2]) - self.e * np.cos(
+            states[5])  # posx_trailer
+        state_next[4] = state_next[1] - self.b * np.sin(states[2]) - self.e * np.sin(
+            states[5])  # posy_trailer
+        state_next[5] = states[5] + delta_t * X_dot[9]
+        state_next[6:14] = states[6:14] + delta_t * X_dot[0:8]
+        state_next[14] = states[14] + delta_t * X_dot[10]
+        state_next[15] = states[15] + delta_t *actions[1]
         return state_next
 
-class Semitruck7dof(PythBaseEnv):
+class Semitruckpu7dof(PythBaseEnv):
     metadata = {
         "render.modes": ["human", "rgb_array"],
     }
@@ -221,31 +204,32 @@ class Semitruck7dof(PythBaseEnv):
     def __init__(
         self,
         pre_horizon: int = 100,
+        path_para: Optional[Dict[str, Dict]] = None,
+        u_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = 0.5,
         **kwargs,
     ):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
-            # initial range of [beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot,
-            # psi1, psi2, vy1,py1, py2, px1, px2]
             # 用高斯分布去采样
-            init_high = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-                                  0.1, 0.1, 0.1, 1, 1, 200, 200], dtype=np.float32)
-            init_low = np.array([-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1,
-                                  -0.1, -0.1, -0.1, -1, -1, 0, 0], dtype=np.float32)
+            init_high = np.array([2, 2, 0.1, 2, 2, 0.1,
+                                  0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+            init_low = np.array([-2, -2,  -0.1, -2, -2, -0.1,
+                                 -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1], dtype=np.float32)
             work_space = np.stack((init_low, init_high))
-        super(Semitruck7dof, self).__init__(work_space=work_space, **kwargs)
+        super(Semitruckpu7dof, self).__init__(work_space=work_space, **kwargs)
 
         self.vehicle_dynamics = VehicleDynamicsData()
-        self.target_speed = self.vehicle_dynamics.v_x
-        self.ref_traj = Ref_Route()
+        # self.target_speed = self.vehicle_dynamics.v_x
+        self.ref_traj = MultiRefTrajData(path_para, u_para)
+
         self.state_dim = 15
         self.pre_horizon = pre_horizon
-        ego_obs_dim = 13
-        ref_obs_dim = 2
+        ego_obs_dim = 15
+        ref_obs_dim = 6
         self.observation_space = gym.spaces.Box(
-            low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon*2)),
-            high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon*2)),
+            low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
+            high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Box(
@@ -253,33 +237,31 @@ class Semitruck7dof(PythBaseEnv):
             high=np.array([max_steer]),
             dtype=np.float32,
         )
-        obs_scale_default = [1, 1, 1, 1,
+        obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/10,
                              1, 1, 1, 1,
-                             1/10, 1/10, 1/100, 1/100, 1/100, 1/100, 1/10]
+                             1, 1, 1, 1,
+                             1/100]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 200
+        self.max_episode_steps = 785
 
         self.state = None
-        self.ref_x = None
-        self.ref_y = None
-        self.ref_x2 = None
-        self.ref_y2 = None
         self.ref_points = None
-        self.ref_points_2 = None
+        self.t = None
+        self.t2 = None
+        self.path_num = None
+        self.u_num = None
 
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
-            "ref_points": {"shape": (self.pre_horizon + 1, 3), "dtype": np.float32},
-            "ref_points_2": {"shape": (self.pre_horizon + 1, 3), "dtype": np.float32},
-            "ref_x": {"shape": (), "dtype": np.float32},
-            "ref_y": {"shape": (), "dtype": np.float32},
-            "ref_x2": {"shape": (), "dtype": np.float32},
-            "ref_y2": {"shape": (), "dtype": np.float32},
-            "ref": {"shape": (3,), "dtype": np.float32},
-            "ref2": {"shape": (3,), "dtype": np.float32},
+            "ref_points": {"shape": (self.pre_horizon + 1, 6), "dtype": np.float32},
+            "ref": {"shape": (6,), "dtype": np.float32},
+            "path_num": {"shape": (), "dtype": np.uint8},
+            "u_num": {"shape": (), "dtype": np.uint8},
             "target_speed": {"shape": (), "dtype": np.float32},
+            "ref_time": {"shape": (), "dtype": np.float32},
+            "ref_time2": {"shape": (), "dtype": np.float32},
         }
 
         self.seed()
@@ -291,43 +273,70 @@ class Semitruck7dof(PythBaseEnv):
     def reset(
         self,
         init_state: Optional[Sequence] = None,
-        ref_x: Optional[float] = None,
-        ref_y: Optional[int] = None,
+        ref_time: Optional[float] = None,
+        ref_num: Optional[int] = None,
         **kwargs,
     ) -> Tuple[np.ndarray, dict]:
 
-        if init_state is not None:
-            state = np.array(init_state, dtype=np.float32)
+        if ref_time is not None:
+            self.t = ref_time
         else:
-            state = self.sample_initial_state()
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
 
-        state[12] = state[11] - self.vehicle_dynamics.b * np.sin(state[8]) - self.vehicle_dynamics.e * np.sin(
-            state[9])  # posy_trailer
-        # state[13] = 10
-        # 训练用，run的时候注释掉
-        state[13] = self.np_random.uniform(
-            low=self.init_space[0][13], high=self.init_space[1][13]
+        # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
+        if ref_num is None:
+            path_num = None
+            u_num = None
+        else:
+            path_num = int(ref_num / 2)
+            u_num = int(ref_num % 2)
+
+        # If no ref_num, then randomly select path and speed
+        if path_num is not None:
+            self.path_num = path_num
+        else:
+            self.path_num = self.np_random.choice([0, 1, 2, 3, 4, 5]) #, 6
+
+        if u_num is not None:
+            self.u_num = u_num
+        else:
+            self.u_num = 0#self.np_random.choice([1])
+
+
+        ref_points = []
+        for i in range(self.pre_horizon + 1):
+            ref_x = self.ref_traj.compute_x(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y = self.ref_traj.compute_y(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi = self.ref_traj.compute_phi(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+
+            self.t2 = self.t - (self.vehicle_dynamics.c+self.vehicle_dynamics.e)/22.22
+            ref_x2 = self.ref_traj.compute_x(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y2 = self.ref_traj.compute_y(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi2 = self.ref_traj.compute_phi(
+                self.t2 + i * self.dt, self.path_num, self.u_num
+            )
+            ref_points.append([ref_x, ref_y, ref_phi, ref_x2, ref_y2, ref_phi2])
+        self.ref_points = np.array(ref_points, dtype=np.float32)
+
+        if init_state is not None:
+            delta_state = np.array(init_state, dtype=np.float32)
+        else:
+            delta_state = self.sample_initial_state()
+
+        self.state = np.concatenate(
+            (self.ref_points[0] + delta_state[:6], delta_state[6:])
         )
-
-        state[14] = state[13] - self.vehicle_dynamics.b * np.cos(state[8]) - self.vehicle_dynamics.e * np.cos(
-            state[9])  # posx_trailer
-        self.state = state
-        self.ref_x, self.ref_y = state[self.state_dim - 2], state[self.state_dim - 4]
-        traj_points = [[self.ref_x, self.ref_y]]
-        for k in range(self.pre_horizon):
-            self.ref_x += self.target_speed * self.dt
-            self.ref_y += state[10] * self.dt
-            traj_points.append([self.ref_x, self.ref_y])
-        self.ref_points = self.ref_traj.find_nearest_point(np.array(traj_points))  # x, y, phi, u
-        
-        self.ref_x2, self.ref_y2 = state[self.state_dim - 1], state[self.state_dim - 3]
-        traj_points_2 = [[self.ref_x2, self.ref_y2]]
-        for k in range(self.pre_horizon):
-            self.ref_x2 += self.target_speed * self.dt
-            self.ref_y2 += state[10] * self.dt
-            traj_points_2.append([self.ref_x2, self.ref_y2])
-        self.ref_points_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
-
+        self.state[15] = 22.2
         obs = self.get_obs()
         self.action_last = 0
         return obs, self.info
@@ -338,22 +347,41 @@ class Semitruck7dof(PythBaseEnv):
         reward = self.compute_reward(action)
 
         self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
-
-        self.ref_x, self.ref_y = self.state[self.state_dim - 2], self.state[self.state_dim - 4]
+        print(self.state)
+        self.t = self.t + self.dt
+        self.t2 = self.t2 + self.dt
 
         self.ref_points[:-1] = self.ref_points[1:]
-        self.ref_x += self.target_speed * self.dt
-        self.ref_y += self.state[10] * self.dt
-        traj_points = [[self.ref_x, self.ref_y]]
-        new_ref_point = self.ref_traj.find_nearest_point(np.array(traj_points))  # x, y, phi, u
-        self.ref_points[-1] = new_ref_point
+        new_ref_point = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+            ],
+            dtype=np.float32,
+        )
 
-        self.ref_points_2[:-1] = self.ref_points_2[1:]
-        self.ref_x2 += self.target_speed * self.dt
-        self.ref_y2 += self.state[10] * self.dt
-        traj_points_2 = [[self.ref_x2, self.ref_y2]]
-        new_ref_point_2 = self.ref_traj.find_nearest_point(np.array(traj_points_2))  # x, y, phi, u
-        self.ref_points_2[-1] = new_ref_point_2
+        new_ref_point_2 = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t2 + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+            ],
+            dtype=np.float32,
+        )
+        self.ref_points[-1] = np.hstack((new_ref_point, new_ref_point_2))
 
         obs = self.get_obs()
         self.done = self.judge_done()
@@ -363,43 +391,43 @@ class Semitruck7dof(PythBaseEnv):
 
     def get_obs(self) -> np.ndarray:
         ref_x_tf, ref_y_tf, ref_phi_tf = \
-            state_error_calculate(
-                self.state[13], self.state[11], self.state[8],
+            ego_vehicle_coordinate_transform(
+                self.state[0], self.state[1], self.state[2],
                 self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2],
             )
 
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
-            state_error_calculate(
-                self.state[14], self.state[12], self.state[9],
-                self.ref_points_2[:, 0], self.ref_points_2[:, 1], self.ref_points_2[:, 2],
+            ego_vehicle_coordinate_transform(
+                self.state[3], self.state[4], self.state[5],
+                self.ref_points[:, 3], self.ref_points[:, 4], self.ref_points[:, 5],
             )
 
         # ego_obs: [
-        # delta_x, delta_y, delta_psi,delta_x2, delta_y2, delta_psi2 (of the first reference point)
+        # delta_y, delta_phi, delta_y2, delta_phi2 (of the first reference point)
         # v, w, varphi (of ego vehicle, including tractor and trailer)
         # ]
 
         ego_obs = np.concatenate(
-            (self.state[0:8], [ref_phi_tf[0]*self.obs_scale[8], ref_phi2_tf[0]*self.obs_scale[9]], self.state[10:11]*self.obs_scale[10],
-             [ref_y_tf[0]*self.obs_scale[11], ref_y2_tf[0]*self.obs_scale[12]]))
+            ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_x2_tf[0]*self.obs_scale[3], ref_y2_tf[0]*self.obs_scale[4], ref_phi2_tf[0]*self.obs_scale[5]],
+             self.state[6:14], self.state[14:]*self.obs_scale[14]))
         # ref_obs: [
-        # delta_x, delta_y, delta_psi (of the second to last reference point)
+        # delta_y, delta_phi (of the second to last reference point)
         # ]
-        ref_obs = np.stack((ref_y_tf*self.obs_scale[13], ref_phi_tf*self.obs_scale[14], ref_y2_tf*self.obs_scale[13], ref_phi2_tf*self.obs_scale[14]), 1)[1:].flatten()
+        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_x2_tf*self.obs_scale[3],ref_y2_tf*self.obs_scale[4], ref_phi2_tf*self.obs_scale[5]), 1)[1:].flatten()
         return np.concatenate((ego_obs, ref_obs))
 
     def compute_reward(self, action: np.ndarray) -> float:
-        beta1, psi1_dot, varphi1, varphi1_dot, \
-        beta2, psi2_dot, varphi2, varphi2_dot, \
-        psi1, psi2, vy1, py1, py2, px1, px2 = self.state
+        px1, py1, phi1, px2, py2, phi2, beta1, phi1_dot, varphi1, varphi1_dot, \
+        beta2, phi2_dot, varphi2, varphi2_dot, \
+        vy1, vx1 = self.state
 
-        ref_x, ref_y, ref_psi = self.ref_points[0]
+        ref_x, ref_y, ref_phi = self.ref_points[0][0:3]
         steer = action[0]
         return -(
-            1 * ((px1 - ref_x) ** 2 + 0.04 * (py1 - ref_y) ** 2)
+            1 * ((py1 - ref_y) ** 2) #(px1 - ref_x) ** 2 +
             + 0.9 * vy1 ** 2
-            + 0.8 * angle_normalize(psi1 - ref_psi) ** 2
-            + 0.5 * psi1_dot ** 2
+            + 0.8 * angle_normalize(phi1 - ref_phi) ** 2
+            + 0.5 * phi1_dot ** 2
             + 0.5 * beta1 ** 2
             + 0.5 * varphi1 ** 2
             + 0.5 * varphi1_dot ** 2
@@ -408,11 +436,12 @@ class Semitruck7dof(PythBaseEnv):
         )
 
     def judge_done(self) -> bool:
-        done = ((abs(self.state[11]-self.ref_points[0, 1]) > 3)  # delta_y1
-                + (abs(self.state[10]) > 2)  # delta_psi1
-                  + (abs(self.state[8]-self.ref_points[0, 2]) > np.pi/2)  # delta_psi1
-                  + (abs(self.state[12]-self.ref_points_2[0, 1]) > 3) # delta_y2
-                  + (abs(self.state[9]-self.ref_points_2[0, 2]) > np.pi / 2))  # delta_psi2
+        done = ((np.abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
+                  + (np.abs(angle_normalize(self.state[2]-self.ref_points[0, 2])) > np.pi)  # delta_phi1
+                  + (np.abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
+                  + (np.abs(angle_normalize(self.state[5]-self.ref_points[0, 5])) > np.pi))  # delta_phi2
+        #(np.abs(self.state[0]-self.ref_points[0, 0]) > 5)+   # delta_x1
+        #+ (np.abs(self.state[3] - self.ref_points[0, 3]) > 5)  # delta_x2
         return done
 
     @property
@@ -420,16 +449,13 @@ class Semitruck7dof(PythBaseEnv):
         return {
             "state": self.state.copy(),
             "ref_points": self.ref_points.copy(),
-            "ref_points_2": self.ref_points_2.copy(),
-            "ref_x": self.ref_x,
-            "ref_y": self.ref_y,
-            "ref_x2": self.ref_x2,
-            "ref_y2": self.ref_y2,
             "ref": self.ref_points[0].copy(),
-            "ref2": self.ref_points_2[0].copy(),
-            "target_speed": self.target_speed,
+            "target_speed": 22.22,
+            "path_num": self.path_num,
+            "u_num": self.u_num,
+            "ref_time": self.t,
+            "ref_time2": self.t2,
         }
-
 
 def state_error_calculate(
     ego_x: np.ndarray,
@@ -477,6 +503,19 @@ def ego_vehicle_coordinate_transform(
 
 def env_creator(**kwargs):
     """
-    make env `pyth_SimuSemiTruck9dof`
+    make env `pyth_semitruckpu7dof`
     """
-    return Semitruck7dof(**kwargs)
+    return Semitruckpu7dof(**kwargs)
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
+# if __name__ == "__main__":
+#     env = env_creator()
+#     env.reset()
+#     for i in range(50):
+#         # a = env.action_space.sample()
+#         a = np.array([0.1, 0.2])
+#         print(i)
+#         obs, reward, done, info = env.step(a)
+#         # print(obs)
+#         # env.render()

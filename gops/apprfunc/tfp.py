@@ -75,7 +75,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         # 将x和positional encoding相加。
         x = x + self.pe[:, : x.size(1)].requires_grad_(False)
-        return self.dropout(x)
+        return x
 
 class TransformerPolicy(nn.Module, Action_Distribution):
     def __init__(self, **kwargs):
@@ -349,24 +349,80 @@ class TransformerPolicy6(nn.Module, Action_Distribution):
                  + (self.act_high_lim + self.act_low_lim) / 2
         # print("Check a: ", torch.isnan(action).any())
         return action
+# class TP7(nn.Module, Action_Distribution):
+#     def __init__(self, **kwargs):
+#         super(TP7, self).__init__()
+#         self.act_dim = kwargs["act_dim"]
+#         d_model = kwargs["d_model"]
+#         nhead = kwargs["nhead"]
+#         num_decoder_layers = kwargs["num_decoder_layers"]
+#         self.pre_horizon = kwargs["pre_horizon"]
+#         self.max_trajectory = kwargs["max_trajectory"]
+#         self.state_dim = kwargs["state_dim"]
+#         self.ref_obs_dim = kwargs["ref_obs_dim"]
+#         self.dim_feedforward = kwargs["dim_feedforward"]
+#         self.pos_encoder = PositionalEncoding(d_model)
+#         self.state_ref_embedding = nn.Linear(self.state_dim + self.ref_obs_dim, d_model)
+#         self.pos_encoder = PositionalEncoding(d_model)
+#         self.SelfAttention = MutiSelfAttention2(d_model, nhead, select_dim=None, num_layers=num_decoder_layers, dim_feedforward=self.dim_feedforward, batch_first=True)
+#         self.action_output = nn.Linear(d_model, self.act_dim)
+#
+#         self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]).float())
+#         self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]).float())
+#         self.action_distribution_cls = kwargs["action_distribution_cls"]
+#
+#     def forward(self, obs):
+#         return self.forward_all_policy(obs)[:, 0, :]
+#
+#     def forward_all_policy(self, obs, key_padding_mask=None):
+#         state = obs[:, :self.state_dim]
+#         trajectory = obs[:, self.state_dim:].reshape(obs.size(0), -1, self.ref_obs_dim)
+#         seq_length = trajectory.shape[1]
+#         state_expanded = state.unsqueeze(1).expand(-1, seq_length, -1)
+#         state_ref = torch.cat((state_expanded, trajectory), dim=2)
+#         tgt = self.state_ref_embedding(state_ref)
+#         tgt = self.pos_encoder(tgt)
+#         # output = self.transformer(src, tgt, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask)
+#         output = self.SelfAttention(tgt, key_padding_mask=key_padding_mask)
+#         actions = self.action_output(output)
+#         action = (self.act_high_lim - self.act_low_lim) / 2 * torch.tanh(actions) \
+#                  + (self.act_high_lim + self.act_low_lim) / 2
+#         # print("Check a: ", torch.isnan(action).any())
+#         return action
+
+
+
 class TP7(nn.Module, Action_Distribution):
     def __init__(self, **kwargs):
         super(TP7, self).__init__()
-        self.act_dim = kwargs["act_dim"]
-        d_model = kwargs["d_model"]
-        nhead = kwargs["nhead"]
-        num_decoder_layers = kwargs["num_decoder_layers"]
-        self.pre_horizon = kwargs["pre_horizon"]
-        self.max_trajectory = kwargs["max_trajectory"]
-        self.state_dim = kwargs["state_dim"]
-        self.ref_obs_dim = kwargs["ref_obs_dim"]
-        self.dim_feedforward = kwargs["dim_feedforward"]
-        self.pos_encoder = PositionalEncoding(d_model)
-        self.state_ref_embedding = nn.Linear(self.state_dim + self.ref_obs_dim, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
-        self.SelfAttention = MutiSelfAttention2(d_model, nhead, select_dim=None, num_layers=num_decoder_layers, dim_feedforward=self.dim_feedforward, batch_first=True)
-        self.action_output = nn.Linear(d_model, self.act_dim)
+        self.act_dim = kwargs["act_dim"]  # 动作维度，例如 2
+        d_model = kwargs["d_model"]  # 模型维度
+        nhead = kwargs["nhead"]  # 多头注意力的头数
+        self.state_dim = kwargs["state_dim"]  # 状态维度
+        self.ref_obs_dim = kwargs["ref_obs_dim"]  # 参考观测维度
+        self.dim_feedforward = kwargs.get("dim_feedforward", 2048)  # 前馈网络维度
 
+        # 输入编码部分，使用 MLP 和 GELU 激活函数
+        self.input_mlp = nn.Sequential(
+            nn.Linear(self.state_dim + self.ref_obs_dim, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, d_model),
+        )
+        self.pos_encoder = PositionalEncoding(d_model)
+
+        # 自注意力层
+        self.self_attention = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+
+        # 使用 MLP 进行动作输出，使用 GELU 激活函数
+        self.action_mlp = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, self.act_dim)
+        )
+
+        # 动作空间的高低限制
         self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]).float())
         self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]).float())
         self.action_distribution_cls = kwargs["action_distribution_cls"]
@@ -375,20 +431,79 @@ class TP7(nn.Module, Action_Distribution):
         return self.forward_all_policy(obs)[:, 0, :]
 
     def forward_all_policy(self, obs, key_padding_mask=None):
-        state = obs[:, :self.state_dim]
-        trajectory = obs[:, self.state_dim:].reshape(obs.size(0), -1, self.ref_obs_dim)
-        seq_length = trajectory.shape[1]
-        state_expanded = state.unsqueeze(1).expand(-1, seq_length, -1)
-        state_ref = torch.cat((state_expanded, trajectory), dim=2)
-        tgt = self.state_ref_embedding(state_ref)
-        tgt = self.pos_encoder(tgt)
-        # output = self.transformer(src, tgt, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask)
-        output = self.SelfAttention(tgt, key_padding_mask=key_padding_mask)
-        actions = self.action_output(output)
-        action = (self.act_high_lim - self.act_low_lim) / 2 * torch.tanh(actions) \
+        # 提取状态和轨迹
+        state = obs[:, :self.state_dim]  # (batch_size, state_dim)
+        trajectory = obs[:, self.state_dim:].reshape(obs.size(0), -1,
+                                                     self.ref_obs_dim)  # (batch_size, seq_length, ref_obs_dim)
+
+        # 将状态扩展并与轨迹拼接
+        seq_length = trajectory.size(1)
+        state_expanded = state.unsqueeze(1).expand(-1, seq_length, -1)  # (batch_size, seq_length, state_dim)
+        state_ref = torch.cat((state_expanded, trajectory), dim=2)  # (batch_size, seq_length, state_dim + ref_obs_dim)
+
+        # 通过输入 MLP 进行编码
+        tgt = self.input_mlp(state_ref)  # (batch_size, seq_length, d_model)
+        tgt = self.pos_encoder(tgt)  # (batch_size, seq_length, d_model)
+
+        # 经过自注意力层
+        attn_output, _ = self.self_attention(tgt, tgt, tgt , key_padding_mask=key_padding_mask)  # (batch_size, seq_length, d_model)
+
+        # 通过动作 MLP 进行输出
+        actions = self.action_mlp(attn_output)  # (batch_size, seq_length, act_dim)
+
+        # 经过激活函数
+        actions = torch.tanh(actions)
+
+        # 映射到动作空间
+        action = (self.act_high_lim - self.act_low_lim) / 2 * actions \
                  + (self.act_high_lim + self.act_low_lim) / 2
-        # print("Check a: ", torch.isnan(action).any())
         return action
+
+
+# class TP7(nn.Module, Action_Distribution):
+#     def __init__(self, **kwargs):
+#         super(TP7, self).__init__()
+#         self.act_dim = kwargs["act_dim"]
+#         d_model = kwargs["d_model"]
+#         nhead = kwargs["nhead"]
+#         num_decoder_layers = kwargs["num_decoder_layers"]
+#         self.pre_horizon = kwargs["pre_horizon"]
+#         self.max_trajectory = kwargs["max_trajectory"]
+#         self.state_dim = kwargs["state_dim"]
+#         self.ref_obs_dim = kwargs["ref_obs_dim"]
+#         self.dim_feedforward = kwargs["dim_feedforward"]
+#         self.pos_encoder = PositionalEncoding(d_model)
+#         self.state_embedding = nn.Linear(self.state_dim, d_model)
+#         self.trajectory_embedding = nn.Linear(self.ref_obs_dim, d_model)
+#         self.pos_encoder = PositionalEncoding(d_model)
+#         self.SelfAttention = MutiSelfAttention2(d_model, nhead, select_dim=None, num_layers=num_decoder_layers, dim_feedforward=self.dim_feedforward, batch_first=True)
+#         self.action_output = nn.Linear(d_model, self.act_dim)
+#
+#         self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]).float())
+#         self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]).float())
+#         self.action_distribution_cls = kwargs["action_distribution_cls"]
+#
+#     def forward(self, obs):
+#         return self.forward_all_policy(obs)[:, 0, :]
+#
+#     def forward_all_policy(self, obs, key_padding_mask=None):
+#         # state =
+#         state = obs[:, :self.state_dim]
+#         trajectory = obs[:, self.state_dim:].reshape(obs.size(0), -1, self.ref_obs_dim)
+#         state_emb = self.state_embedding(state).unsqueeze(1)  # [batch_size, 1, d_model]
+#         ref_emb = self.trajectory_embedding(trajectory)  # [batch_size, seq_len, d_model]
+#         tgt = torch.cat((state_emb, ref_emb), dim=1)
+#         tgt = self.pos_encoder(tgt)
+#         # output = self.transformer(src, tgt, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask)
+#         output = self.SelfAttention(tgt, key_padding_mask=key_padding_mask)
+#         output = output[:, 1:, :]
+#         actions = self.action_output(output)
+#         action = (self.act_high_lim - self.act_low_lim) / 2 * torch.tanh(actions) \
+#                  + (self.act_high_lim + self.act_low_lim) / 2
+#         # print("Check a: ", torch.isnan(action).any())
+#         return action
+
+
 class MutiSelfAttention(nn.Module):
     def __init__(self, d_model, nhead, num_layers, dim_feedforward=1024, dropout=0.1, activation='gelu',  batch_first=True):
         super(MutiSelfAttention, self).__init__()
@@ -433,12 +548,9 @@ class MutiSelfAttention2(nn.Module):
         self.select_dim = select_dim
         # Feedforward network
         self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout = nn.Dropout(dropout)
+
         self.linear2 = nn.Linear(dim_feedforward, d_model)
         self.activation = F.relu if activation == 'relu' else F.gelu
-
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, tgt, attn_mask=None, key_padding_mask=None):
         output = tgt
@@ -450,24 +562,22 @@ class MutiSelfAttention2(nn.Module):
         else:
             tgt = output[:, self.select_dim, :]
         tgt2 = self.linear1(tgt)
-        tgt2 = self.dropout(self.activation(tgt2))
+        tgt2 = self.activation(tgt2)
         tgt2 = self.linear2(tgt2)
-        tgt = tgt + self.dropout2(tgt2)
+        tgt = tgt + self.activation(tgt2)
         tgt = self.norm1(tgt)
         return tgt
 
 class SelfAttentionWithAddNorm(nn.Module):
-    def __init__(self, d_model, nhead, dropout=0.1, batch_first=True):
+    def __init__(self, d_model, nhead, batch_first=True):
         super(SelfAttentionWithAddNorm, self).__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first)
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, batch_first=batch_first)
         self.norm1 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
 
     def forward(self, tgt, attn_mask=None, key_padding_mask=None):
         # Multi-Head Self-Attention
         tgt2, _ = self.self_attn(tgt, tgt, tgt, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
-        # tgt = tgt[:, 0, :] + self.dropout1(tgt2[:, 0, :])
-        tgt = tgt + self.dropout1(tgt2)
+        tgt = tgt + tgt2
         tgt = self.norm1(tgt)
         # Add & Norm
         return tgt

@@ -66,6 +66,7 @@ def get_apprfunc_dict(key: str, **kwargs):
     var["norm_matrix"] = kwargs.get("norm_matrix", None)
     var["pre_horizon"] = kwargs.get("pre_horizon", None)
 
+
     apprfunc_type = kwargs[key + "_func_type"]
     if key + "_output_activation" not in kwargs.keys():
         kwargs[key + "_output_activation"] = "linear"
@@ -73,6 +74,26 @@ def get_apprfunc_dict(key: str, **kwargs):
         var["hidden_sizes"] = kwargs[key + "_hidden_sizes"]
         var["hidden_activation"] = kwargs[key + "_hidden_activation"]
         var["output_activation"] = kwargs[key + "_output_activation"]
+    #################################################################
+    elif apprfunc_type == "TFP" or apprfunc_type == "TFPLIPS" or apprfunc_type == "TTP":
+        var["d_model"] = kwargs["d_model"]
+        var["nhead"] = kwargs["nhead"]
+        var["num_encoder_layers"] = kwargs["num_encoder_layers"]
+        var["num_decoder_layers"] = kwargs["num_decoder_layers"]
+        var["pre_horizon"] = kwargs["pre_horizon"]
+        var["replay_batch_size"] = kwargs["replay_batch_size"]
+        var["max_trajectory"] = kwargs["max_trajectory"]
+        var["state_dim"] = kwargs["state_dim"]
+        var["ref_obs_dim"] = kwargs["ref_obs_dim"]
+        var["dim_feedforward"] = kwargs["dim_feedforward"]
+    elif apprfunc_type == "GRU" :
+        var["pre_horizon"] = kwargs["pre_horizon"]
+        var["state_dim"] = kwargs["state_dim"]
+        var["ref_obs_dim"] = kwargs["ref_obs_dim"]
+        var["hidden_dim"] = kwargs["hidden_dim"]
+        var["num_layers"] = kwargs["num_layers"]
+        var["bidirectional"] = kwargs["bidirectional"]
+    ##################################################################
     elif apprfunc_type == "GAUSS":
         var["num_kernel"] = kwargs[key + "_num_kernel"]
     elif apprfunc_type == "CNN":

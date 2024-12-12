@@ -7,33 +7,26 @@
 #  Email: lisb04@gmail.com
 #
 #  Description: run a closed-loop system
+#  Update: 2022-12-05, Congsheng Zhang: create file
 
 
-from gops.sys_simulator.sys_run import PolicyRunner
+from gops.sys_simulator.sys_run import OptRunner
+import numpy as np
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-
-runner = PolicyRunner(
-    log_policy_dir_list=[
-        "../results/pyth_veh3dofconti/FHADP_240722-152956"
-        # "PATH_TO_YOUR_RESULT_DIR",
-    ],
-    trained_policy_iteration_list=[
-        "3000"
-        # "ITERATION_NUM",
-    ],
+result_path = "../results/pyth_veh3dofconti_surrcstr/"
+runner = OptRunner(
+    log_policy_dir_list=[result_path],
+    env_id="pyth_veh3dofconti_surrcstr",
     is_init_info=True,
-    init_info={
-        # parameters of env.reset()
-        "init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        "ref_time": 0.0,
-        "ref_num": 0,
-    },
-    save_render=False,
-    legend_list=["FHADP2"],
-    use_opt=False,  # Use optimal solution for comparison
+    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}, #
+    save_render=True,
+    legend_list=[],
+    use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 20,
+        "num_pred_step": 10,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
@@ -44,9 +37,9 @@ runner = PolicyRunner(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=False,
+    constrained_env=True,
     is_tracking=True,
-    dt=0.1,
+    dt=0.01,
 )
 
 runner.run()
