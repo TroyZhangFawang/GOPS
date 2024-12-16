@@ -42,7 +42,7 @@ DEFAULT_PATH_PARAM = {
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 22.22, },
+    "constant": {"u": 10, },
     "sine": {"A": 10.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
 }
 

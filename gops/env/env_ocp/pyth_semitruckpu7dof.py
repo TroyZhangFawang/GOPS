@@ -183,14 +183,14 @@ class VehicleDynamicsData:
         #px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
         state_next[0] = states[0] + delta_t * (vx * np.cos(states[2]) - states[15] * np.sin(states[2]))
-        state_next[1] = states[1] + delta_t * X_dot[11]#(vx * np.sin(states[2]) + states[14] * np.cos(states[2]))
-        state_next[2] = states[2] + delta_t * X_dot[8]
+        state_next[1] = states[1] + delta_t * (vx * np.sin(states[2]) + states[15] * np.cos(states[2]))#X_dot[11]
+        state_next[2] = states[2] + delta_t * states[8]
         state_next[3] = states[3] + delta_t * actions[1]
         state_next[4] = state_next[0] - self.b * np.cos(states[2]) - self.e * np.cos(
             states[6])  # posx_trailer
         state_next[5] = state_next[1] - self.b * np.sin(states[2]) - self.e * np.sin(
             states[6])  # posy_trailer
-        state_next[6] = states[6] + delta_t * X_dot[9]
+        state_next[6] = states[6] + delta_t * states[12]
         state_next[7:15] = states[7:15] + delta_t * X_dot[0:8]
         state_next[15] = states[15] + delta_t * X_dot[10]
         return state_next
@@ -231,8 +231,8 @@ class Semitruckpu7dof(PythBaseEnv):
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Box(
-            low=np.array([-max_steer, 0]),
-            high=np.array([max_steer, 1.5]),
+            low=np.array([-max_steer, -3]),
+            high=np.array([max_steer, 3]),
             dtype=np.float32,
         )
         obs_scale_default = [1/100, 1/100, 1/10, 1/100, 1/100, 1/100, 1/10,
@@ -399,8 +399,8 @@ class Semitruckpu7dof(PythBaseEnv):
         ref_u_tf = self.ref_points[:, 3] - self.state[3]
         ref_x2_tf, ref_y2_tf, ref_phi2_tf = \
             ego_vehicle_coordinate_transform(
-                self.state[3], self.state[4], self.state[5],
-                self.ref_points[:, 3], self.ref_points[:, 4], self.ref_points[:, 5],
+                self.state[4], self.state[5], self.state[6],
+                self.ref_points[:, 4], self.ref_points[:, 5], self.ref_points[:, 6],
             )
 
         # ego_obs: [
@@ -434,15 +434,16 @@ class Semitruckpu7dof(PythBaseEnv):
             + 0.5 * beta1 ** 2
             + 0.5 * varphi1 ** 2
             + 0.5 * varphi1_dot ** 2
-            + 0.4 * (steer ** 2+ax**2)
-            + 2.0 * ((action[0] - self.action_last[0]) ** 2+(action[1] - self.action_last[1]) ** 2)
+            + 0.1 * (steer ** 2+ax**2)
+            + 0.1 * ((action[0] - self.action_last[0]) ** 2+(action[1] - self.action_last[1]) ** 2)
         )
 
     def judge_done(self) -> bool:
-        done = ((np.abs(self.state[1]-self.ref_points[0, 1]) > 3)  # delta_y1
+        done = ((np.abs(self.state[1]-self.ref_points[0, 1]) > 5)  # delta_y1
                   + (np.abs(angle_normalize(self.state[2]-self.ref_points[0, 2])) > np.pi)  # delta_phi1
-                  + (np.abs(self.state[4]-self.ref_points[0, 4]) > 3) # delta_y2
-                  + (np.abs(angle_normalize(self.state[5]-self.ref_points[0, 5])) > np.pi))  # delta_phi2
+                + (np.abs(self.state[3] - self.ref_points[0, 3]) > 3)  # delta_u1
+                  + (np.abs(self.state[5]-self.ref_points[0, 5]) > 5) # delta_y2
+                  + (np.abs(angle_normalize(self.state[6]-self.ref_points[0, 6])) > np.pi))  # delta_phi2
         #(np.abs(self.state[0]-self.ref_points[0, 0]) > 5)+   # delta_x1
         #+ (np.abs(self.state[3] - self.ref_points[0, 3]) > 5)  # delta_x2
         return done

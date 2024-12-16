@@ -192,14 +192,13 @@ class VehicleDynamicsModel(VehicleDynamicsData):
                      torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, actions[batch, 0:1]))).squeeze()
             X_dot_batch[batch, :] = X_dot
 
-        state_next[:, 0] = states[:, 0] + delta_t * (vx * torch.cos(states[:, 2].clone()) - states[:, 14].clone() * torch.sin(states[:, 2].clone()))  # x_tractor
-        state_next[:, 1] = states[:, 1] + delta_t * X_dot_batch[:, 11]#(vx * torch.sin(states[:, 2].clone()) + states[:, 14].clone() * torch.cos(states[:, 2].clone()))
-        state_next[:, 2] = states[:, 2] + delta_t * X_dot_batch[:, 8]
+        state_next[:, 0] = states[:, 0] + delta_t * (vx * torch.cos(states[:, 2].clone()) - states[:, 15].clone() * torch.sin(states[:, 2].clone()))  # x_tractor
+        state_next[:, 1] = states[:, 1] + delta_t * (vx * torch.sin(states[:, 2].clone()) + states[:, 15].clone() * torch.cos(states[:, 2].clone()))#X_dot_batch[:, 11]
+        state_next[:, 2] = states[:, 2] + delta_t * states[:, 8]
         state_next[:, 3] = states[:, 3] + delta_t * actions[:, 1]
-        state_next[:, 4] = state_next[:, 0].clone() - self.b * torch.cos(states[:, 2].clone()) - self.e * torch.cos(states[:, 6].clone())  # x_trailer
-        state_next[:, 5] = state_next[:, 1].clone() - self.b * torch.sin(
-            states[:, 2].clone()) - self.e * torch.sin(states[:, 6].clone())  # posy_trailer
-        state_next[:, 6] = states[:, 6] + delta_t * X_dot_batch[:, 9]
+        state_next[:, 4] = state_next[:, 0].clone() - self.b * torch.cos(states[:, 2].clone()) - self.e * torch.cos(states[:, 6].clone())  # posx_trailer
+        state_next[:, 5] = state_next[:, 1].clone() - self.b * torch.sin(states[:, 2].clone()) - self.e * torch.sin(states[:, 6].clone())  # posy_trailer
+        state_next[:, 6] = states[:, 6] + delta_t * states[:, 12]
         state_next[:, 7:15] = states[:, 7:15] + delta_t * X_dot_batch[:, 0:8]
         state_next[:, 15] = states[:, 15] + delta_t * X_dot_batch[:, 10]
         return state_next
@@ -365,12 +364,12 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         # px1, py1, psi1, px2, py2, psi2,
         # beta1, psi1_dot, phi1, phi1_dot, beta2, psi2_dot, phi2, phi2_dot, vy1
         self.dyn = vertcat(self.X[0] + delta_t * (self.X[3] * cos(self.X[2]) - self.X[15] * sin(self.X[2])),
-                           self.X[1] + delta_t * X_dot[11],#(vx * sin(self.X[2]) + self.X[14] * cos(self.X[2]))
-                           self.X[2] + delta_t * X_dot[8],
+                           self.X[1] + delta_t * (vx * sin(self.X[2]) + self.X[15] * cos(self.X[2])),#X_dot[11]
+                           self.X[2] + delta_t * self.psi1dot,
                            self.X[3] + delta_t * self.U[1],
                            self.X[0] - self.b * cos(self.X[2]) - self.e * cos(self.X[6]),
                            self.X[1] - self.b * sin(self.X[2]) - self.e * sin(self.X[6]),
-                           self.X[6] + delta_t * X_dot[9],
+                           self.X[6] + delta_t * self.psi2dot,
                            self.X[7:15] + delta_t * X_dot[0:8],
                            self.X[15] + delta_t * X_dot[10])
 
@@ -380,15 +379,15 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         # ref:ref_y, ref_vx, ref_phi, ref_x + (self.X[0] - ref[0]) ** 2
         self.path_cost = self.wdis * ((self.X[1] - ref[1]) ** 2 ) + \
                          self.wvx1 * (self.X[3]-ref[3]) ** 2 + self.wpsi1 * (self.X[2] - ref[2]) ** 2 \
-                         + self.womega1 * (self.X[7]) ** 2 + self.wbeta1 * (self.X[6]) ** 2 + \
-                         self.wphi1 * (self.X[8]) ** 2 + self.wphi1dot * (self.X[9]) ** 2 + \
+                         + self.womega1 * (self.X[8]) ** 2 + self.wbeta1 * (self.X[7]) ** 2 + \
+                         self.wphi1 * (self.X[9]) ** 2 + self.wphi1dot * (self.X[10]) ** 2 + \
                          self.wu * (self.U[0]** 2+self.U[1]** 2) \
                          + self.wudot * ((self.U[0] - action_last_np[0]) ** 2+(self.U[1] - action_last_np[1]) ** 2)
         #+ (self.X[0] - ref[0]) ** 2
         self.final_cost = self.wdis * ((self.X[1] - ref[1]) ** 2 ) + \
                          self.wvx1 * (self.X[3]-ref[3]) ** 2 + self.wpsi1 * (self.X[2] - ref[2]) ** 2 \
-                         + self.womega1 * (self.X[7]) ** 2 + self.wbeta1 * (self.X[6]) ** 2 + \
-                         self.wphi1 * (self.X[8]) ** 2 + self.wphi1dot * (self.X[9]) ** 2
+                         + self.womega1 * (self.X[8]) ** 2 + self.wbeta1 * (self.X[7]) ** 2 + \
+                         self.wphi1 * (self.X[9]) ** 2 + self.wphi1dot * (self.X[10]) ** 2
         return self.path_cost, self.final_cost
 
     def stepPhysics_i(self, states, action):
@@ -574,8 +573,8 @@ class Semitruckpu7dofModel(PythBaseModel):
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
             action_dim=2,
             dt=0.01,
-            action_lower_bound=[-max_steer, 0],
-            action_upper_bound=[max_steer, 1.5],
+            action_lower_bound=[-max_steer, -3],
+            action_upper_bound=[max_steer, 3],
             device=device,
         )
         self.ref_traj = MultiRefTrajModel(path_para, u_para)
