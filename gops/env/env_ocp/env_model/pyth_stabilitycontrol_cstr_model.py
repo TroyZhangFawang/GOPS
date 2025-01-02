@@ -157,18 +157,24 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         state_next[:, 2] = phi + delta_t * phi_dot
         state_next[:, 2] = angle_normalize(state_next[:, 2])
         state_next[:, 3:8] = state[:, 3:8] + delta_t * X_dot_batch
-        state_next[:, 8] = kappa1 + delta_t * (
-                    self.Rw * (Q1 - self.Rw * self.C_slip1 * kappa1) / (v_x * self.Iw) - (1 + kappa1) / (
-                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[:, 9] = kappa2 + delta_t * (
-                    self.Rw * (Q2 - self.Rw * self.C_slip2 * kappa2) / (v_x * self.Iw) - (1 + kappa2) / (
-                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[:, 10] = kappa3 + delta_t * (
-                    self.Rw * (Q3 - self.Rw * self.C_slip3 * kappa3) / (v_x * self.Iw) - (1 + kappa3) / (
-                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[:, 11] = kappa4 + delta_t * (
-                    self.Rw * (Q4 - self.Rw * self.C_slip4 * kappa4) / (v_x * self.Iw) - (1 + kappa4) / (
-                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 8] = (((4*kappa1+4)/(self.m*v_x)+(kappa1+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip1*delta_t+1)*kappa1-((kappa1+1)**2*self.Rw*delta_t*Q1)/(self.Iw*v_x)
+        state_next[:, 9] = (((4*kappa2+4)/(self.m*v_x)+(kappa2+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip2*delta_t+1)*kappa2-((kappa2+1)**2*self.Rw*delta_t*Q2)/(self.Iw*v_x)
+        state_next[:, 10] = (((4*kappa3+4)/(self.m*v_x)+(kappa3+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip3*delta_t+1)*kappa3-((kappa3+1)**2*self.Rw*delta_t*Q3)/(self.Iw*v_x)
+        state_next[:, 11] = (((4*kappa4+4)/(self.m*v_x)+(kappa4+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip4*delta_t+1)*kappa4-((kappa4+1)**2*self.Rw*delta_t*Q4)/(self.Iw*v_x)
+
+        # kappa1 * (
+        #         self.Rw * (Q1 - self.Rw * self.C_slip1 * kappa1) / (v_x * self.Iw) - (1 + kappa1) / (
+        #         self.m * v_x) * (
+        #                     self.C_slip1 * kappa1 + self.C_slip2 * kappa2 + self.C_slip3 * kappa3 + self.C_slip4 * kappa4))
+        # state_next[:, 9] = kappa2 + delta_t * (
+        #             self.Rw * (Q2 - self.Rw * self.C_slip2 * kappa2) / (v_x * self.Iw) - (1 + kappa2) / (
+        #                 self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        # state_next[:, 10] = kappa3 + delta_t * (
+        #             self.Rw * (Q3 - self.Rw * self.C_slip3 * kappa3) / (v_x * self.Iw) - (1 + kappa3) / (
+        #                 self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        # state_next[:, 11] = kappa4 + delta_t * (
+        #             self.Rw * (Q4 - self.Rw * self.C_slip4 * kappa4) / (v_x * self.Iw) - (1 + kappa4) / (
+        #                 self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
         state_next[:, 12:17] = action
 
         return state_next
@@ -230,7 +236,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         action_psc = action + state[:, 12:]
         action_psc = torch.clamp(action_psc, min=self.action_psc_lower_bound, max=self.action_psc_upper_bound)
         next_state = self.vehicle_dynamics.f_xu(state, action_psc, self.dt, slope_points[:, 1, :])
-
+        # print(state[:, 8:12])
         next_t = t + self.dt
 
         next_ref_points = ref_points.clone()

@@ -47,10 +47,10 @@ class VehicleDynamicsData:
             k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
             k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
             k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
-            C_slip1=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip2=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip3=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip4=8.885 * 1.525 * 1.062e+04,  # N
+            C_slip1=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
+            C_slip2=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
+            C_slip3=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
+            C_slip4=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
             mu_road=0.5, # road Adhesion coefficient
