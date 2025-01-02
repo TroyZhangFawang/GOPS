@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import torch
 from gops.env.env_ocp.env_model.pyth_base_model import PythBaseModel
-from gops.env.env_ocp.pyth_stabilitycontrol import angle_normalize, VehicleDynamicsData
+from gops.env.env_ocp.pyth_stabilitycontrol_cstr import angle_normalize, VehicleDynamicsData
 from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel, MultiRoadSlopeModel
 from gops.utils.gops_typing import InfoDict
 
@@ -173,7 +173,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         return state_next
 
-class FourwdstabilitycontrolModel(PythBaseModel):
+class FourwdstabilitycontrolCstrModel(PythBaseModel):
     def __init__(
         self,
         pre_horizon: int = 30,
@@ -227,7 +227,7 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         slope_num = info["slope_num"]
         t = info["ref_time"]
         reward = self.compute_reward(obs, state, action, slope_points)
-        action_psc = action + state[:, 12:17]
+        action_psc = action + state[:, 12:]
         action_psc = torch.clamp(action_psc, min=self.action_psc_lower_bound, max=self.action_psc_upper_bound)
         next_state = self.vehicle_dynamics.f_xu(state, action_psc, self.dt, slope_points[:, 1, :])
 
@@ -296,7 +296,7 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         ref_u_tf = ref_points[..., 3] - state[:, 3].unsqueeze(1)
         ego_obs = torch.concat((torch.stack((ref_x_tf[:, 0]*self.obs_scale[0], ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_u_tf[:, 0]*self.obs_scale[3]), dim=1),
                                 torch.stack((state[:, 4]*self.obs_scale[4], state[:, 5]*self.obs_scale[5], state[:, 6]*self.obs_scale[6], state[:, 7]*self.obs_scale[7],
-                                             state[:, 8] * self.obs_scale[9], state[:, 9] * self.obs_scale[9],state[:, 10] * self.obs_scale[9], state[:, 11] * self.obs_scale[9],
+                                             state[:, 8] * self.obs_scale[9], state[:, 9] * self.obs_scale[9], state[:, 10] * self.obs_scale[9], state[:, 11] * self.obs_scale[9],
                                              state[:, 12]*self.obs_scale[8], state[:, 13]*self.obs_scale[8], state[:, 14]*self.obs_scale[8], state[:, 15]*self.obs_scale[8], state[:, 16]*self.obs_scale[9]), dim=1)), dim=1)
         ref_obs = torch.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3], slope_points[:, :, 0], slope_points[:, :, 1]), 2)[
                   :, 1:].reshape(ego_obs.shape[0], -1)
@@ -358,7 +358,7 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                          (self.vehicle_dynamics.ms * self.vehicle_dynamics.hs)))
         I_rollover = C_varphi * varphi + C_varphi_dot * varphi_dot
         # r_action_Q = torch.sum((action[:, 0:4]/100) ** 2)
-        kappa_ref = v_x / self.vehicle_dynamics.Rw
+        kappa_ref = 0.05#v_x / self.vehicle_dynamics.Rw
         r_slip = torch.sum((obs[:, 8:12]/self.obs_scale[9]-kappa_ref) ** 2)
         r_action_Qdot = (action[:, 0] / 100) ** 2 + (action[:, 1] / 100) ** 2+(action[:, 2] / 100) ** 2+(action[:, 3] / 100) ** 2
         r_action_strdot = (action[:, 4]/0.02) ** 2
@@ -368,9 +368,9 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                 + 0.02 * delta_phi ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
                 + 0.01 * I_rollover ** 2
+                + 0.01 * r_action_Qdot
+                + 0.01 * r_action_strdot
                 + 0.01 * r_slip
-                + 0.05 * r_action_Qdot
-                + 0.05 * r_action_strdot
         )
 
 
@@ -390,7 +390,7 @@ class FourwdstabilitycontrolModel(PythBaseModel):
 
     def get_constraint_sideslip(self, state, info) -> torch.Tensor:
         side_slip_angle = state[:, 4] / state[:, 3]
-        constraint = side_slip_angle.abs() - torch.arctan(0.02-self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)
+        constraint = side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)
         return constraint
 
 def state_error_calculate(
@@ -431,4 +431,4 @@ def env_model_creator(**kwargs):
     """
     make env model `pyth_veh3dofconti`
     """
-    return FourwdstabilitycontrolModel(**kwargs)
+    return FourwdstabilitycontrolCstrModel(**kwargs)

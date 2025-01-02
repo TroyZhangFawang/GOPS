@@ -93,9 +93,8 @@ class VehicleDynamicsData:
     def f_xu(self, states, actions, delta_t, road_info):
         theta_road, varphi_road = road_info
         R = np.array([theta_road, varphi_road]).reshape(2, 1)
-
         x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot, kappa1, kappa2, kappa3, kappa4 = states[:12]
-        Q1, Q2, Q3, Q4, delta = actions
+        Q1, Q2, Q3, Q4, delta = actions[0], actions[1], actions[2], actions[3], actions[4]
         X = np.array(states[3:8]).reshape(5, 1)
         U = actions.reshape(5, 1)
         state_next = np.zeros_like(states)
@@ -192,7 +191,7 @@ class VehicleDynamicsData:
         state_next[12:17] = actions
         return state_next
 
-class Fourwdstabilitycontrol(PythBaseEnv):
+class FourwdstabilitycontrolCstr(PythBaseEnv):
     metadata = {
         "render.modes": ["human", "rgb_array"],
     }
@@ -217,7 +216,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             init_high = np.array([2, 1, np.pi/6, 2, 2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
             init_low = -init_high
             work_space = np.stack((init_low, init_high))
-        super(Fourwdstabilitycontrol, self).__init__(work_space=work_space, **kwargs)
+        super(FourwdstabilitycontrolCstr, self).__init__(work_space=work_space, **kwargs)
 
         self.vehicle_dynamics = VehicleDynamicsData()
         self.pre_horizon = pre_horizon
@@ -281,7 +280,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if ref_time is not None:
             self.t = ref_time
         else:
-            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0) #
 
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
@@ -297,7 +296,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1, 4])
+            self.path_num = self.np_random.choice([0, 1]) # todo only
 
         if u_num is not None:
             self.u_num = u_num
@@ -337,12 +336,13 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(50, 298) #np.array([100]*4)#产生一个，copy四份会不会更好一点
+        torque = np.random.uniform(0, 298)
         steer = np.random.uniform(-0.5, 0.5)
-        action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
+        action_psc = np.concatenate((torque+delta_state[12:16], steer+delta_state[16:]))
         self.state = np.concatenate(
-            (self.ref_points[0] + delta_state[:4], delta_state[4:8], action_psc))
-        self.constraint = np.zeros((1,))
+            (self.ref_points[0] + delta_state[:4], delta_state[4:12], action_psc))
+        self.constraint_yawrate = self.get_constraint_yawrate()
+        self.constraint_sideslip = self.get_constraint_sideslip()
         return self.get_obs(), self.info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
@@ -446,7 +446,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
         I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
-        kappa_ref = vx/self.vehicle_dynamics.Rw
+        kappa_ref = 0.05#vx/self.vehicle_dynamics.Rw
         # r_action_Q = np.sum((self.action[0:4]/254.8) ** 2)
         r_slip = np.sum((self.state[8:12]-kappa_ref) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
@@ -457,8 +457,8 @@ class Fourwdstabilitycontrol(PythBaseEnv):
                 + 0.02 * angle_normalize(phi - ref_phi) ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
                 + 0.01 * I_rollover ** 2
-                + 0.02 * r_action_Qdot
-                + 0.02 * r_action_strdot
+                + 0.01 * r_action_Qdot
+                + 0.01 * r_action_strdot
                 + 0.01 * r_slip
                 # + 0.5 * (beta - beta_ref) ** 2
         )
@@ -546,6 +546,6 @@ def env_creator(**kwargs):
     """
     make env `pyth_semitruckpu7dof`
     """
-    return Fourwdstabilitycontrol(**kwargs)
+    return FourwdstabilitycontrolCstr(**kwargs)
 
 
