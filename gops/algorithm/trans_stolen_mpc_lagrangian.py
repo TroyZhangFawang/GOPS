@@ -11,8 +11,9 @@
 #             Reinforcement Learning for Sequential Decision and Optimal Control. Springer, Singapore.
 #  create: 2023-07-28, Jiaxin Gao: create full horizon action fhadp algorithm
 
-__all__ = ["TRANSStolenMpc"]
+__all__ = ["TRANSStolenMpcLagrangian"]
 
+import math
 from copy import deepcopy
 from typing import Tuple
 import torch
@@ -45,7 +46,7 @@ class ApproxContainer(ApprBase):
         return self.policy.get_act_dist(logits)
 
 
-class TRANSStolenMpc(AlgorithmBase):
+class TRANSStolenMpcLagrangian(AlgorithmBase):
     """Approximate Dynamic Program Algorithm for Finity Horizon
 
     Paper: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4124940
@@ -54,7 +55,12 @@ class TRANSStolenMpc(AlgorithmBase):
     :param float gamma: discount factor.
     """
 
-    def __init__(self, index=0, **kwargs):
+    def __init__(self,
+                 multiplier: float = 1.0,
+                 multiplier_lr: float = 1e-3,
+                 multiplier_delay: int = 10,
+                 index: int = 0,
+                 **kwargs):
         super().__init__(index, **kwargs)
         self.networks = ApproxContainer(**kwargs)
         self.envmodel = create_env_model(**kwargs)
@@ -65,6 +71,12 @@ class TRANSStolenMpc(AlgorithmBase):
         self.state_dim = kwargs["state_dim"]
         self.ref_obs_dim = kwargs["ref_obs_dim"]
         self.batch_size = kwargs["replay_batch_size"]
+        # inverse of softplus function
+        self.multiplier_param = nn.Parameter(torch.tensor(
+            math.log(math.exp(multiplier) - 1), dtype=torch.float32))
+        self.multiplier_optim = Adam([self.multiplier_param], lr=multiplier_lr)
+        self.multiplier_delay = multiplier_delay
+        self.update_step = 0
 
     @property
     def adjustable_parameters(self):
@@ -110,7 +122,6 @@ class TRANSStolenMpc(AlgorithmBase):
     #     return padded_tensor
 
 
-
     def _compute_loss_policy(self, data):
         o, a, r, o2, d = (
             data["obs"],
@@ -128,13 +139,31 @@ class TRANSStolenMpc(AlgorithmBase):
         mask = steps < (random_len).unsqueeze(1)
         info = data
         v_pi = torch.zeros((o.size(0), self.forward_step))
+        v_pi_c = 0
+        v_pi_c2 = 0
         a = self.networks.policy.forward_all_policy(o, key_padding_mask=key_padding_mask)
         for step in range(self.forward_step):
             o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
+            c = torch.clamp_min(info["constraint_yawrate"], 0).sum(1)
+            c2 = torch.clamp_min(info["constraint_sideslip"], 0).sum(1)
+            # todo if have many constraint, c1 c2 c3
             v_pi[:, step] = r
+            v_pi_c += c * (self.gamma ** step)
+            v_pi_c2 += c2 * (self.gamma ** step)
         weighted_rewards = v_pi * gamma_powers * mask
         v_pi_final = weighted_rewards.sum(dim=1)
-        loss_policy = -v_pi_final.mean()
+        loss_reward = -v_pi_final.mean()
+        loss_constraint_yawrate = v_pi_c.mean()
+        loss_constraint_sideslip = v_pi_c2.mean()
+        multiplier = torch.nn.functional.softplus(self.multiplier_param).item()
+        loss_policy = loss_reward + multiplier * (loss_constraint_yawrate+loss_constraint_sideslip)
+
+        self.update_step += 1
+        if self.update_step % self.multiplier_delay == 0:
+            multiplier_loss = -self.multiplier_param * (loss_constraint_yawrate+loss_constraint_sideslip).item()
+            self.multiplier_optim.zero_grad()
+            multiplier_loss.backward()
+            self.multiplier_optim.step()
         loss_info = {
             tb_tags["loss_actor"]: loss_policy.item()
         }

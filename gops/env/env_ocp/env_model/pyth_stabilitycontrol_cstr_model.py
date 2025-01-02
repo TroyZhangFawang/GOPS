@@ -19,6 +19,7 @@ from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel, MultiRo
 from gops.utils.gops_typing import InfoDict
 
 
+
 class VehicleDynamicsModel(VehicleDynamicsData):
     def __init__(self):
         DynamicsData = VehicleDynamicsData()
@@ -56,15 +57,15 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         self.K_varphi = DynamicsData.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
         self.C_varphi = DynamicsData.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
-
+        self.mu_road = DynamicsData.vehicle_params["mu_road"]
         self.state_dim = DynamicsData.vehicle_params["state_dim"]
 
     def f_xu(self, state, action, delta_t, road_info):
         R = road_info
         self.batch_size = len(state[:, 0])
-        x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
-            state[:, 4], state[:, 5], state[:, 6], state[:, 7]
-        delta = action[:, 4]
+        x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot, kappa1, kappa2, kappa3, kappa4 = state[:, 0], state[:, 1],state[:, 2], state[0, 3],\
+            state[:, 4], state[:, 5], state[:, 6], state[:, 7],state[:, 8], state[:, 9], state[:, 10], state[:, 11]
+        Q1, Q2, Q3, Q4, delta = action[:, 0], action[:, 1], action[:, 2], action[:, 3], action[:, 4]
         X = torch.tensor(state[:, 3:8])
         U = action
         state_next = torch.zeros_like(state)
@@ -119,6 +120,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
             = -self.lw / 2, self.lf, self.lw / 2, self.lf, \
               -self.lw / 2, -self.lr, self.lw / 2, -self.lr
 
+
         At_matrix = torch.zeros((8, 5))
 
         At_matrix[1, 1], At_matrix[1, 2] = -self.k_alpha1 / v_x, -self.k_alpha1 * self.lf / v_x
@@ -155,7 +157,20 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         state_next[:, 2] = phi + delta_t * phi_dot
         state_next[:, 2] = angle_normalize(state_next[:, 2])
         state_next[:, 3:8] = state[:, 3:8] + delta_t * X_dot_batch
-        state_next[:, 8:13] = action
+        state_next[:, 8] = kappa1 + delta_t * (
+                    self.Rw * (Q1 - self.Rw * self.C_slip1 * kappa1) / (v_x * self.Iw) - (1 + kappa1) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 9] = kappa2 + delta_t * (
+                    self.Rw * (Q2 - self.Rw * self.C_slip2 * kappa2) / (v_x * self.Iw) - (1 + kappa2) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 10] = kappa3 + delta_t * (
+                    self.Rw * (Q3 - self.Rw * self.C_slip3 * kappa3) / (v_x * self.Iw) - (1 + kappa3) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 11] = kappa4 + delta_t * (
+                    self.Rw * (Q4 - self.Rw * self.C_slip4 * kappa4) / (v_x * self.Iw) - (1 + kappa4) / (
+                        self.m * v_x) * (self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[:, 12:17] = action
+
         return state_next
 
 class FourwdstabilitycontrolModel(PythBaseModel):
@@ -178,7 +193,7 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         """
         self.vehicle_dynamics = VehicleDynamicsModel()
         self.pre_horizon = pre_horizon
-        self.state_dim = 13
+        self.state_dim = 17
         ego_obs_dim = self.state_dim
         ref_obs_dim = 4
         obs_scale_default = [1/100, 1/100, 1/10,
@@ -211,8 +226,8 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         u_num = info["u_num"]
         slope_num = info["slope_num"]
         t = info["ref_time"]
-        reward = self.compute_reward(obs, action, slope_points)
-        action_psc = action + state[:, 8:13]
+        reward = self.compute_reward(obs, state, action, slope_points)
+        action_psc = action + state[:, 12:17]
         action_psc = torch.clamp(action_psc, min=self.action_psc_lower_bound, max=self.action_psc_upper_bound)
         next_state = self.vehicle_dynamics.f_xu(state, action_psc, self.dt, slope_points[:, 1, :])
 
@@ -256,7 +271,6 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         next_obs = self.get_obs(next_state, next_ref_points, next_slope_points)
 
         isdone = self.judge_done(next_obs)
-
         next_info = {}
         for key, value in info.items():
             next_info[key] = value.detach().clone()
@@ -267,6 +281,8 @@ class FourwdstabilitycontrolModel(PythBaseModel):
             "u_num": u_num,
             "ref_time": next_t,
             "slope_points": next_slope_points,
+            "constraint_yawrate": self.get_constraint_yawrate(state, info),
+            "constraint_sideslip": self.get_constraint_sideslip(state, info),
         })
 
         return next_obs, reward, isdone, next_info
@@ -280,7 +296,8 @@ class FourwdstabilitycontrolModel(PythBaseModel):
         ref_u_tf = ref_points[..., 3] - state[:, 3].unsqueeze(1)
         ego_obs = torch.concat((torch.stack((ref_x_tf[:, 0]*self.obs_scale[0], ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_u_tf[:, 0]*self.obs_scale[3]), dim=1),
                                 torch.stack((state[:, 4]*self.obs_scale[4], state[:, 5]*self.obs_scale[5], state[:, 6]*self.obs_scale[6], state[:, 7]*self.obs_scale[7],
-                                             state[:, 8]*self.obs_scale[8], state[:, 9]*self.obs_scale[8], state[:, 10]*self.obs_scale[8], state[:, 11]*self.obs_scale[8], state[:, 12]*self.obs_scale[9]), dim=1)), dim=1)
+                                             state[:, 8] * self.obs_scale[9], state[:, 9] * self.obs_scale[9],state[:, 10] * self.obs_scale[9], state[:, 11] * self.obs_scale[9],
+                                             state[:, 12]*self.obs_scale[8], state[:, 13]*self.obs_scale[8], state[:, 14]*self.obs_scale[8], state[:, 15]*self.obs_scale[8], state[:, 16]*self.obs_scale[9]), dim=1)), dim=1)
         ref_obs = torch.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3], slope_points[:, :, 0], slope_points[:, :, 1]), 2)[
                   :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
@@ -288,25 +305,15 @@ class FourwdstabilitycontrolModel(PythBaseModel):
     def compute_reward(
         self,
         obs: torch.Tensor,
+        state: torch.Tensor,
         action: torch.Tensor,
         slope_points: torch.Tensor
     ) -> torch.Tensor:
         delta_x, delta_y, delta_phi, delta_vx, vy, phi_dot, varphi, varphi_dot = (
             obs[:, 0]/self.obs_scale[0], obs[:, 1]/self.obs_scale[1], obs[:, 2]/self.obs_scale[2], obs[:, 3]/self.obs_scale[3],\
             obs[:, 4]/self.obs_scale[4], obs[:, 5]/self.obs_scale[5], obs[:, 6]/self.obs_scale[6], obs[:, 7]/self.obs_scale[7])
-        #kappa1, kappa2, kappa3, kappa4 state[0, 8], state[0, 9], state[0, 10], state[0, 11]
-        # Q1, Q2, Q3, Q4, delta = action[:, 0], action[:, 1], action[:, 2], action[:, 3], \
-        #     action[:, 4], action[:, 5]
-        # delta1, delta2, delta3, delta4 = delta, delta, delta, delta
-
-        # Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = \
-        #     action[0, 0], action[0, 1], action[0, 2], action[0, 3], \
-        #     action[0, 4], action[0, 5], action[0, 6], action[0, 7]
-        # dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4 = ,\
-        #     action[0, 8], action[0, 9], action[0, 10], action[0, 11], \
-        #     action[0, 12], action[0, 13], action[0, 14], action[0, 15]
-        # ref_x, ref_y, ref_phi, ref_vx = ref_points[:, 0, 0], ref_points[:, 0, 1], ref_points[:, 0, 2], ref_points[:, 0, 3]
-        # beta = torch.arctan(vy / vx)
+        v_x = state[:, 3]
+        # beta = vy / vx
         # I_matrix = torch.tensor([[(self.vehicle_dynamics.k_alpha1 + self.vehicle_dynamics.k_alpha2 +
         #                        self.vehicle_dynamics.k_alpha3 + self.vehicle_dynamics.k_alpha4) / (
         #                                   self.vehicle_dynamics.m * vx),
@@ -350,16 +357,18 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                                    self.vehicle_dynamics.ms * self.vehicle_dynamics.hr + self.vehicle_dynamics.mu * self.vehicle_dynamics.hu) /
                          (self.vehicle_dynamics.ms * self.vehicle_dynamics.hs)))
         I_rollover = C_varphi * varphi + C_varphi_dot * varphi_dot
-        # r_action_Q = torch.sum((action[:, 0:4]/254.8) ** 2)
+        # r_action_Q = torch.sum((action[:, 0:4]/100) ** 2)
+        kappa_ref = v_x / self.vehicle_dynamics.Rw
+        r_slip = torch.sum((obs[:, 8:12]/self.obs_scale[9]-kappa_ref) ** 2)
         r_action_Qdot = (action[:, 0] / 100) ** 2 + (action[:, 1] / 100) ** 2+(action[:, 2] / 100) ** 2+(action[:, 3] / 100) ** 2
         r_action_strdot = (action[:, 4]/0.02) ** 2
-
         return -(
                 0.04 * (delta_x ** 2 + delta_y ** 2)
                 + 0.04 * delta_vx ** 2
                 + 0.02 * delta_phi ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
                 + 0.01 * I_rollover ** 2
+                + 0.01 * r_slip
                 + 0.05 * r_action_Qdot
                 + 0.05 * r_action_strdot
         )
@@ -371,9 +380,18 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                 |(torch.abs(delta_y) > 3)
                 | (torch.abs(delta_phi) > np.pi)
                 | (torch.abs(delta_vx) > 3)
+
         )
         return done
 
+    def get_constraint_yawrate(self, state, info) -> torch.Tensor:
+        constraint = state[:, 5].abs() - (self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3]).abs()
+        return constraint
+
+    def get_constraint_sideslip(self, state, info) -> torch.Tensor:
+        side_slip_angle = state[:, 4] / state[:, 3]
+        constraint = side_slip_angle.abs() - torch.arctan(0.02-self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)
+        return constraint
 
 def state_error_calculate(
     ego_x: torch.Tensor,

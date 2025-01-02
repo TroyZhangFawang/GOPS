@@ -23,7 +23,7 @@ from gops.utils.math_utils import angle_normalize
 class VehicleDynamicsData:
     def __init__(self):
         self.vehicle_params = dict(
-            state_dim=13,
+            state_dim=17,
             m=2257 + 139.4 + 172,  # Total mass[kg]
             mu=139.4 + 172,
             ms=2257,  # Sprung mass[kg]
@@ -53,8 +53,9 @@ class VehicleDynamicsData:
             C_slip4=8.885 * 1.525 * 1.062e+04,  # N
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
+            mu_road=0.5, # road Adhesion coefficient
         )
-    
+
         self.m = self.vehicle_params["m"]  # Total mass[kg]
         self.mu = self.vehicle_params["mu"]
         self.ms = self.vehicle_params["ms"]  # Sprung mass[kg]
@@ -87,15 +88,16 @@ class VehicleDynamicsData:
 
         self.K_varphi = self.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
         self.C_varphi = self.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
+        self.mu_road = self.vehicle_params["mu_road"]
 
     def f_xu(self, states, actions, delta_t, road_info):
         theta_road, varphi_road = road_info
         R = np.array([theta_road, varphi_road]).reshape(2, 1)
 
-        x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot = states[:8]
+        x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot, kappa1, kappa2, kappa3, kappa4 = states[:12]
+        Q1, Q2, Q3, Q4, delta = actions
         X = np.array(states[3:8]).reshape(5, 1)
         U = actions.reshape(5, 1)
-        delta = actions[4]
         state_next = np.zeros_like(states)
         dividend = (self.m * self.Ixx * self.Izz - self.Izz * self.ms ** 2 * self.hs ** 2 - self.m * self.Ixz ** 2)
         A_matrix = np.zeros((5, 5))
@@ -183,7 +185,11 @@ class VehicleDynamicsData:
         state_next[2] = phi + delta_t * phi_dot
         state_next[2] = angle_normalize(state_next[2])
         state_next[3:8] = states[3:8] + delta_t * X_dot
-        state_next[8:13] = actions
+        state_next[8] = kappa1+delta_t*(self.Rw*(Q1-self.Rw*self.C_slip1*kappa1)/(v_x*self.Iw)-(1+kappa1)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[9] = kappa2+delta_t*(self.Rw*(Q2-self.Rw*self.C_slip2*kappa2)/(v_x*self.Iw)-(1+kappa2)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[10] = kappa3+delta_t*(self.Rw*(Q3-self.Rw*self.C_slip3*kappa3)/(v_x*self.Iw)-(1+kappa3)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[11] = kappa4+delta_t*(self.Rw*(Q4-self.Rw*self.C_slip4*kappa4)/(v_x*self.Iw)-(1+kappa4)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        state_next[12:17] = actions
         return state_next
 
 class Fourwdstabilitycontrol(PythBaseEnv):
@@ -208,7 +214,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if work_space is None:
             # initial range of [delta_x, delta_y, delta_yaw, delta_vx, vy, yaw rate, roll, roll rate]
             # 用高斯分布去采样
-            init_high = np.array([2, 1, np.pi/6, 2, 2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+            init_high = np.array([2, 1, np.pi/6, 2, 2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
             init_low = -init_high
             work_space = np.stack((init_low, init_high))
         super(Fourwdstabilitycontrol, self).__init__(work_space=work_space, **kwargs)
@@ -240,7 +246,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 1000
+        self.max_episode_steps = 200
 
         self.state = None
         self.ref_x = None
@@ -256,6 +262,8 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             "slope_num": {"shape": (), "dtype": np.uint8},
             "ref": {"shape": (4,), "dtype": np.float32},
             "ref_time": {"shape": (), "dtype": np.float32},
+            "constraint_yawrate": {"shape": (1, ), "dtype": np.float32},
+            "constraint_sideslip": {"shape": (1,), "dtype": np.float32},
         }
         self.seed()
 
@@ -273,7 +281,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if ref_time is not None:
             self.t = ref_time
         else:
-            self.t = 20.0 * self.np_random.uniform(0.0, 1.0) #
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
 
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
@@ -289,7 +297,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1]) # todo only
+            self.path_num = self.np_random.choice([0, 1, 4])
 
         if u_num is not None:
             self.u_num = u_num
@@ -329,12 +337,12 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(50, 298) #
+        torque = np.random.uniform(50, 298) #np.array([100]*4)#产生一个，copy四份会不会更好一点
         steer = np.random.uniform(-0.5, 0.5)
         action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(
             (self.ref_points[0] + delta_state[:4], delta_state[4:8], action_psc))
-
+        self.constraint = np.zeros((1,))
         return self.get_obs(), self.info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
@@ -342,7 +350,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
 
         reward = self.compute_reward(action)
 
-        action_psc = self.state[8:] + action
+        action_psc = self.state[12:] + action
         action_psc = np.clip(action_psc, self.action_psc_space.low, self.action_psc_space.high)
 
         self.state = self.vehicle_dynamics.f_xu(self.state, action_psc, self.dt, self.slope_points[1])
@@ -376,6 +384,8 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         self.done = self.judge_done()
         if self.done:
             reward = reward - 5000
+        self.constraint_yawrate = self.get_constraint_yawrate()
+        self.constraint_sideslip = self.get_constraint_sideslip()
         return self.get_obs(), reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -392,8 +402,8 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         ego_obs = np.concatenate(
             ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_u_tf[0]*self.obs_scale[3]],
              [self.state[4]*self.obs_scale[4], self.state[5]*self.obs_scale[5], self.state[6]*self.obs_scale[6], self.state[7]*self.obs_scale[7],
-              self.state[8]*self.obs_scale[8], self.state[9]*self.obs_scale[8], self.state[10]*self.obs_scale[8], self.state[11]*self.obs_scale[8], self.state[12]*self.obs_scale[9]]))
-
+             self.state[8] * self.obs_scale[9], self.state[9]*self.obs_scale[9], self.state[10]*self.obs_scale[9], self.state[11]*self.obs_scale[9],
+              self.state[12]*self.obs_scale[8], self.state[13]*self.obs_scale[8], self.state[14]*self.obs_scale[8], self.state[15]*self.obs_scale[8], self.state[16]*self.obs_scale[9]]))
         # ref_obs: [
         # delta_x, delta_y, delta_phi, delta_u (of the second to last reference point)
         # ]
@@ -403,8 +413,6 @@ class Fourwdstabilitycontrol(PythBaseEnv):
     def compute_reward(self, action: np.ndarray) -> float:
         px, py, phi, vx, vy, phi_dot, varphi, varphi_dot = self.state[:8]
         # Q1, Q2,  Q3,  Q4, delta = action
-        # delta1, delta2, delta3, delta4 = delta, delta, delta, delta
-        # Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action #, dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4
         # beta = np.arctan(vy/vx)
         ref_x, ref_y, ref_phi, ref_vx = self.ref_points[0]
         # I_matrix = np.array([[(self.vehicle_dynamics.k_alpha1+self.vehicle_dynamics.k_alpha2+
@@ -425,9 +433,9 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha3/self.vehicle_dynamics.Izz,
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha4/self.vehicle_dynamics.Izz]])
         # delta_matrix = np.array([[delta1], [delta2], [delta3], [delta4]])
-        #
         # later_ref = np.matmul(np.matmul(np.linalg.inv(I_matrix), k_matrix), delta_matrix)
-        # beta_ref = 0#later_ref[0][0]
+        # beta_ref = later_ref[0][0]
+
         phi_dot_ref = 0#later_ref[1][0]
         C_varphi = 2/(self.vehicle_dynamics.m*self.vehicle_dynamics.g*self.vehicle_dynamics.lw*np.cos(self.slope_points[0, 0])*np.cos(self.slope_points[0, 1]))*\
                    (self.vehicle_dynamics.K_varphi*(1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+
@@ -438,31 +446,21 @@ class Fourwdstabilitycontrol(PythBaseEnv):
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
         I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
-        # kappa_constant = 0.15#vx/self.vehicle_dynamics.Rw
+        kappa_ref = vx/self.vehicle_dynamics.Rw
         # r_action_Q = np.sum((self.action[0:4]/254.8) ** 2)
-        # print(r_action_Q)
-        # r_action_str = np.sum((self.action[4:]) ** 2)
+        r_slip = np.sum((self.state[8:12]-kappa_ref) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
         r_action_strdot = (action[4]/0.02) ** 2
-        # r_action_deltaQ = dQ1 ** 2 + dQ2 ** 2 + dQ3 ** 2 + dQ4 ** 2
-        # r_action_deltastr = np.sum((action[9:16:2]) ** 2)
-        # r_action_deltaQdot = np.sum((action[8:16:2]-self.action_last[8:16:2]) ** 2)
-        # r_action_deltastrdot = np.sum((action[9:16:2]-self.action_last[9:16:2]) ** 2)
         return -(
                 0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
                 + 0.04 * (vx - ref_vx) ** 2
                 + 0.02 * angle_normalize(phi - ref_phi) ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
                 + 0.01 * I_rollover ** 2
-                # + 0.01 * r_action_Q
-                # + 0.01 * r_action_str
                 + 0.02 * r_action_Qdot
                 + 0.02 * r_action_strdot
+                + 0.01 * r_slip
                 # + 0.5 * (beta - beta_ref) ** 2
-                # + 1e-8 * r_action_deltaQ
-                # + 1e-4 * r_action_deltastr
-                # + 1e-4 * r_action_deltaQdot
-                # + 1e-1 * r_action_deltastrdot
         )
 
     def judge_done(self) -> bool:
@@ -471,8 +469,16 @@ class Fourwdstabilitycontrol(PythBaseEnv):
                 + (abs(angle_normalize(self.state[2] - self.ref_points[0, 2])) > np.pi)  # delta phi
                 + (abs(self.state[3]-self.ref_points[0, 3]) > 3))  # delta_vx
                 # + (abs(self.state[4]) > 2)  # delta_vy
-
         return done
+
+    def get_constraint_yawrate(self) -> np.ndarray:
+        constraint = np.array([abs(self.state[5]) - abs(self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g/self.state[3])], dtype=np.float32)
+        return constraint
+
+    def get_constraint_sideslip(self) -> np.ndarray:
+        side_slip_angle = self.state[4]/self.state[3]
+        constraint = np.array([abs(side_slip_angle) - abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g))], dtype=np.float32)
+        return constraint
 
     @property
     def info(self) -> dict:
@@ -485,6 +491,8 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             "slope_num": self.slope_num,
             "ref": self.ref_points[0].copy(),
             "ref_time": self.t,
+            "constraint_yawrate": self.constraint_yawrate,
+            "constraint_sideslip": self.constraint_sideslip,
         }
 
 def state_error_calculate(

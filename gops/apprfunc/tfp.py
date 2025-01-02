@@ -224,7 +224,6 @@ class TransformerPolicy3(nn.Module, Action_Distribution):
                  + (self.act_high_lim + self.act_low_lim) / 2
         return action
 
-
 class TransformerPolicy4(nn.Module, Action_Distribution):
     def __init__(self, **kwargs):
         super(TransformerPolicy4, self).__init__()
@@ -389,8 +388,6 @@ class TransformerPolicy6(nn.Module, Action_Distribution):
 #                  + (self.act_high_lim + self.act_low_lim) / 2
 #         # print("Check a: ", torch.isnan(action).any())
 #         return action
-
-
 
 class TP7(nn.Module, Action_Distribution):
     def __init__(self, **kwargs):
@@ -581,7 +578,6 @@ class SelfAttentionWithAddNorm(nn.Module):
         tgt = self.norm1(tgt)
         # Add & Norm
         return tgt
-
 
 class CustomTransformerDecoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation='relu', layer_norm_eps=1e-5,
