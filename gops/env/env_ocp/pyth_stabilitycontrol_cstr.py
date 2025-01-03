@@ -243,7 +243,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 250
+        self.max_episode_steps = 1000
 
         self.state = None
         self.ref_x = None
@@ -332,7 +332,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(50, 298)
+        torque = np.random.uniform(0, 298)
         steer = np.random.uniform(-0.5, 0.5)
         action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(

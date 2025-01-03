@@ -18,22 +18,22 @@ import numpy as np
 
 DEFAULT_PATH_PARAM = {
     "sine": {"A": 1.5, "omega": 2 * np.pi / 10, "phi": 0.0,},
-    "double_lane": {
-        "t1": 1.35,
-        "t2": 6.75,
-        "t3": 8.1,
-        "t4": 13.5,
-        "y1": 0.0,
-        "y2": 3.5,
-    },
     # "double_lane": {
-    #     "t1": 5.0,
-    #     "t2": 9.0,
-    #     "t3": 14.0,
-    #     "t4": 18.0,
+    #     "t1": 1.35,
+    #     "t2": 6.75,
+    #     "t3": 8.1,
+    #     "t4": 13.5,
     #     "y1": 0.0,
     #     "y2": 3.5,
     # },
+    "double_lane": {
+        "t1": 5.0,
+        "t2": 9.0,
+        "t3": 14.0,
+        "t4": 18.0,
+        "y1": 0.0,
+        "y2": 3.5,
+    },
     "triangle": {"A": 3.0, "T": 10.0, },
     "circle": {"r": 100.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
@@ -42,13 +42,13 @@ DEFAULT_PATH_PARAM = {
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 10, },
-    "sine": {"A": 10.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+    "constant": {"u": 20, },
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 20.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
-    "constant": {"longi_slope": 0.00, "lat_slope": 0.00},
-    "sine": {"A": 0.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+    "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
+    "sine": {"A": 0.05, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.05,},
 }
 
 class MultiRefTrajData:
