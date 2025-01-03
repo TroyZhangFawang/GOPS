@@ -47,13 +47,13 @@ class VehicleDynamicsData:
             k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
             k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
             k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
-            C_slip1=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
-            C_slip2=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
-            C_slip3=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
-            C_slip4=0.3534,#8.885 * 1.525 * 1.062e+04,  # N
+            C_slip1=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip2=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip3=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip4=8.885 * 1.525 * 1.062e+04/4,  # N
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
-            mu_road=0.5, # road Adhesion coefficient
+            mu_road=0.3, # road Adhesion coefficient
         )
 
         self.m = self.vehicle_params["m"]  # Total mass[kg]
@@ -184,10 +184,14 @@ class VehicleDynamicsData:
         state_next[2] = phi + delta_t * phi_dot
         state_next[2] = angle_normalize(state_next[2])
         state_next[3:8] = states[3:8] + delta_t * X_dot
-        state_next[8] = kappa1+delta_t*(self.Rw*(Q1-self.Rw*self.C_slip1*kappa1)/(v_x*self.Iw)-(1+kappa1)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[9] = kappa2+delta_t*(self.Rw*(Q2-self.Rw*self.C_slip2*kappa2)/(v_x*self.Iw)-(1+kappa2)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[10] = kappa3+delta_t*(self.Rw*(Q3-self.Rw*self.C_slip3*kappa3)/(v_x*self.Iw)-(1+kappa3)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
-        state_next[11] = kappa4+delta_t*(self.Rw*(Q4-self.Rw*self.C_slip4*kappa4)/(v_x*self.Iw)-(1+kappa4)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))
+        # state_next[8] = (((4*kappa1+4)/(self.m*v_x)+(kappa1+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip1*delta_t+1)*kappa1-((kappa1+1)**2*self.Rw*delta_t*Q1)/(self.Iw*v_x)
+        # state_next[9] = (((4*kappa2+4)/(self.m*v_x)+(kappa2+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip2*delta_t+1)*kappa2-((kappa2+1)**2*self.Rw*delta_t*Q2)/(self.Iw*v_x)
+        # state_next[10] = (((4*kappa3+4)/(self.m*v_x)+(kappa3+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip3*delta_t+1)*kappa3-((kappa3+1)**2*self.Rw*delta_t*Q3)/(self.Iw*v_x)
+        # state_next[11] = (((4*kappa4+4)/(self.m*v_x)+(kappa4+1)**2*self.Rw**2/(self.Iw*v_x))*self.C_slip4*delta_t+1)*kappa4-((kappa4+1)**2*self.Rw*delta_t*Q4)/(self.Iw*v_x)
+        state_next[8] = kappa1+delta_t*(self.Rw*(Q1-self.Rw*self.C_slip1*kappa1)/(v_x*self.Iw)-(1+kappa1)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))#-1.22*v_x**2-0.01*self.m*self.g
+        state_next[9] = kappa2+delta_t*(self.Rw*(Q2-self.Rw*self.C_slip2*kappa2)/(v_x*self.Iw)-(1+kappa2)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))#-1.22*v_x**2-0.01*self.m*self.g
+        state_next[10] = kappa3+delta_t*(self.Rw*(Q3-self.Rw*self.C_slip3*kappa3)/(v_x*self.Iw)-(1+kappa3)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))#-1.22*v_x**2-0.01*self.m*self.g
+        state_next[11] = kappa4+delta_t*(self.Rw*(Q4-self.Rw*self.C_slip4*kappa4)/(v_x*self.Iw)-(1+kappa4)/(self.m*v_x)*(self.C_slip1*kappa1+self.C_slip2*kappa2+self.C_slip3*kappa3+self.C_slip4*kappa4))#-1.22*v_x**2-0.01*self.m*self.g
         state_next[12:17] = actions
         return state_next
 
@@ -280,8 +284,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         if ref_time is not None:
             self.t = ref_time
         else:
-            self.t = 20.0 * self.np_random.uniform(0.0, 1.0) #
-
+            self.t = self.np_random.uniform(0.0, 20.0)
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
             path_num = None
@@ -296,7 +299,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1]) # todo only
+            self.path_num = self.np_random.choice([0, 1])
 
         if u_num is not None:
             self.u_num = u_num
@@ -336,7 +339,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(0, 298)
+        torque = np.random.uniform(50, 298)
         steer = np.random.uniform(-0.5, 0.5)
         action_psc = np.concatenate((torque+delta_state[12:16], steer+delta_state[16:]))
         self.state = np.concatenate(
@@ -446,7 +449,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
         I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
-        kappa_ref = 0.05#vx/self.vehicle_dynamics.Rw
+        kappa_ref = 0.08#vx/self.vehicle_dynamics.Rw
         # r_action_Q = np.sum((self.action[0:4]/254.8) ** 2)
         r_slip = np.sum((self.state[8:12]-kappa_ref) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
@@ -460,7 +463,6 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
                 + 0.01 * r_action_Qdot
                 + 0.01 * r_action_strdot
                 + 0.01 * r_slip
-                # + 0.5 * (beta - beta_ref) ** 2
         )
 
     def judge_done(self) -> bool:
