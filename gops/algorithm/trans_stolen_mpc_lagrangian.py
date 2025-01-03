@@ -140,27 +140,22 @@ class TRANSStolenMpcLagrangian(AlgorithmBase):
         info = data
         v_pi = torch.zeros((o.size(0), self.forward_step))
         v_pi_c = 0
-        v_pi_c2 = 0
         a = self.networks.policy.forward_all_policy(o, key_padding_mask=key_padding_mask)
         for step in range(self.forward_step):
             o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
-            c = torch.clamp_min(info["constraint_yawrate"], 0).sum(1)
-            c2 = torch.clamp_min(info["constraint_sideslip"], 0).sum(1)
-            # todo if have many constraint, c1 c2 c3
+            c = torch.clamp_min(info["constraint"], 0).sum(1)
             v_pi[:, step] = r
             v_pi_c += c * (self.gamma ** step)
-            v_pi_c2 += c2 * (self.gamma ** step)
         weighted_rewards = v_pi * gamma_powers * mask
         v_pi_final = weighted_rewards.sum(dim=1)
         loss_reward = -v_pi_final.mean()
-        loss_constraint_yawrate = v_pi_c.mean()
-        loss_constraint_sideslip = v_pi_c2.mean()
+        loss_constraint= v_pi_c.mean()
         multiplier = torch.nn.functional.softplus(self.multiplier_param).item()
-        loss_policy = loss_reward + multiplier * (loss_constraint_yawrate+loss_constraint_sideslip)
+        loss_policy = loss_reward + multiplier * loss_constraint
 
         self.update_step += 1
         if self.update_step % self.multiplier_delay == 0:
-            multiplier_loss = -self.multiplier_param * (loss_constraint_yawrate+loss_constraint_sideslip).item()
+            multiplier_loss = -self.multiplier_param * loss_constraint.item()
             self.multiplier_optim.zero_grad()
             multiplier_loss.backward()
             self.multiplier_optim.step()
