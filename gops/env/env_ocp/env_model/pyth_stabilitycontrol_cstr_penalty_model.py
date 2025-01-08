@@ -214,7 +214,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         u_num = info["u_num"]
         slope_num = info["slope_num"]
         t = info["ref_time"]
-        reward = self.compute_reward(obs, action, slope_points)
+        reward = self.compute_reward(obs, action, slope_points, state, info)
         action_psc = action + state[:, 8:13]
         action_psc = torch.clamp(action_psc, min=self.action_psc_lower_bound, max=self.action_psc_upper_bound)
         next_state = self.vehicle_dynamics.f_xu(state, action_psc, self.dt, slope_points[:, 1, :])
@@ -295,7 +295,9 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         self,
         obs: torch.Tensor,
         action: torch.Tensor,
-        slope_points: torch.Tensor
+        slope_points: torch.Tensor,
+        state,
+        info: InfoDict
     ) -> torch.Tensor:
         delta_x, delta_y, delta_phi, delta_vx, vy, phi_dot, varphi, varphi_dot = (
             obs[:, 0]/self.obs_scale[0], obs[:, 1]/self.obs_scale[1], obs[:, 2]/self.obs_scale[2], obs[:, 3]/self.obs_scale[3],\
@@ -362,6 +364,9 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         # r_action_Qdot =  0.01*torch.sum((action[:, 0:4]/100) ** 2)
         r_action_Qdot = (action[:, 0] / 100) ** 2 + (action[:, 1] / 100) ** 2+(action[:, 2] / 100) ** 2+(action[:, 3] / 100) ** 2
         r_action_strdot = (action[:, 4]/0.02) ** 2
+        constraint = self.get_constraint(state, info)
+        relax_factor = 0.05
+        punish = torch.tanh(torch.maximum(constraint + relax_factor, torch.zeros_like(constraint))) + 1
         return -(
                 0.04 * (delta_x ** 2 + delta_y ** 2)
                 + 0.04 * delta_vx ** 2
@@ -372,6 +377,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
                 # + 0.01 * r_action_str
                 + 0.01 * r_action_Qdot
                 + 0.01 * r_action_strdot
+                + 10 * punish
                 # + 0.5 * (beta - beta_ref) ** 2
                 # + 1e-8 * r_action_deltaQ
                 # + 1e-4 * r_action_deltastr

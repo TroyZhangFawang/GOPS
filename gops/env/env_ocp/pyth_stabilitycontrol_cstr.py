@@ -222,10 +222,10 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.road_slope = MultiRoadSlopeData(slope_para)
         self.state_dim = self.vehicle_dynamics.vehicle_params["state_dim"]
         ego_obs_dim = self.state_dim
-        ref_obs_dim = 4
+        ref_obs_dim = 6
         self.observation_space = gym.spaces.Box(
-            low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon+2*pre_horizon)),
-            high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon+2*pre_horizon)),
+            low=np.array([-np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
+            high=np.array([np.inf] * (ego_obs_dim + ref_obs_dim * pre_horizon)),
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Box(
@@ -252,12 +252,12 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
 
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
-            "ref_points": {"shape": (self.pre_horizon + 1, 4), "dtype": np.float32},
+            "ref_points": {"shape": (self.pre_horizon + 1, 6), "dtype": np.float32},
             "slope_points": {"shape": (self.pre_horizon + 1, 2), "dtype": np.float32},
             "path_num": {"shape": (), "dtype": np.uint8},
             "u_num": {"shape": (), "dtype": np.uint8},
             "slope_num": {"shape": (), "dtype": np.uint8},
-            "ref": {"shape": (4,), "dtype": np.float32},
+            "ref": {"shape": (6,), "dtype": np.float32},
             "ref_time": {"shape": (), "dtype": np.float32},
             "constraint": {"shape": (2, ), "dtype": np.float32},
         }
@@ -319,10 +319,10 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             ref_u = self.ref_traj.compute_u(
                 self.t + i * self.dt, self.path_num, self.u_num
             )
-            ref_points.append([ref_x, ref_y, ref_phi, ref_u])
 
             road_longi = self.road_slope.compute_longislope(self.t+i*self.dt, self.slope_num)
             road_lat = self.road_slope.compute_latslope(self.t+i*self.dt, self.slope_num)
+            ref_points.append([ref_x, ref_y, ref_phi, ref_u, road_longi, road_lat])
             slope_points.append([road_longi, road_lat])
 
         self.ref_points = np.array(ref_points, dtype=np.float32)
@@ -336,7 +336,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         steer = np.random.uniform(-0.5, 0.5)
         action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(
-            (self.ref_points[0] + delta_state[:4], delta_state[4:8], action_psc))
+            (self.ref_points[0][:4] + delta_state[:4], delta_state[4:8], action_psc))
 
         return self.get_obs(), self.info
 
@@ -368,6 +368,8 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
                 self.ref_traj.compute_u(
                     self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
                 ),
+                self.road_slope.compute_longislope(self.t + self.pre_horizon * self.dt, self.slope_num),
+                self.road_slope.compute_latslope(self.t + self.pre_horizon * self.dt, self.slope_num)
             ],
             dtype=np.float32,
         )
@@ -408,7 +410,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         # delta1, delta2, delta3, delta4 = delta, delta, delta, delta
         # Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action #, dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4
         # beta = np.arctan(vy/vx)
-        ref_x, ref_y, ref_phi, ref_vx = self.ref_points[0]
+        ref_x, ref_y, ref_phi, ref_vx = self.ref_points[0][:4]
         # I_matrix = np.array([[(self.vehicle_dynamics.k_alpha1+self.vehicle_dynamics.k_alpha2+
         #                       self.vehicle_dynamics.k_alpha3+self.vehicle_dynamics.k_alpha4)/(self.vehicle_dynamics.m*vx),
         #                       self.vehicle_dynamics.lf*(self.vehicle_dynamics.k_alpha1+self.vehicle_dynamics.k_alpha2)-

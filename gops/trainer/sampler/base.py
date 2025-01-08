@@ -133,7 +133,6 @@ class BaseSampler(metaclass=ABCMeta):
             action_clip = action
 
         #  above action means the trajectory in planning task, unput the traj to the controller to get the control command
-
         if "task" in self.kwargs.keys():
             self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
             action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
@@ -170,7 +169,6 @@ class BaseSampler(metaclass=ABCMeta):
 
             # self.obs = next_obs
             self.info = unbatched_infos
-
             return experiences
 
         else:
