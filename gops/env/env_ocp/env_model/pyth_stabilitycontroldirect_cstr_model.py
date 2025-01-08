@@ -157,7 +157,6 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         state_next[:, 2] = phi + delta_t * phi_dot
         state_next[:, 2] = angle_normalize(state_next[:, 2])
         state_next[:, 3:8] = state[:, 3:8] + delta_t * X_dot_batch
-        state_next[:, 8:13] = action
         return state_next
 
 
@@ -169,8 +168,6 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         min_torque: float = 0,
         max_torque: float = 298.0,
         max_steer: float = 0.5,
-        max_delta_torque: float = 10,
-        max_delta_steer: float = 0.03,
         path_para: Optional[Dict[str, Dict]] = None,
         u_para: Optional[Dict[str, Dict]] = None,
         slope_para: Optional[Dict[str, Dict]] = None,
@@ -181,22 +178,21 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         """
         self.vehicle_dynamics = VehicleDynamicsModel()
         self.pre_horizon = pre_horizon
-        self.state_dim = 13
+        self.state_dim = 8
         ego_obs_dim = self.state_dim
         ref_obs_dim = 4
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1/10, 1/50, 1/(max_torque*100), 1/10]
+                             1/100, 1/100, 1/10, 1/10, 1/50]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon+2*pre_horizon,
             action_dim=5,
             dt=0.01,
-            action_lower_bound=[-max_delta_torque]*4+[-max_delta_steer],
-            action_upper_bound=[max_delta_torque]*4+[max_delta_steer],
+            action_lower_bound=[-max_torque]*4+[-max_steer],
+            action_upper_bound=[max_torque]*4+[max_steer],
             device=device,
         )
-        self.action_psc_lower_bound = torch.tensor([min_torque] * 4 + [-max_steer]).to(device=self.device)
-        self.action_psc_upper_bound = torch.tensor([max_torque] * 4 + [max_steer]).to(device=self.device)
+
         self.ref_traj = MultiRefTrajModel(path_para, u_para)
         self.road_slope = MultiRoadSlopeModel(slope_para)
 
@@ -215,9 +211,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         slope_num = info["slope_num"]
         t = info["ref_time"]
         reward = self.compute_reward(obs, action, slope_points)
-        action_psc = action + state[:, 8:13]
-        action_psc = torch.clamp(action_psc, min=self.action_psc_lower_bound, max=self.action_psc_upper_bound)
-        next_state = self.vehicle_dynamics.f_xu(state, action_psc, self.dt, slope_points[:, 1, :])
+        next_state = self.vehicle_dynamics.f_xu(state, action, self.dt, slope_points[:, 1, :])
         next_t = t + self.dt
 
         next_ref_points = ref_points.clone()
@@ -281,8 +275,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
             )
         ref_u_tf = ref_points[..., 3] - state[:, 3].unsqueeze(1)
         ego_obs = torch.concat((torch.stack((ref_x_tf[:, 0]*self.obs_scale[0], ref_y_tf[:, 0]*self.obs_scale[1], ref_phi_tf[:, 0]*self.obs_scale[2], ref_u_tf[:, 0]*self.obs_scale[3]), dim=1),
-                                torch.stack((state[:, 4]*self.obs_scale[4], state[:, 5]*self.obs_scale[5], state[:, 6]*self.obs_scale[6], state[:, 7]*self.obs_scale[7],
-                                             state[:, 8] * self.obs_scale[8], state[:, 9] * self.obs_scale[8], state[:, 10] * self.obs_scale[8], state[:, 11] * self.obs_scale[8], state[:, 12] * self.obs_scale[9]), dim=1)), dim=1)
+                                torch.stack((state[:, 4]*self.obs_scale[4], state[:, 5]*self.obs_scale[5], state[:, 6]*self.obs_scale[6], state[:, 7]*self.obs_scale[7]), dim=1)), dim=1)
         ref_obs = torch.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3], slope_points[:, :, 0], slope_points[:, :, 1]), 2)[
                   :, 1:].reshape(ego_obs.shape[0], -1)
         return torch.concat((ego_obs, ref_obs), 1)
@@ -352,12 +345,12 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
                                    self.vehicle_dynamics.ms * self.vehicle_dynamics.hr + self.vehicle_dynamics.mu * self.vehicle_dynamics.hu) /
                          (self.vehicle_dynamics.ms * self.vehicle_dynamics.hs)))
         I_rollover = C_varphi * varphi + C_varphi_dot * varphi_dot
-        # r_action_Q = torch.sum((action[:, 0:4]/254.8) ** 2)
+        # r_action_Q = torch.sum((action[:, 0:4]/298) ** 2)
         # print(r_action_Q)
         # r_action_str = torch.sum((action[:, 4:]) ** 2)
         # r_action_Qdot =  0.01*torch.sum((action[:, 0:4]/100) ** 2)
-        r_action_Qdot = (action[:, 0] / 100) ** 2 + (action[:, 1] / 100) ** 2+(action[:, 2] / 100) ** 2+(action[:, 3] / 100) ** 2
-        r_action_strdot = (action[:, 4]/0.02) ** 2
+        r_action_Qdot = (action[:, 0] / (298*10)) ** 2 + (action[:, 1] / (298*10)) ** 2+(action[:, 2] / (298*10)) ** 2+(action[:, 3] / (298*10)) ** 2
+        r_action_strdot = (action[:, 4]/(0.1*10)) ** 2
         return -(
                 0.04 * (delta_x ** 2 + delta_y ** 2)
                 + 0.04 * delta_vx ** 2
@@ -391,6 +384,7 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         constraint = torch.stack(
             (state[:, 5].abs() - self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3].abs(), side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)), dim=1
         )
+
         return constraint
 
 

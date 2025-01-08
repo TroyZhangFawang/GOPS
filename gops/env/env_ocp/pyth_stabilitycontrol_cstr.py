@@ -239,7 +239,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             dtype=np.float32,
         )
         obs_scale_default = [1/100, 1/100, 1/10,
-                             1/100, 1/100, 1/10, 1/10, 1/50, 1/(max_torque*10), 1/10]
+                             1/100, 1/100, 1/10, 1/10, 1/50, 1/(max_torque*100), 1/10]
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
@@ -292,17 +292,17 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1])
+            self.path_num = self.np_random.choice([1])
 
         if u_num is not None:
             self.u_num = u_num
         else:
-            self.u_num = self.np_random.choice([0, 1])
+            self.u_num = self.np_random.choice([0])
 
         if slope_num is not None:
             self.slope_num = slope_num
         else:
-            self.slope_num = self.np_random.choice([0, 1])
+            self.slope_num = self.np_random.choice([1])
 
         ref_points = []
         slope_points = []
@@ -378,7 +378,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.slope_points[-1] = new_slope_point
         self.done = self.judge_done()
         if self.done:
-            reward = reward - 5000
+            reward = reward - 1000
         return self.get_obs(), reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -405,6 +405,8 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
     def compute_reward(self, action: np.ndarray) -> float:
         px, py, phi, vx, vy, phi_dot, varphi, varphi_dot = self.state[:8]
         # Q1, Q2,  Q3,  Q4, delta = action
+        # delta1, delta2, delta3, delta4 = delta, delta, delta, delta
+        # Q1, delta1, Q2, delta2, Q3, delta3, Q4, delta4 = action #, dQ1, ddelta1, dQ2, ddelta2, dQ3, ddelta3, dQ4, ddelta4
         # beta = np.arctan(vy/vx)
         ref_x, ref_y, ref_phi, ref_vx = self.ref_points[0]
         # I_matrix = np.array([[(self.vehicle_dynamics.k_alpha1+self.vehicle_dynamics.k_alpha2+
@@ -425,9 +427,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha3/self.vehicle_dynamics.Izz,
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha4/self.vehicle_dynamics.Izz]])
         # delta_matrix = np.array([[delta1], [delta2], [delta3], [delta4]])
+        #
         # later_ref = np.matmul(np.matmul(np.linalg.inv(I_matrix), k_matrix), delta_matrix)
-        # beta_ref = later_ref[0][0]
-
+        # beta_ref = 0#later_ref[0][0]
         phi_dot_ref = 0#later_ref[1][0]
         C_varphi = 2/(self.vehicle_dynamics.m*self.vehicle_dynamics.g*self.vehicle_dynamics.lw*np.cos(self.slope_points[0, 0])*np.cos(self.slope_points[0, 1]))*\
                    (self.vehicle_dynamics.K_varphi*(1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+
@@ -438,16 +440,31 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
         I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
+        # kappa_constant = 0.15#vx/self.vehicle_dynamics.Rw
+        # r_action_Q = np.sum((self.action[0:4]/254.8) ** 2)
+        # print(r_action_Q)
+        # r_action_str = np.sum((self.action[4:]) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
         r_action_strdot = (action[4]/0.02) ** 2
+        # r_action_deltaQ = dQ1 ** 2 + dQ2 ** 2 + dQ3 ** 2 + dQ4 ** 2
+        # r_action_deltastr = np.sum((action[9:16:2]) ** 2)
+        # r_action_deltaQdot = np.sum((action[8:16:2]-self.action_last[8:16:2]) ** 2)
+        # r_action_deltastrdot = np.sum((action[9:16:2]-self.action_last[9:16:2]) ** 2)
         return -(
                 0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
                 + 0.04 * (vx - ref_vx) ** 2
                 + 0.02 * angle_normalize(phi - ref_phi) ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
-                + 0.01 * I_rollover ** 2
+                + 0.02 * I_rollover ** 2
+                # + 0.01 * r_action_Q
+                # + 0.01 * r_action_str
                 + 0.01 * r_action_Qdot
                 + 0.01 * r_action_strdot
+                # + 0.5 * (beta - beta_ref) ** 2
+                # + 1e-8 * r_action_deltaQ
+                # + 1e-4 * r_action_deltastr
+                # + 1e-4 * r_action_deltaQdot
+                # + 1e-1 * r_action_deltastrdot
         )
 
     def judge_done(self) -> bool:

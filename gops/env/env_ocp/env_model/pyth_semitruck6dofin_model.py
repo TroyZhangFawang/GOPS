@@ -25,6 +25,7 @@ from gops.utils.gops_typing import InfoDict
 class VehicleDynamicsModel(VehicleDynamicsData):
     def __init__(self):
         DynamicsData = VehicleDynamicsData()
+        self.dt = DynamicsData.vehicle_params["dt"]
         self.m_tt = DynamicsData.vehicle_params["m_tt"]
         self.ms_tt = DynamicsData.vehicle_params["ms_tt"]
         self.m_tl = DynamicsData.vehicle_params["m_tl"]
@@ -51,427 +52,166 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         self.kf = DynamicsData.vehicle_params["kf"]
         self.km = DynamicsData.vehicle_params["km"]
         self.kr = DynamicsData.vehicle_params["kr"]
-        self.kvarphi_tt = DynamicsData.vehicle_params["kvarphi_tt"]
-        self.kvarphi_tl = DynamicsData.vehicle_params["kvarphi_tl"]
+        self.kvarvarphi_tt = DynamicsData.vehicle_params["kvarphi_tt"]
+        self.kvarvarphi_tl = DynamicsData.vehicle_params["kvarphi_tl"]
         self.ka = DynamicsData.vehicle_params["ka"]
-        self.cvarphi_tt = DynamicsData.vehicle_params["cvarphi_tt"]
-        self.cvarphi_tl = DynamicsData.vehicle_params["cvarphi_tl"]
+        self.cvarvarphi_tt = DynamicsData.vehicle_params["cvarphi_tt"]
+        self.cvarvarphi_tl = DynamicsData.vehicle_params["cvarphi_tl"]
         self.state_dim = DynamicsData.vehicle_params["state_dim"]
 
-        divided_tt = self.m_tt * self.Ixx_tt * self.Izz_tt - self.Izz_tt * self.ms_tt ** 2 * self.hs_tt ** 2 - self.m_tt * self.Ixz_tt ** 2
-        divided_tl = self.m_tl * self.Ixx_tl * self.Izz_tl - self.Izz_tl * self.ms_tl ** 2 * self.hs_tl ** 2 - self.m_tl * self.Ixz_tl ** 2
-        self.Att13 = -self.ms_tt * self.hs_tt * self.Izz_tt * (
-                self.kvarphi_tt - self.ms_tt * self.gravity * self.hs_tt - self.ka) / divided_tt
-        self.Att14 = -self.ms_tt * self.hs_tt * self.Izz_tt * self.cvarphi_tt / divided_tt
+        self.Mtt00 = self.m_tt
 
-        self.Att23 = -self.m_tt * self.Ixz_tt * (
-                self.kvarphi_tt - self.ms_tt * self.gravity * self.hs_tt - self.ka) / divided_tt
-        self.Att24 = -self.m_tt * self.Ixz_tt * self.cvarphi_tt / divided_tt
+        self.Mtt11 = self.m_tt
+        self.Mtt14 = -self.ms_tt * self.hs_tt
+
+        self.Mtt22 = self.Izz_tt
+
+        self.Mtt33 = 1
+
+        self.Mtt41 = -self.ms_tt * self.hs_tt
+        self.Mtt44 = self.Ixx_tt
 
         self.Att34 = 1
-        self.Att43 = -self.m_tt * self.Izz_tt * (
-                    self.kvarphi_tt - self.ms_tt * self.gravity * self.hs_tt - self.ka) / divided_tt
-        self.Att44 = -self.m_tt * self.Izz_tt * self.cvarphi_tt / divided_tt
 
-        self.Btt00 = 1 / self.m_tt
+        self.Att43 = -self.kvarvarphi_tt + self.ms_tt * self.gravity * self.hs_tt
+        self.Att44 = -self.cvarvarphi_tt
 
-        self.Btt11 = (self.Ixx_tt * self.Izz_tt - self.Ixz_tt ** 2) / divided_tt
-        self.Btt12 = (self.Ixz_tt * self.ms_tt * self.hs_tt) / divided_tt
+        self.Btt00 = 1
+        self.Btt11 = 1
+        self.Btt22 = 1
 
-        self.Btt21 = (self.Ixz_tt * self.ms_tt * self.hs_tt) / divided_tt
-        self.Btt22 = (self.m_tt * self.Ixx_tt - self.ms_tt ** 2 * self.hs_tt ** 2) / divided_tt
+        self.Ctt00 = 1
+        self.Ctt11 = 1
+        self.Ctt21 = self.lhtt
+        self.Ctt22 = 1
+        self.Ctt41 = self.hh_tt
+        self.Ctt43 = 1
 
-        self.Btt41 = (self.Izz_tt * self.ms_tt * self.hs_tt) / divided_tt
-        self.Btt42 = (self.Ixz_tt * self.m_tt) / divided_tt
+        self.Mtl00 = self.m_tl
 
-        self.Ctt00 = 1 / self.m_tt
+        self.Mtl11 = self.m_tl
+        self.Mtl14 = -self.ms_tl * self.hs_tl
 
-        self.Ctt11 = (-self.ms_tt * self.hs_tt * self.hh_tt * self.Izz_tt
-                      - self.ms_tt * self.hs_tt * self.Ixz_tt * self.lhtt
-                      + self.Ixx_tt * self.Izz_tt
-                      - self.Ixz_tt ** 2) / divided_tt
-        self.Ctt12 = (-self.ms_tt * self.hs_tt * self.Ixz_tt) / divided_tt
+        self.Mtl22 = self.Izz_tl
 
-        self.Ctt21 = (self.ms_tt * self.hs_tt * self.Ixz_tt
-                      - self.m_tt * self.hh_tt * self.Ixz_tt
-                      - self.lhtt * self.m_tt * self.Ixx_tt
-                      + self.lhtt * self.ms_tt ** 2 * self.hs_tt ** 2) / divided_tt
-        self.Ctt22 = (self.ms_tt ** 2 * self.hs_tt ** 2 - self.m_tt * self.Ixx_tt) / divided_tt
+        self.Mtl33 = 1
 
-        self.Ctt41 = (self.ms_tt * self.hs_tt * self.Izz_tt
-                      - self.m_tt * self.hh_tt * self.Izz_tt
-                      - self.lhtt * self.m_tt * self.Ixz_tt
-                      + self.lhtt * self.ms_tt ** 2 * self.hs_tt ** 2) / divided_tt
-        self.Ctt42 = -self.m_tt * self.Ixz_tt / divided_tt
-
-        self.Gtt13 = -self.ms_tt * self.hs_tt * self.Izz_tt * self.ka / divided_tt
-
-        self.Gtt23 = -self.m_tt * self.Ixz_tt * self.ka / divided_tt
-
-        self.Gtt43 = -self.m_tt * self.Izz_tt * self.ka / divided_tt
-
-        # ---------------------trilaer
-        self.Atl13 = -self.ms_tl * self.hs_tl * self.Izz_tl * (
-                self.kvarphi_tl - self.ms_tl * self.gravity * self.hs_tl - self.ka) / divided_tl
-        self.Atl14 = -self.ms_tl * self.hs_tl * self.Izz_tl * self.cvarphi_tl / divided_tl
-
-        self.Atl23 = -self.m_tl * self.Ixz_tl * (
-                self.kvarphi_tl - self.ms_tl * self.gravity * self.hs_tl - self.ka) / divided_tl
-        self.Atl24 = -self.m_tl * self.Ixz_tl * self.cvarphi_tl / divided_tl
+        self.Mtl41 = -self.ms_tl * self.hs_tl
+        self.Mtl44 = self.Ixx_tl
 
         self.Atl34 = 1
 
-        self.Atl43 = -self.m_tl * self.Izz_tl * (
-                self.kvarphi_tl - self.ms_tl * self.gravity * self.hs_tl - self.ka) / divided_tl
-        self.Atl44 = -self.m_tl * self.Izz_tl * self.cvarphi_tl / divided_tl
+        self.Atl43 = -self.kvarvarphi_tl + self.ms_tl * self.gravity * self.hs_tl
+        self.Atl44 = -self.cvarvarphi_tl
 
-        self.Btl00 = 1 / self.m_tl
+        self.Btl00 = 1
+        self.Btl11 = 1
+        self.Btl22 = 1
 
-        self.Btl11 = (self.Ixx_tl * self.Izz_tl - self.Ixz_tl ** 2) / divided_tl
-        self.Btl12 = (self.Ixz_tl * self.ms_tl * self.hs_tl) / divided_tl
-
-        self.Btl21 = (self.Ixz_tl * self.ms_tl * self.hs_tl) / divided_tl
-        self.Btl22 = (self.m_tl * self.Ixx_tl - self.ms_tl ** 2 * self.hs_tl ** 2) / divided_tl
-
-        self.Btl41 = (self.Izz_tl * self.ms_tl * self.hs_tl) / divided_tl
-        self.Btl42 = (self.Ixz_tl * self.m_tl) / divided_tl
-
-        self.Ctl00 = 1 / self.m_tl
-
-        self.Ctl11 = (-self.ms_tl * self.hs_tl * self.hh_tl * self.Izz_tl
-                      - self.ms_tl * self.hs_tl * self.Ixz_tl * self.lhtl
-                      + self.Ixx_tl * self.Izz_tl
-                      - self.Ixz_tl ** 2) / divided_tl
-        self.Ctl12 = (-self.ms_tl * self.hs_tl * self.Ixz_tl) / divided_tl
-
-        self.Ctl21 = (self.ms_tl * self.hs_tl * self.Ixz_tl
-                      - self.m_tl * self.hh_tl * self.Ixz_tl
-                      - self.lhtl * self.m_tl * self.Ixx_tl
-                      + self.lhtl * self.ms_tl ** 2 * self.hs_tl ** 2) / divided_tl
-        self.Ctl22 = (self.ms_tl ** 2 * self.hs_tl ** 2 - self.m_tl * self.Ixx_tl) / divided_tl
-
-        self.Ctl41 = (self.ms_tl * self.hs_tl * self.Izz_tl
-                      - self.m_tl * self.hh_tl * self.Izz_tl
-                      - self.lhtl * self.m_tl * self.Ixz_tl
-                      + self.lhtl * self.ms_tl ** 2 * self.hs_tl ** 2) / divided_tl
-        self.Ctl42 = -self.m_tl * self.Ixz_tl / divided_tl
-
-        self.Gtl13 = -self.ms_tl * self.hs_tl * self.Izz_tl * self.ka / divided_tl
-
-        self.Gtl23 = -self.m_tl * self.Ixz_tl * self.ka / divided_tl
-
-        self.Gtl43 = -self.m_tl * self.Izz_tl * self.ka / divided_tl
+        self.Ctl00 = 1
+        self.Ctl11 = 1
+        self.Ctl21 = self.lhtl
+        self.Ctl22 = 1
+        self.Ctl41 = self.hh_tl
+        self.Ctl43 = 1
 
         self.M00, self.M05 = 1, -1
         self.M11, self.M12, self.M16, self.M17 = 1, -self.lhtt, -1, -self.lhtl
-        self.N00, self.N03 = 1, 1
-        self.N11, self.N14, self.N22, self.N25 = 1, 1, 1, 1
-        self.N35 = 1
-        self.Q33, self.Q38 = -self.ka, self.ka
 
-    def dynamic_func(self, states, actions):
-        X_matrix = torch.cat((states[:, 3:4], states[:, 8:12], states[:, 7:8],
-                              states[:, 12:16]), 1).reshape(10, 1)
-        U_matrix = actions.reshape(3, 1)
-        u_tt = states[:, 3]
-        u_tl = states[:, 7]
-        self.Att12 = -u_tt
-        Att_matrix = torch.zeros((5, 5))
-        Att_matrix[1, 2] = self.Att12
-        Att_matrix[1, 3] = self.Att13
-        Att_matrix[1, 4] = self.Att14
+        self.N00, self.N04 = 1, 1
+        self.N11, self.N15, self.N22, self.N26 = 1, 1, 1, 1
+        self.N32 = 1
+        self.N43, self.N47 = 1, 1
+        self.N57 = 1
 
-        Att_matrix[2, 3], Att_matrix[2, 4] = self.Att23, self.Att24
-
-        Att_matrix[3, 4] = self.Att34
-
-        Att_matrix[4, 3], Att_matrix[4, 4] = self.Att43, self.Att44
-
-        Btt_matrix = torch.zeros((5, 3))
-        Btt_matrix[0, 0] = self.Btt00
-
-        Btt_matrix[1, 1], Btt_matrix[1, 2] = self.Btt11, self.Btt12
-
-        Btt_matrix[2, 1], Btt_matrix[2, 2] = self.Btt21, self.Btt22
-        Btt_matrix[4, 1], Btt_matrix[4, 2] = self.Btt41, self.Btt42
-
-        Ctt_matrix = torch.zeros((5, 3))
-        Ctt_matrix[0, 0] = self.Ctt00
-
-        Ctt_matrix[1, 1], Ctt_matrix[1, 2] = self.Ctt11, self.Ctt12
-
-        Ctt_matrix[2, 1], Ctt_matrix[2, 2] = self.Ctt21, self.Ctt22
-        Ctt_matrix[4, 1], Ctt_matrix[4, 2] = self.Ctt41, self.Ctt42
-
-        Gtt_matrix = torch.zeros((5, 5))
-        Gtt_matrix[1, 3] = self.Gtt13
-
-        Gtt_matrix[2, 3] = self.Gtt23
-
-        Gtt_matrix[4, 3] = self.Gtt43
-
-        # --------trailer---------
-        self.Atl12 = -u_tl
-
-        Atl_matrix = torch.zeros((5, 5))
-        Atl_matrix[1, 2] = self.Atl12
-        Atl_matrix[1, 3] = self.Atl13
-        Atl_matrix[1, 4] = self.Atl14
-
-        Atl_matrix[2, 3], Atl_matrix[2, 4] = self.Atl23, self.Atl24
-
-        Atl_matrix[3, 4] = self.Atl34
-
-        Atl_matrix[4, 3], Atl_matrix[4, 4] = self.Atl43, self.Atl44
-
-        Btl_matrix = torch.zeros((5, 3))
-        Btl_matrix[0, 0] = self.Btl00
-
-        Btl_matrix[1, 1], Btl_matrix[1, 2] = self.Btl11, self.Btl12
-
-        Btl_matrix[2, 1], Btl_matrix[2, 2] = self.Btl21, self.Btl22
-        Btl_matrix[4, 1], Btl_matrix[4, 2] = self.Btl41, self.Btl42
-
-        Ctl_matrix = torch.zeros((5, 3))
-        Ctl_matrix[0, 0] = self.Ctl00
-
-        Ctl_matrix[1, 1], Ctl_matrix[1, 2] = self.Ctl11, self.Ctl12
-
-        Ctl_matrix[2, 1], Ctl_matrix[2, 2] = self.Ctl21, self.Ctl22
-        Ctl_matrix[4, 1], Ctl_matrix[4, 2] = self.Ctl41, self.Ctl42
-
-        Gtl_matrix = torch.zeros((5, 5))
-        Gtl_matrix[1, 3] = self.Gtl13
-
-        Gtl_matrix[2, 3] = self.Gtl23
-
-        Gtl_matrix[4, 3] = self.Gtl43
-
-        A_matrix = torch.block_diag(Att_matrix,
-                                    Atl_matrix)
-
-        B_matrix = torch.block_diag(Btt_matrix,
-                                    Btl_matrix)
-
-        C_matrix = torch.block_diag(Ctt_matrix,
-                                    Ctl_matrix)
-
-        G_matrix = torch.block_diag(Gtt_matrix, Gtl_matrix)
-
-
-        M_matrix = torch.zeros((2, 10))
-        M_matrix[0, 0], M_matrix[0, 5] = self.M00, self.M05
-        # M_matrix[1, 0] = states[9]-states[13]
-        M_matrix[1, 1], M_matrix[1, 2] = self.M11, self.M12
-        M_matrix[1, 6], M_matrix[1, 7] = self.M16, self.M17
-
-        self.P12, self.P17 = -u_tt, u_tt
-        P_matrix = torch.zeros((2, 10))
-        P_matrix[1, 2], P_matrix[1, 7] = self.P12, self.P17
-
-        N_matrix = torch.zeros((4, 6))
-        N_matrix[0, 0], N_matrix[0, 3] = self.N00, self.N03
-        N_matrix[1, 1], N_matrix[1, 4] = self.N11, self.N14
-        N_matrix[2, 2], N_matrix[2, 5] = self.N22, self.N25
-        N_matrix[3, 5] = self.N35
-
-        Q_matrix = torch.zeros((4, 10))
-        Q_matrix[3, 3], Q_matrix[3, 8] = self.Q33, self.Q38
-
-        J_matrix = torch.inverse(torch.vstack((N_matrix, torch.matmul(M_matrix, C_matrix))))
-
-        K1_matrix = torch.vstack((Q_matrix,
-                                  (P_matrix - torch.matmul(M_matrix, A_matrix)
-                                   -torch.matmul(M_matrix, G_matrix))))
-        K2_matrix = torch.vstack((torch.zeros((4, 6)), (torch.matmul(M_matrix, B_matrix))))
-
-        Lc_matrix = torch.zeros((6, 12))
-        Lc_matrix[0, 0], Lc_matrix[0, 2], \
-        Lc_matrix[0, 4], Lc_matrix[0, 6] = 1, 1, 1, 1
-
-        Lc_matrix[1, 1], Lc_matrix[1, 3], \
-        Lc_matrix[1, 5], Lc_matrix[1, 7], = 1, 1, 1, 1
-
-        Lc_matrix[2, 0], Lc_matrix[2, 1], Lc_matrix[2, 2], Lc_matrix[2, 3], \
-        Lc_matrix[2, 4], Lc_matrix[2, 5], Lc_matrix[2, 6], Lc_matrix[2, 7] = \
-            -self.lw / 2, self.a, self.lw / 2, self.a, \
-            -self.lw / 2, -self.b, self.lw / 2, -self.b
-        Lc_matrix[3, 8], Lc_matrix[3, 10] = 1, 1
-
-        Lc_matrix[4, 9], Lc_matrix[4, 11] = 1, 1
-
-        Lc_matrix[5, 8], Lc_matrix[5, 9], Lc_matrix[5, 10], Lc_matrix[5, 11] = \
-            -self.lw / 2, -self.d, \
-            self.lw / 2, -self.d
-
-        delta = actions[:, 2]
-        Mw1 = torch.tensor([[torch.cos(delta), -torch.sin(delta)],
-                            [torch.sin(delta), torch.cos(delta)]])
-        Mw2 = torch.tensor([[torch.cos(delta), -torch.sin(delta)],
-                            [torch.sin(delta), torch.cos(delta)]])
-        Mw3 = torch.tensor([[1, 0],
-                            [0, 1]])
-        Mw4 = torch.tensor([[1, 0],
-                            [0, 1]])
-        Mw5 = torch.tensor([[1, 0],
-                            [0, 1]])
-        Mw6 = torch.tensor([[1, 0],
-                            [0, 1]])
-
-        Mw_matrix = torch.block_diag(Mw1, Mw2, Mw3, Mw4, Mw5, Mw6)
-
-        At_matrix = torch.zeros((12, 10))
-
-        At_matrix[1, 1], At_matrix[1, 2] = -self.kf / u_tt, -self.kf * self.a / u_tt
-
-        At_matrix[3, 1], At_matrix[3, 2] = -self.kf / u_tt, -self.kf * self.a / u_tt
-
-        At_matrix[5, 1], At_matrix[5, 2] = -self.km / u_tt, -self.km * (-self.b) / u_tt
-
-        At_matrix[7, 1], At_matrix[7, 2] = -self.km / u_tt, -self.km * (-self.b) / u_tt
-
-        At_matrix[9, 6], At_matrix[9, 7] = -self.kr / u_tl, -self.kr * (-self.d) / u_tl
-
-        At_matrix[11, 6], At_matrix[11, 7] = -self.kr / u_tl, -self.kr * (-self.d) / u_tl
-
-        Bt_matrix = torch.zeros((12, 3))
-        Bt_matrix[1, 1], Bt_matrix[3, 1] = self.kf, self.kf
-        Bt_matrix[4, 0], Bt_matrix[6, 1] = 1 / self.Rw, 1 / self.Rw
-
-        temp = torch.matmul(At_matrix, X_matrix) + torch.matmul(Bt_matrix, U_matrix)
-        FCG = torch.matmul(Lc_matrix, torch.matmul(Mw_matrix, temp))
-        X_dot = (torch.matmul((A_matrix + torch.matmul(C_matrix, torch.matmul(J_matrix, K1_matrix))), X_matrix)
-                 + torch.matmul((B_matrix - torch.matmul(C_matrix, torch.matmul(J_matrix, K2_matrix))), FCG)).squeeze()
-        X_all_dot = torch.concat((u_tt * torch.cos(states[:, 2].clone()) - states[:, 8].clone() * torch.sin(states[:, 2].clone()),
-                                  u_tt * torch.sin(states[:, 2].clone()) + states[:, 8].clone() * torch.cos(states[:, 2].clone()),
-                                  states[:, 9].clone(),
-                                  X_dot[0], u_tl * torch.cos(states[:, 6].clone()) - states[:, 12].clone() * torch.sin(states[:, 6].clone()),
-                                  u_tl * torch.sin(states[:, 6].clone()) + states[:, 12] * torch.cos(states[:, 6].clone()),
-                                  states[:, 13],
-                                  X_dot[5],
-                                  X_dot[1:5],
-                                  X_dot[6:10],
-        ))
-        return X_all_dot
+        self.Q54, self.Q59 = -self.ka, self.ka
 
     def f_xu(self, states, actions, delta_t):
         state_next = torch.zeros_like(states)
-        # RK = 1
-        # if RK == 1:
-        #     X_all_dot = self.dynamic_func(states, actions)
-        #     state_next = delta_t * X_all_dot
-        #
-        # elif RK == 2:
-        #     X_all_dot = self.dynamic_func(states, actions)
-        #     K1 = delta_t * X_all_dot
-        #     x_2 = states + K1
-        #     f_xu_2 = self.dynamic_func(x_2, actions)
-        #     K2 = delta_t * f_xu_2
-        #     state_next = states + (K1 + K2) / 2
-        # elif RK == 4:
-        #     X_all_dot = self.dynamic_func(states, actions)
-        #     K1 = delta_t * X_all_dot
-        #     x_2 = states + K1 / 2
-        #     f_xu_2 = self.dynamic_func(x_2, actions)
-        #     K2 = delta_t * f_xu_2
-        #     x_3 = states + K2 / 2
-        #     f_xu_3 = self.dynamic_func(x_3, actions)
-        #     K3 = delta_t * f_xu_3
-        #     x_4 = states + K3
-        #     f_xu_4 = self.dynamic_func(x_4, actions)
-        #     K4 = delta_t * f_xu_4
-        #     state_next = states + (K1 + 2 * K2 + 2 * K3 + K4) / 6
         X_matrix = torch.cat((states[:, 3:4], states[:, 8:12], states[:, 7:8],
                               states[:, 12:16]), 1).reshape(10, 1)
         U_matrix = actions.reshape(3, 1)
         u_tt = states[:, 3]
         u_tl = states[:, 7]
-        self.Att12 = -u_tt
+        self.Att12 = -self.m_tt * u_tt
+
+        self.Att42 = self.ms_tt * self.hs_tt * u_tt
+
+        Mtt_matrix = torch.zeros((5, 5))
+        Mtt_matrix[0, 0] = self.Mtt00
+
+        Mtt_matrix[1, 1] = self.Mtt11
+
+        Mtt_matrix[1, 4] = self.Mtt14
+
+        Mtt_matrix[2, 2] = self.Mtt22
+
+        Mtt_matrix[3, 3] = self.Mtt33
+
+        Mtt_matrix[4, 1] = self.Mtt41
+        Mtt_matrix[4, 4] = self.Mtt44
+
         Att_matrix = torch.zeros((5, 5))
         Att_matrix[1, 2] = self.Att12
-        Att_matrix[1, 3] = self.Att13
-        Att_matrix[1, 4] = self.Att14
-
-        Att_matrix[2, 3], Att_matrix[2, 4] = self.Att23, self.Att24
-
         Att_matrix[3, 4] = self.Att34
-
+        Att_matrix[4, 2] = self.Att42
         Att_matrix[4, 3], Att_matrix[4, 4] = self.Att43, self.Att44
 
         Btt_matrix = torch.zeros((5, 3))
         Btt_matrix[0, 0] = self.Btt00
+        Btt_matrix[1, 1], Btt_matrix[2, 2] = self.Btt11, self.Btt22
 
-        Btt_matrix[1, 1], Btt_matrix[1, 2] = self.Btt11, self.Btt12
-
-        Btt_matrix[2, 1], Btt_matrix[2, 2] = self.Btt21, self.Btt22
-        Btt_matrix[4, 1], Btt_matrix[4, 2] = self.Btt41, self.Btt42
-
-        Ctt_matrix = torch.zeros((5, 3))
-        Ctt_matrix[0, 0] = self.Ctt00
-
-        Ctt_matrix[1, 1], Ctt_matrix[1, 2] = self.Ctt11, self.Ctt12
-
+        Ctt_matrix = torch.zeros((5, 4))
+        Ctt_matrix[0, 0], Ctt_matrix[1, 1] = self.Ctt00, self.Ctt11
         Ctt_matrix[2, 1], Ctt_matrix[2, 2] = self.Ctt21, self.Ctt22
-        Ctt_matrix[4, 1], Ctt_matrix[4, 2] = self.Ctt41, self.Ctt42
-
-        Gtt_matrix = torch.zeros((5, 5))
-        Gtt_matrix[1, 3] = self.Gtt13
-
-        Gtt_matrix[2, 3] = self.Gtt23
-
-        Gtt_matrix[4, 3] = self.Gtt43
+        Ctt_matrix[4, 1], Ctt_matrix[4, 3] = self.Ctt41, self.Ctt43
 
         # --------trailer---------
-        self.Atl12 = -u_tl
+        self.Atl12 = -self.m_tl * u_tl
+
+        self.Atl42 = self.ms_tl * self.hs_tl * u_tl
+
+        Mtl_matrix = torch.zeros((5, 5))
+        Mtl_matrix[0, 0] = self.Mtl00
+
+        Mtl_matrix[1, 1] = self.Mtl11
+
+        Mtl_matrix[1, 4] = self.Mtl14
+
+        Mtl_matrix[2, 2] = self.Mtl22
+
+        Mtl_matrix[3, 3] = self.Mtl33
+
+        Mtl_matrix[4, 1] = self.Mtl41
+        Mtl_matrix[4, 4] = self.Mtl44
 
         Atl_matrix = torch.zeros((5, 5))
         Atl_matrix[1, 2] = self.Atl12
-        Atl_matrix[1, 3] = self.Atl13
-        Atl_matrix[1, 4] = self.Atl14
-
-        Atl_matrix[2, 3], Atl_matrix[2, 4] = self.Atl23, self.Atl24
-
         Atl_matrix[3, 4] = self.Atl34
-
+        Atl_matrix[4, 2] = self.Atl42
         Atl_matrix[4, 3], Atl_matrix[4, 4] = self.Atl43, self.Atl44
 
         Btl_matrix = torch.zeros((5, 3))
         Btl_matrix[0, 0] = self.Btl00
 
-        Btl_matrix[1, 1], Btl_matrix[1, 2] = self.Btl11, self.Btl12
+        Btl_matrix[1, 1], Btl_matrix[2, 2] = self.Btl11, self.Btl22
 
-        Btl_matrix[2, 1], Btl_matrix[2, 2] = self.Btl21, self.Btl22
-        Btl_matrix[4, 1], Btl_matrix[4, 2] = self.Btl41, self.Btl42
-
-        Ctl_matrix = torch.zeros((5, 3))
-        Ctl_matrix[0, 0] = self.Ctl00
-
-        Ctl_matrix[1, 1], Ctl_matrix[1, 2] = self.Ctl11, self.Ctl12
-
+        Ctl_matrix = torch.zeros((5, 4))
+        Ctl_matrix[0, 0], Ctl_matrix[1, 1] = self.Ctl00, self.Ctl11
         Ctl_matrix[2, 1], Ctl_matrix[2, 2] = self.Ctl21, self.Ctl22
-        Ctl_matrix[4, 1], Ctl_matrix[4, 2] = self.Ctl41, self.Ctl42
+        Ctl_matrix[4, 1], Ctl_matrix[4, 3] = self.Ctl41, self.Ctl43
 
-        Gtl_matrix = torch.zeros((5, 5))
-        Gtl_matrix[1, 3] = self.Gtl13
+        A_matrix = torch.block_diag(torch.matmul(torch.inverse(Mtt_matrix), Att_matrix),
+                              torch.matmul(torch.inverse(Mtl_matrix), Atl_matrix))
 
-        Gtl_matrix[2, 3] = self.Gtl23
+        B_matrix = torch.block_diag(torch.matmul(torch.inverse(Mtt_matrix), Btt_matrix),
+                              torch.matmul(torch.inverse(Mtl_matrix), Btl_matrix))
 
-        Gtl_matrix[4, 3] = self.Gtl43
-
-        A_matrix = torch.block_diag(Att_matrix,
-                                    Atl_matrix)
-
-        B_matrix = torch.block_diag(Btt_matrix,
-                                    Btl_matrix)
-
-        C_matrix = torch.block_diag(Ctt_matrix,
-                                    Ctl_matrix)
-
-        G_matrix = torch.block_diag(Gtt_matrix, Gtl_matrix)
+        C_matrix = torch.block_diag(torch.matmul(torch.inverse(Mtt_matrix), Ctt_matrix),
+                              torch.matmul(torch.inverse(Mtl_matrix), Ctl_matrix))
 
         M_matrix = torch.zeros((2, 10))
         M_matrix[0, 0], M_matrix[0, 5] = self.M00, self.M05
-        # M_matrix[1, 0] = states[9]-states[13]
         M_matrix[1, 1], M_matrix[1, 2] = self.M11, self.M12
         M_matrix[1, 6], M_matrix[1, 7] = self.M16, self.M17
 
@@ -479,21 +219,21 @@ class VehicleDynamicsModel(VehicleDynamicsData):
         P_matrix = torch.zeros((2, 10))
         P_matrix[1, 2], P_matrix[1, 7] = self.P12, self.P17
 
-        N_matrix = torch.zeros((4, 6))
-        N_matrix[0, 0], N_matrix[0, 3] = self.N00, self.N03
-        N_matrix[1, 1], N_matrix[1, 4] = self.N11, self.N14
-        N_matrix[2, 2], N_matrix[2, 5] = self.N22, self.N25
-        N_matrix[3, 5] = self.N35
+        N_matrix = torch.zeros((6, 8))
+        N_matrix[0, 0], N_matrix[0, 4] = self.N00, self.N04
+        N_matrix[1, 1], N_matrix[1, 5] = self.N11, self.N15
+        N_matrix[2, 2], N_matrix[2, 6] = self.N22, self.N26
+        N_matrix[3, 2] = self.N32
+        N_matrix[4, 3], N_matrix[4, 7] = self.N43, self.N47
+        N_matrix[5, 7] = self.N57
 
-        Q_matrix = torch.zeros((4, 10))
-        Q_matrix[3, 3], Q_matrix[3, 8] = self.Q33, self.Q38
+        Q_matrix = torch.zeros((6, 10))
+        Q_matrix[5, 4], Q_matrix[5, 9] = self.Q54, self.Q59
 
         J_matrix = torch.inverse(torch.vstack((N_matrix, torch.matmul(M_matrix, C_matrix))))
 
-        K1_matrix = torch.vstack((Q_matrix,
-                                  (P_matrix - torch.matmul(M_matrix, A_matrix)
-                                   - torch.matmul(M_matrix, G_matrix))))
-        K2_matrix = torch.vstack((torch.zeros((4, 6)), (torch.matmul(M_matrix, B_matrix))))
+        K1_matrix = torch.vstack((Q_matrix, (P_matrix - torch.matmul(M_matrix, A_matrix))))
+        K2_matrix = torch.vstack((torch.zeros((6, 6)), (torch.matmul(M_matrix, B_matrix))))
 
         Lc_matrix = torch.zeros((6, 12))
         Lc_matrix[0, 0], Lc_matrix[0, 2], \
@@ -514,19 +254,19 @@ class VehicleDynamicsModel(VehicleDynamicsData):
             -self.lw / 2, -self.d, \
             self.lw / 2, -self.d
 
-        delta = actions[:, 2]
+        delta = actions[:, 1]
         Mw1 = torch.tensor([[torch.cos(delta), -torch.sin(delta)],
-                            [torch.sin(delta), torch.cos(delta)]])
+                        [torch.sin(delta), torch.cos(delta)]])
         Mw2 = torch.tensor([[torch.cos(delta), -torch.sin(delta)],
-                            [torch.sin(delta), torch.cos(delta)]])
+                        [torch.sin(delta), torch.cos(delta)]])
         Mw3 = torch.tensor([[1, 0],
-                            [0, 1]])
+                        [0, 1]])
         Mw4 = torch.tensor([[1, 0],
-                            [0, 1]])
+                        [0, 1]])
         Mw5 = torch.tensor([[1, 0],
-                            [0, 1]])
+                        [0, 1]])
         Mw6 = torch.tensor([[1, 0],
-                            [0, 1]])
+                        [0, 1]])
 
         Mw_matrix = torch.block_diag(Mw1, Mw2, Mw3, Mw4, Mw5, Mw6)
 
@@ -546,24 +286,26 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 
         Bt_matrix = torch.zeros((12, 3))
         Bt_matrix[1, 1], Bt_matrix[3, 1] = self.kf, self.kf
-        Bt_matrix[4, 0], Bt_matrix[6, 1] = 1 / self.Rw, 1 / self.Rw
+        Bt_matrix[4, 0], Bt_matrix[6, 1] =1 / self.Rw, 1 / self.Rw
 
         temp = torch.matmul(At_matrix, X_matrix) + torch.matmul(Bt_matrix, U_matrix)
         FCG = torch.matmul(Lc_matrix, torch.matmul(Mw_matrix, temp))
         X_dot = (torch.matmul((A_matrix + torch.matmul(C_matrix, torch.matmul(J_matrix, K1_matrix))), X_matrix)
                  + torch.matmul((B_matrix - torch.matmul(C_matrix, torch.matmul(J_matrix, K2_matrix))), FCG)).squeeze()
-        state_next[:, 0] = states[:, 0] + delta_t * (
-                    u_tt * torch.cos(states[:, 2].clone()) - states[:, 8].clone() * torch.sin(
-                states[:, 2].clone()))  # x_tractor
-        state_next[:, 1] = states[:, 1] + delta_t * (
-                    u_tt * torch.sin(states[:, 2].clone()) + states[:, 8].clone() * torch.cos(states[:, 2].clone()))
+
+        # X_dot_batch = torch.zeros((self.batch_size, self.state_dim - 2))
+        # for batch in range(self.batch_size):
+        #     X_dot = (torch.matmul(torch.matmul(torch.inverse(M_matrix), A_matrix),
+        #                           X_matrix[batch, :]) +
+        #              torch.matmul(torch.inverse(M_matrix), torch.matmul(B_matrix, actions[batch, :]))).squeeze()
+        #     X_dot_batch[batch, :] = X_dot
+
+        state_next[:, 0] = states[:, 0] + delta_t * (u_tt * torch.cos(states[:, 2].clone()) - states[:, 8].clone() * torch.sin(states[:, 2].clone()))  # x_tractor
+        state_next[:, 1] = states[:, 1] + delta_t * (u_tt * torch.sin(states[:, 2].clone()) + states[:, 8].clone() * torch.cos(states[:, 2].clone()))
         state_next[:, 2] = states[:, 2] + delta_t * states[:, 9].clone()
         state_next[:, 3] = states[:, 3] + delta_t * X_dot[0]  # u_tt
-        state_next[:, 4] = states[:, 4] + delta_t * (
-                    u_tl * torch.cos(states[:, 6].clone()) - states[:, 12].clone() * torch.sin(
-                states[:, 6].clone()))  # px_tl
-        state_next[:, 5] = states[:, 5] + delta_t * (
-                    u_tl * torch.sin(states[:, 6].clone()) + states[:, 12] * torch.cos(states[:, 6].clone()))  # py_tt
+        state_next[:, 4] = states[:, 4] + delta_t * (u_tl * torch.cos(states[:, 6].clone()) - states[:, 12].clone() * torch.sin(states[:, 6].clone()))  # px_tl
+        state_next[:, 5] = states[:, 5] + delta_t * (u_tl * torch.sin(states[:, 6].clone()) + states[:, 12] * torch.cos(states[:, 6].clone()))  # py_tt
         state_next[:, 6] = states[:, 6] + delta_t * states[:, 13]  # varphi_tl
         state_next[:, 7] = states[:, 7] + delta_t * X_dot[5]  # u_tl
         state_next[:, 8:12] = states[:, 8:12] + delta_t * X_dot[1:5]
@@ -1007,7 +749,7 @@ class VehicleDynamicsModel(VehicleDynamicsData):
 class Semitruckpu6dofModel(PythBaseModel):
     def __init__(
         self,
-        pre_horizon: int = 20,
+        pre_horizon: int = 100,
         device: Union[torch.device, str, None] = None,
         path_para: Optional[Dict[str, Dict]] = None,
         u_para: Optional[Dict[str, Dict]] = None,
@@ -1030,7 +772,7 @@ class Semitruckpu6dofModel(PythBaseModel):
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
             action_dim=3,
-            dt=0.01,
+            dt=0.001,
             action_lower_bound=[-50, -50, -max_steer],
             action_upper_bound=[50, 50, max_steer],
             device=device,

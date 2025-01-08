@@ -42,13 +42,13 @@ DEFAULT_PATH_PARAM = {
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 20, },
-    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 20.0,},
+    "constant": {"u": 10, },
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 10.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
     "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
-    "sine": {"A": 0.05, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.05,},
+    "sine": {"A": 0.05, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
 }
 
 class MultiRefTrajData:

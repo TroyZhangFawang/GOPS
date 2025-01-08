@@ -53,8 +53,8 @@ if __name__ == "__main__":
     parser.add_argument("--policy_func_type", type=str, default="TFP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--d_model", type=int, default=128)
-    parser.add_argument("--nhead", type=int, default=1)
+    parser.add_argument("--d_model", type=int, default=256)
+    parser.add_argument("--nhead", type=int, default=4)
     parser.add_argument("--num_encoder_layers", type=int, default=1)
     parser.add_argument("--num_decoder_layers", type=int, default=1)
     parser.add_argument("--max_trajectory", type=int, default=100)

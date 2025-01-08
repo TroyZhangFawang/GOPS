@@ -237,6 +237,10 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                 self.ref_traj.compute_u(
                     next_t + self.pre_horizon * self.dt, path_num, u_num
                 ),
+                self.road_slope.compute_longislope(
+                    next_t + self.pre_horizon * self.dt, slope_num),
+                self.road_slope.compute_latslope(
+                    next_t + self.pre_horizon * self.dt, slope_num)
             ),
             dim=1,
         )
@@ -351,17 +355,32 @@ class FourwdstabilitycontrolModel(PythBaseModel):
                          (self.vehicle_dynamics.ms * self.vehicle_dynamics.hs)))
         I_rollover = C_varphi * varphi + C_varphi_dot * varphi_dot
         # r_action_Q = torch.sum((action[:, 0:4]/254.8) ** 2)
+        # print(r_action_Q)
+        # r_action_str = torch.sum((action[:, 4:]) ** 2)
+        # r_action_Qdot =  0.01*torch.sum((action[:, 0:4]/100) ** 2)
         r_action_Qdot = (action[:, 0] / 100) ** 2 + (action[:, 1] / 100) ** 2+(action[:, 2] / 100) ** 2+(action[:, 3] / 100) ** 2
         r_action_strdot = (action[:, 4]/0.02) ** 2
+        # kappa_constant = 0.15#vx / self.vehicle_dynamics.Rw
+        # r_action_deltaQ = torch.sum((action[0, 8:16:2]) ** 2)
+        # r_action_deltastr = torch.sum((action[0, 9:16:2]) ** 2)
+        # r_action_deltaQdot = torch.sum((action[0, 8:16:2] - self.action_last[0, 8:16:2]) ** 2)
+        # r_action_deltastrdot = torch.sum((action[0, 9:16:2] - self.action_last[0, 9:16:2]) ** 2)
 
         return -(
                 0.04 * (delta_x ** 2 + delta_y ** 2)
                 + 0.04 * delta_vx ** 2
                 + 0.02 * delta_phi ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
-                + 0.01 * I_rollover ** 2
-                + 0.05 * r_action_Qdot
-                + 0.05 * r_action_strdot
+                + 0.02 * I_rollover ** 2
+                # + 0.01 * r_action_Q
+                # + 0.01 * r_action_str
+                + 0.01 * r_action_Qdot
+                + 0.01 * r_action_strdot
+                # + 0.5 * (beta - beta_ref) ** 2
+                # + 1e-8 * r_action_deltaQ
+                # + 1e-4 * r_action_deltastr
+                # + 1e-4 * r_action_deltaQdot
+                # + 1e-1 * r_action_deltastrdot
         )
 
 

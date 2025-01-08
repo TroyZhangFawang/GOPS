@@ -17,7 +17,7 @@ import torch
 from casadi import *
 from torch.autograd.functional import jacobian
 from gops.env.env_ocp.env_model.pyth_base_model import PythBaseModel
-from gops.env.env_ocp.pyth_semitruck6dof import angle_normalize, VehicleDynamicsData
+from gops.env.env_ocp.pyth_semitruck7dof import angle_normalize, VehicleDynamicsData
 from gops.env.env_ocp.resources.ref_traj_model import MultiRefTrajModel
 from gops.utils.gops_typing import InfoDict
 
