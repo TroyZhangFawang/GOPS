@@ -329,7 +329,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(0, 298) #np.array([100]*4)#产生一个，copy四份会不会更好一点
+        torque = np.random.uniform(0, 298)
         steer = np.random.uniform(-0.5, 0.5)
         action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(
@@ -476,6 +476,118 @@ class Fourwdstabilitycontrol(PythBaseEnv):
 
         return done
 
+    def load_carsim_env(self):
+        self.carsim_env = gym.make("pyth_stabilitycontrol")
+
+    def reset_carsim(self,
+            init_state: Optional[Sequence] = None,
+            ref_time: Optional[float] = None,
+            ref_num: Optional[int] = None,
+            **kwargs,) -> Tuple[np.ndarray, dict]:
+        if ref_time is not None:
+            self.t = ref_time
+        else:
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0) #
+
+        # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
+        if ref_num is None:
+            path_num = None
+            u_num = None
+            slope_num = None
+        else:
+            path_num = int(ref_num / 2)
+            u_num = int(ref_num % 2)
+            slope_num = int(ref_num % 2)
+
+        # If no ref_num, then randomly select path and speed
+        if path_num is not None:
+            self.path_num = path_num
+        else:
+            self.path_num = self.np_random.choice([0, 1]) # todo only
+
+        if u_num is not None:
+            self.u_num = u_num
+        else:
+            self.u_num = self.np_random.choice([0, 1])
+
+        if slope_num is not None:
+            self.slope_num = slope_num
+        else:
+            self.slope_num = self.np_random.choice([0, 1])
+
+        ref_points = []
+        slope_points = []
+        for i in range(self.pre_horizon + 1):
+            ref_x = self.ref_traj.compute_x(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y = self.ref_traj.compute_y(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi = self.ref_traj.compute_phi(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_u = self.ref_traj.compute_u(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+
+            road_longi = self.road_slope.compute_longislope(self.t+i*self.dt, self.slope_num)
+            road_lat = self.road_slope.compute_latslope(self.t+i*self.dt, self.slope_num)
+            ref_points.append([ref_x, ref_y, ref_phi, ref_u, road_longi, road_lat])
+            slope_points.append([road_longi, road_lat])
+        self.ref_points = np.array(ref_points, dtype=np.float32)
+        self.slope_points = np.array(slope_points, dtype=np.float32)
+        self.state, info = self.carsim_env.reset()
+        self.ref_points[1, 4:] = info["slope_points"]
+        self.slope_points[1] = info["slope_points"]
+        return self.get_obs(), self.info
+
+    def step_carsim(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+        reward = self.compute_reward(action)
+        action_psc = self.state[8:13] + action
+        action_psc = np.clip(action_psc, self.action_psc_space.low, self.action_psc_space.high)
+        self.state, _, _, info = self.carsim_env.step(action_psc)
+
+        self.t = self.t + self.dt
+
+        self.ref_points[:-1] = self.ref_points[1:]
+        self.slope_points[:-1] = self.slope_points[1:]
+        new_ref_point = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_u(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.road_slope.compute_longislope(self.t + self.pre_horizon * self.dt,
+                                                   self.slope_num),
+                self.road_slope.compute_latslope(self.t + self.pre_horizon * self.dt,
+                                                 self.slope_num)
+            ],
+            dtype=np.float32,
+        )
+        new_slope_point = np.array([self.road_slope.compute_longislope(self.t+self.pre_horizon*self.dt, self.slope_num),
+                                    self.road_slope.compute_latslope(self.t+self.pre_horizon*self.dt, self.slope_num)])
+
+        self.ref_points[-1] = new_ref_point
+        self.slope_points[-1] = new_slope_point
+        self.ref_points[1, 4:] = info["slope_points"]
+        self.slope_points[1] = info["slope_points"]
+        self.done = self.judge_done()
+        if self.done:
+            reward = reward - 5000
+        return self.get_obs(), reward, self.done, self.info
+
+    def get_ternimated(self):
+        self.carsim_env.get_ternimated()
     @property
     def info(self) -> dict:
         return {
