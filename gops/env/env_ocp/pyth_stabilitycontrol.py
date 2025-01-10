@@ -289,7 +289,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([1])
+            self.path_num = self.np_random.choice([0, 1])
 
         if u_num is not None:
             self.u_num = u_num
@@ -299,7 +299,7 @@ class Fourwdstabilitycontrol(PythBaseEnv):
         if slope_num is not None:
             self.slope_num = slope_num
         else:
-            self.slope_num = self.np_random.choice([1])
+            self.slope_num = self.np_random.choice([0, 1])
 
         ref_points = []
         slope_points = []

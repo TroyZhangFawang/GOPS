@@ -31,8 +31,8 @@ if __name__ == "__main__":
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_stabilitycontrol_cstr")
-    parser.add_argument("--algorithm", type=str, default="FHADP2Lagrangian")
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_surrcstr")
+    parser.add_argument("--algorithm", type=str, default="TRANSStolenMpcInterior")
     parser.add_argument("--pre_horizon", type=int, default=30)
     parser.add_argument("--enable_cuda", default=False)
     ################################################
@@ -48,14 +48,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy_func_name",
         type=str,
-        default="FiniteHorizonFullPolicy"
+        default="TP7"
     )
-    parser.add_argument("--policy_func_type", type=str, default="MLP")
+    parser.add_argument("--policy_func_type", type=str, default="TFP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256, 256])
-    parser.add_argument("--policy_hidden_activation", type=str, default="elu")
-    
+    parser.add_argument("--d_model", type=int, default=128)
+    parser.add_argument("--nhead", type=int, default=1)
+    parser.add_argument("--num_encoder_layers", type=int, default=1)
+    parser.add_argument("--num_decoder_layers", type=int, default=1)
+    parser.add_argument("--max_trajectory", type=int, default=100)
+    parser.add_argument("--dim_feedforward", type=int, default=512)
+    parser.add_argument("--state_dim", type=int, default=6+2*4)
+    parser.add_argument("--ref_obs_dim", type=int, default=4)
+
+    # parser.add_argument("--max_trajectory_dim", type=int, default=100)
     ################################################
     # 3. Parameters for RL algorithm
     parser.add_argument("--policy_learning_rate", type=float, default=3e-5)

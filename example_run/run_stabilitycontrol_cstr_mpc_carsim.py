@@ -10,10 +10,10 @@
 #  Update: 2022-12-05, Congsheng Zhang: create file
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-from gops.sys_simulator.sys_run import OptRunner
+from gops.sys_simulator.sys_run import OptRunner_CoSimulation
 import numpy as np
 result_path = "../results/pyth_stabilitycontrol_cstr/"
-runner = OptRunner(
+runner = OptRunner_CoSimulation(
     log_policy_dir_list=[result_path],
     env_id="pyth_stabilitycontrol_cstr",
     is_init_info=True,

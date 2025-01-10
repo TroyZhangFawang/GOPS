@@ -4401,10 +4401,10 @@ class OptRunner_CoSimulation:
         step = 0
         step_list = []
         info_list = [init_info]
-        cosim_env = self.__load_cosim_env()
+        env.load_carsim_env()
 
-        obs, info = cosim_env.reset(**init_info)
-        state = obs
+        obs, info = env.reset_carsim(**init_info)
+        state = env.state
         print("Initial robot state: ")
         print(self.__convert_format(np.asarray(state.robot_state)))
         # plot tracking
@@ -4447,7 +4447,7 @@ class OptRunner_CoSimulation:
                             reference[i] - robot_state[i]
                         )
 
-            next_obs, reward, done, info = cosim_env.step(action)
+            next_obs, reward, done, info = env.step_carsim(action)
             # save the real action (without scaling)
             action_list.append(info.get("raw_action", action))
             step_list.append(step)
@@ -4463,7 +4463,7 @@ class OptRunner_CoSimulation:
             # Draw environment animation
             if render:
                 env.render()
-
+        env.carsim_env.get_ternimated()
         eval_dict = {
             "reward_list": reward_list,
             "action_list": action_list,
