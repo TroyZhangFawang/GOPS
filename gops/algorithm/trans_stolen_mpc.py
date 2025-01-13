@@ -109,8 +109,6 @@ class TRANSStolenMpc(AlgorithmBase):
     #         padded_tensor = tensor[:length]
     #     return padded_tensor
 
-
-
     def _compute_loss_policy(self, data):
         o, a, r, o2, d = (
             data["obs"],
@@ -119,26 +117,46 @@ class TRANSStolenMpc(AlgorithmBase):
             data["obs2"],
             data["done"],
         )
-        # torch.nn.utils.clip_grad_norm_(self.networks.policy.parameters(), max_norm=1.0)
-        random_len = torch.randint(1, self.forward_step+1, (self.batch_size,))
-        seq_range = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
-        key_padding_mask = seq_range >= random_len.unsqueeze(1)
-        steps = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
-        gamma_powers = self.gamma ** steps
-        mask = steps < (random_len).unsqueeze(1)
+        random_number = self.forward_step
+        o_clip = o[:, :self.state_dim + random_number * self.ref_obs_dim]
         info = data
-        v_pi = torch.zeros((o.size(0), self.forward_step))
-        a = self.networks.policy.forward_all_policy(o, key_padding_mask=key_padding_mask)
-        for step in range(self.forward_step):
+        v_pi = 0
+        a = self.networks.policy.forward_all_policy(o_clip)
+        for step in range(random_number):
             o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
-            v_pi[:, step] = r
-        weighted_rewards = v_pi * gamma_powers * mask
-        v_pi_final = weighted_rewards.sum(dim=1)
-        loss_policy = -v_pi_final.mean()
-        loss_info = {
-            tb_tags["loss_actor"]: loss_policy.item()
-        }
-        return loss_policy, loss_info
+            v_pi += r * (self.gamma ** step)
+        loss_policy = -v_pi.mean()
+        return loss_policy
+
+
+    # def _compute_loss_policy(self, data):
+    #     o, a, r, o2, d = (
+    #         data["obs"],
+    #         data["act"],
+    #         data["rew"],
+    #         data["obs2"],
+    #         data["done"],
+    #     )
+    #     # torch.nn.utils.clip_grad_norm_(self.networks.policy.parameters(), max_norm=1.0)
+    #     random_len = torch.randint(1, self.forward_step+1, (self.batch_size,))
+    #     seq_range = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
+    #     key_padding_mask = seq_range >= random_len.unsqueeze(1)
+    #     steps = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
+    #     gamma_powers = self.gamma ** steps
+    #     mask = steps < (random_len).unsqueeze(1)
+    #     info = data
+    #     v_pi = torch.zeros((o.size(0), self.forward_step))
+    #     a = self.networks.policy.forward_all_policy(o, key_padding_mask=key_padding_mask)
+    #     for step in range(self.forward_step):
+    #         o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
+    #         v_pi[:, step] = r
+    #     weighted_rewards = v_pi * gamma_powers * mask
+    #     v_pi_final = weighted_rewards.sum(dim=1)
+    #     loss_policy = -v_pi_final.mean()
+    #     loss_info = {
+    #         tb_tags["loss_actor"]: loss_policy.item()
+    #     }
+    #     return loss_policy, loss_info
 
 if __name__ == "__main__":
     print("11111")
