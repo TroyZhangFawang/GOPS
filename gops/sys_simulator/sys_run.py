@@ -176,6 +176,7 @@ class PolicyRunner:
         obs_list = []
         step = 0
         step_list = []
+        calctime_list = []
         info_list = [init_info]
         obs, info = env.reset(**init_info)
         state = env.state
@@ -191,12 +192,18 @@ class PolicyRunner:
             obs_list.append(obs)
             if is_opt:
                 if isinstance(env.unwrapped, Env):
+                    time_start = time.time()
                     action = controller(state)
+                    calc_time = time.time()-time_start
                 else:
+                    time_start = time.time()
                     action = controller(obs, info)
+                    calc_time = time.time()-time_start
             else:
+                time_start = time.time()
                 action = self.compute_action(obs, controller)
                 action = self.__action_noise(action)
+                calc_time = time.time() - time_start
             if self.use_dist:
                 action = np.hstack((action, env.dist_func(step * env.tau)))
             if self.constrained_env:
@@ -227,6 +234,7 @@ class PolicyRunner:
             step_list.append(step)
             reward_list.append(reward)
             info_list.append(info)
+            calctime_list.append(calc_time*1000)
 
             obs = next_obs
             state = env.state
@@ -245,6 +253,7 @@ class PolicyRunner:
             "step_list": step_list,
             "obs_list": obs_list,
             "info_list": info_list,
+            "calctime_list": calctime_list
         }
         if self.constrained_env:
             eval_dict.update(
@@ -299,12 +308,14 @@ class PolicyRunner:
         step_list = []
         state_ref_error_list = []
         constrain_list = []
+        calctime_list = []
         # Put data into list
         for i in range(policy_num):
             reward_list.append(np.array(self.eval_list[i]["reward_list"]))
             action_list.append(np.array(self.eval_list[i]["action_list"]))
             state_list.append(np.array(self.eval_list[i]["state_list"]))
             step_list.append(np.array(self.eval_list[i]["step_list"]))
+            calctime_list.append(np.array(self.eval_list[i]["calctime_list"]))
             if self.constrained_env:
                 constrain_list.append(np.stack(self.eval_list[i]["constrain_list"]))
             if self.is_tracking:
@@ -533,7 +544,39 @@ class PolicyRunner:
                     os.path.join(self.save_path, "Ref - State-{}.csv".format(j + 1)),
                     encoding="gbk",
                 )
+        # plot calculation time
+        path_state_fmt = os.path.join(
+            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
 
+        # save state data to csv
+        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
+        state_data.to_csv(
+            os.path.join(self.save_path, "Calc time.csv"),
+            encoding="gbk",
+        )
+
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel(x_label, default_cfg["label_font"])
+        plt.ylabel("Calc Time [ms]", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
         # plot constraint value
         if self.constrained_env:
             for j in range(constrain_dim):
@@ -1717,7 +1760,7 @@ class PolicyRunner_Multiopt:
         labels = ax.get_xticklabels() + ax.get_yticklabels()
         [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
         plt.xlabel(x_label, default_cfg["label_font"])
-        plt.ylabel("Single Step Calculation Time [ms]", default_cfg["label_font"])
+        plt.ylabel("Calc Time [ms]", default_cfg["label_font"])
         plt.legend(loc="best", prop=default_cfg["legend_font"])
         fig.tight_layout(pad=default_cfg["pad"])
         plt.savefig(
@@ -2351,6 +2394,7 @@ class OptRunner:
         obs_list = []
         step = 0
         step_list = []
+        calctime_list = []
         info_list = [init_info]
         obs, info = env.reset(**init_info)
         state = env.state
@@ -2366,12 +2410,18 @@ class OptRunner:
             obs_list.append(obs)
             if is_opt:
                 if isinstance(env.unwrapped, Env):
+                    time_start = time.time()
                     action = controller(state)
+                    calc_time = time.time()-time_start
                 else:
+                    time_start = time.time()
                     action = controller(obs, info)
+                    calc_time = time.time()-time_start
             else:
+                time_start = time.time()
                 action = self.compute_action(obs, controller)
                 action = self.__action_noise(action)
+                calc_time = time.time() - time_start
             if self.use_dist:
                 action = np.hstack((action, env.dist_func(step * env.tau)))
             if self.constrained_env:
@@ -2402,6 +2452,7 @@ class OptRunner:
             step_list.append(step)
             reward_list.append(reward)
             info_list.append(info)
+            calctime_list.append(calc_time*1000)
 
             obs = next_obs
             state = env.state
@@ -2420,6 +2471,7 @@ class OptRunner:
             "step_list": step_list,
             "obs_list": obs_list,
             "info_list": info_list,
+            "calctime_list": calctime_list
         }
         if self.constrained_env:
             eval_dict.update(
@@ -2484,12 +2536,14 @@ class OptRunner:
         step_list = []
         state_ref_error_list = []
         constrain_list = []
+        calctime_list = []
         # Put data into list
         for i in range(policy_num):
             reward_list.append(np.array(self.eval_list[i]["reward_list"]))
             action_list.append(np.array(self.eval_list[i]["action_list"]))
             state_list.append(np.array(self.eval_list[i]["state_list"]))
             step_list.append(np.array(self.eval_list[i]["step_list"]))
+            calctime_list.append(np.array(self.eval_list[i]["calctime_list"]))
             if self.constrained_env:
                 constrain_list.append(np.stack(self.eval_list[i]["constrain_list"]))
             if self.is_tracking:
@@ -2744,6 +2798,39 @@ class OptRunner:
                     encoding="gbk",
                 )
 
+        # plot calculation time
+        path_state_fmt = os.path.join(
+            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
+
+        # save state data to csv
+        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
+        state_data.to_csv(
+            os.path.join(self.save_path, "Calc time.csv"),
+            encoding="gbk",
+        )
+
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel(x_label, default_cfg["label_font"])
+        plt.ylabel("Calc Time [ms]", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
 
 
         # plot constraint value
@@ -4105,7 +4192,7 @@ class OptRunner_CoSimulation:
         self.save_path = os.path.join(
             path,
             algs_name + self.env_id,
-            datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
+            datetime.datetime.now().strftime("%y%m%d-%H%M%S")+"_carsim",
         )
         os.makedirs(self.save_path, exist_ok=True)
 
@@ -4148,10 +4235,6 @@ class OptRunner_CoSimulation:
             env = wrappers.RecordVideo(env, video_path, name_prefix=name_prefix)
         # self.args["action_high_limit"] = self.args['action_high_limit']#env.action_space.high
         # self.args["action_low_limit"] = env.action_space.low
-        return env
-
-    def __load_cosim_env(self):
-        env = gym.make(self.env_id, disable_env_checker=True)
         return env
 
     def __load_policy(self, log_policy_dir: str, trained_policy_iteration: str):
@@ -4400,6 +4483,7 @@ class OptRunner_CoSimulation:
         obs_list = []
         step = 0
         step_list = []
+        calctime_list = []
         info_list = [init_info]
         env.load_carsim_env()
 
@@ -4417,12 +4501,18 @@ class OptRunner_CoSimulation:
             obs_list.append(obs)
             if is_opt:
                 if isinstance(env.unwrapped, Env):
+                    time_start = time.time()
                     action = controller(state)
+                    calc_time = time.time() - time_start
                 else:
+                    time_start = time.time()
                     action = controller(obs, info)
+                    calc_time = time.time() - time_start
             else:
+                time_start = time.time()
                 action = self.compute_action(obs, controller)
                 action = self.__action_noise(action)
+                calc_time = time.time() - time_start
             if self.use_dist:
                 action = np.hstack((action, env.dist_func(step * env.tau)))
             if self.constrained_env:
@@ -4453,6 +4543,7 @@ class OptRunner_CoSimulation:
             step_list.append(step)
             reward_list.append(reward)
             info_list.append(info)
+            calctime_list.append(calc_time*1000)
 
             obs = next_obs
             state = env.state
@@ -4471,6 +4562,7 @@ class OptRunner_CoSimulation:
             "step_list": step_list,
             "obs_list": obs_list,
             "info_list": info_list,
+            "calctime_list": calctime_list
         }
         if self.constrained_env:
             eval_dict.update(
@@ -4535,12 +4627,14 @@ class OptRunner_CoSimulation:
         step_list = []
         state_ref_error_list = []
         constrain_list = []
+        calctime_list = []
         # Put data into list
         for i in range(policy_num):
             reward_list.append(np.array(self.eval_list[i]["reward_list"]))
             action_list.append(np.array(self.eval_list[i]["action_list"]))
             state_list.append(np.array(self.eval_list[i]["state_list"]))
             step_list.append(np.array(self.eval_list[i]["step_list"]))
+            calctime_list.append(np.array(self.eval_list[i]["calctime_list"]))
             if self.constrained_env:
                 constrain_list.append(np.stack(self.eval_list[i]["constrain_list"]))
             if self.is_tracking:
@@ -4769,7 +4863,39 @@ class OptRunner_CoSimulation:
                     os.path.join(self.save_path, "Ref-State-Error{}.csv".format(j + 1)),
                     encoding="gbk",
                 )
+        # plot calculation time
+        path_state_fmt = os.path.join(
+            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
 
+        # save state data to csv
+        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
+        state_data.to_csv(
+            os.path.join(self.save_path, "Calc time.csv"),
+            encoding="gbk",
+        )
+
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel(x_label, default_cfg["label_font"])
+        plt.ylabel("Calc Time [ms]", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
         # plot constraint value
         if self.constrained_env:
             for j in range(constrain_dim):
@@ -5109,7 +5235,7 @@ class PolicyRunner_CoSimulation:
         self.save_path = os.path.join(
             path,
             algs_name + self.env_id,
-            datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
+            datetime.datetime.now().strftime("%y%m%d-%H%M%S")+"_carsim",
         )
         os.makedirs(self.save_path, exist_ok=True)
 
@@ -5128,6 +5254,7 @@ class PolicyRunner_CoSimulation:
         obs_list = []
         step = 0
         step_list = []
+        calctime_list = []
         info_list = [init_info]
         env.load_carsim_env()
         obs, info = env.reset_carsim(**init_info)
@@ -5144,12 +5271,18 @@ class PolicyRunner_CoSimulation:
             obs_list.append(obs)
             if is_opt:
                 if isinstance(env.unwrapped, Env):
+                    time_start = time.time()
                     action = controller(state)
+                    calc_time = time.time() - time_start
                 else:
+                    time_start = time.time()
                     action = controller(obs, info)
+                    calc_time = time.time() - time_start
             else:
+                time_start = time.time()
                 action = self.compute_action(obs, controller)
                 action = self.__action_noise(action)
+                calc_time = time.time() - time_start
             if self.use_dist:
                 action = np.hstack((action, env.dist_func(step * env.tau)))
             if self.constrained_env:
@@ -5180,6 +5313,7 @@ class PolicyRunner_CoSimulation:
             step_list.append(step)
             reward_list.append(reward)
             info_list.append(info)
+            calctime_list.append(calc_time*1000)
 
             obs = next_obs
             state = env.state
@@ -5198,6 +5332,7 @@ class PolicyRunner_CoSimulation:
             "step_list": step_list,
             "obs_list": obs_list,
             "info_list": info_list,
+            "calctime_list": calctime_list
         }
         if self.constrained_env:
             eval_dict.update(
@@ -5252,12 +5387,14 @@ class PolicyRunner_CoSimulation:
         step_list = []
         state_ref_error_list = []
         constrain_list = []
+        calctime_list = []
         # Put data into list
         for i in range(policy_num):
             reward_list.append(np.array(self.eval_list[i]["reward_list"]))
             action_list.append(np.array(self.eval_list[i]["action_list"]))
             state_list.append(np.array(self.eval_list[i]["state_list"]))
             step_list.append(np.array(self.eval_list[i]["step_list"]))
+            calctime_list.append(np.array(self.eval_list[i]["calctime_list"]))
             if self.constrained_env:
                 constrain_list.append(np.stack(self.eval_list[i]["constrain_list"]))
             if self.is_tracking:
@@ -5487,6 +5624,39 @@ class PolicyRunner_CoSimulation:
                     encoding="gbk",
                 )
 
+        # plot calculation time
+        path_state_fmt = os.path.join(
+            self.save_path, "Calc time.{}".format(default_cfg["img_fmt"])
+        )
+        fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
+
+        # save state data to csv
+        state_data = pd.DataFrame(data=[s[:] for s in calctime_list])
+        state_data.to_csv(
+            os.path.join(self.save_path, "Calc time.csv"),
+            encoding="gbk",
+        )
+
+        for i in range(policy_num):
+            legend = (
+                self.legend_list[i]
+                if len(self.legend_list) == policy_num
+                else self.algorithm_list[i]
+            )
+            sns.lineplot(
+                x=step_list[i], y=calctime_list[i][:], label="{}".format(legend)
+            )
+        plt.tick_params(labelsize=default_cfg["tick_size"])
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontname(default_cfg["tick_label_font"]) for label in labels]
+        plt.xlabel(x_label, default_cfg["label_font"])
+        plt.ylabel("Calc Time [ms]", default_cfg["label_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
+        fig.tight_layout(pad=default_cfg["pad"])
+        plt.savefig(
+            path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
+        )
+        plt.close()
         # plot constraint value
         if self.constrained_env:
             for j in range(constrain_dim):
