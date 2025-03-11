@@ -13,19 +13,19 @@
 from gops.sys_simulator.sys_run import OptRunner
 import numpy as np
 import os
-os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
-result_path = "../results/pyth_veh3dofconti_multimodal_planning/"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+result_path = "../results/pyth_veh3dofconti_bimodal_planning/"
 runner = OptRunner(
     log_policy_dir_list=[result_path],
-    env_id="pyth_veh3dofconti_multimodal_planning",
+    env_id="pyth_veh3dofconti_bimodal_planning",
     is_init_info=True,
-    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":0, "u_num":0}, #
+    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":8, "u_num":0, "ref_time":0}, #
     save_render=True,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 50,
+        "num_pred_step": 30,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
@@ -38,7 +38,7 @@ runner = OptRunner(
     },
     constrained_env=True,
     is_tracking=True,
-    dt=0.01,
+    dt=0.05,
 )
 
 runner.run()

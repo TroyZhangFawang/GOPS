@@ -17,7 +17,7 @@ runner = OptRunner_CoSimulation(
     log_policy_dir_list=[result_path],
     env_id="pyth_stabilitycontrol_cstr",
     is_init_info=True,
-    init_info={"init_state": [0, 0.2, 0, -0.2, 0.0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 0, 'u_num':0, 'slope_num':0}, #
+    init_info={"init_state": [0, 0.2, 0, 0.5, 0.0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, #
     save_render=False,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
@@ -27,14 +27,14 @@ runner = OptRunner_CoSimulation(
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
-            "max_iter": 10,
+            "max_iter": 20,
             "tol": 1e-5,
             "acceptable_tol": 1e-2,
             "acceptable_iter": 10,
         },
         "use_terminal_cost": False,
     },
-    constrained_env=True,
+    constrained_env=False,
     is_tracking=True,
     dt=0.01,
 )
