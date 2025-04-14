@@ -7,7 +7,7 @@
 #  Email: lisb04@gmail.com
 #
 #  Description: run a closed-loop system
-#  Update: 2022-12-05, Congsheng Zhang: create file
+#  Update: 2022-12-05, Congsheng Zhang: create file+
 
 
 from gops.sys_simulator.sys_run import OptRunner

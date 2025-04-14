@@ -88,7 +88,7 @@ class Veh3dofcontiSurrCstrModel(Veh3dofcontiModel):
         next_state = next_info["state"]
         next_surr_obs = next_surr_state[..., :4] - next_state[:, :4].unsqueeze(1)
         next_surr_obs = next_surr_obs.reshape((-1, self.surr_veh_num * 4))
-        next_obs = torch.cat((next_ego_obs, next_surr_obs), dim=1)
+        next_obs = torch.cat((next_ego_obs[:, :self.state_dim], next_surr_obs, next_ego_obs[:, self.state_dim:]), dim=1)
 
         next_info.update({"surr_state": next_surr_state})
         next_info.update({"constraint": self.get_constraint(next_obs, next_info)})

@@ -131,6 +131,10 @@ class SimuVeh3dofcontiSurrCstrPenalty(SimuVeh3dofconti):
         obs = self.get_obs()
         delta_x, delta_y, delta_phi, delta_u, v, w = obs[0], obs[1], obs[2], obs[3], obs[4], obs[5]
         steer, a_x = action
+        # 不同的dis值（假设为正数输入，负号只是反向处理的一部分）：
+        # 如果dis = 0.5，dis_to_tanh = np.maximum(8 - 8 * 0.5 / 0.5, 0) = np.maximum(8 - 8, 0) = 0
+        # 如果dis = 0.25，dis_to_tanh = np.maximum(8 - 8 * 0.25 / 0.5, 0) = np.maximum(8 - 4, 0) = 4
+        # 如果dis = 0.1，dis_to_tanh = np.maximum(8 - 8 * 0.1 / 0.5, 0) = np.maximum(8 - 1.6, 0) = 6.4
         # dis = circle center distance - 2 * radius
         dis = - self.get_constraint()[0]
         collision_bound = 0.5
@@ -159,7 +163,6 @@ class SimuVeh3dofcontiSurrCstrPenalty(SimuVeh3dofconti):
         #         + 0.5 * a_x ** 2
         #         + 15.0 * punish_dis
         # )
-
 
 
     def judge_done(self) -> bool:
@@ -241,7 +244,6 @@ class SimuVeh3dofcontiSurrCstrPenalty(SimuVeh3dofconti):
                 min_dist = np.minimum(min_dist, dist)
         # surr_veh_num dist: between ego_veh and sur_veh min dis
         return 2 * r - min_dist
-
 
     @property
     def info(self):

@@ -36,7 +36,6 @@ class SurrVehicleData:
         self.phi = self.phi + self.u * np.tan(self.delta) / self.l * self.dt
         self.phi = angle_normalize(self.phi)
 
-
 class SimuVeh3dofcontiSurrCstr(SimuVeh3dofconti):
     def __init__(
         self,
@@ -137,7 +136,7 @@ class SimuVeh3dofcontiSurrCstr(SimuVeh3dofconti):
             self.state[0], self.state[1], self.state[2], 
             self.surr_state[:, 0], self.surr_state[:, 1], self.surr_state[:, 2])
         surr_obs_rel = np.concatenate((surr_x_tf, surr_y_tf, surr_phi_tf, self.surr_state[:, 3]))
-        return np.concatenate((obs, surr_obs_rel.flatten()))
+        return np.concatenate((obs[:self.state_dim], surr_obs_rel.flatten(), obs[self.state_dim:]))
 
     def get_constraint(self) -> np.ndarray:
         # collision detection using bicircle model

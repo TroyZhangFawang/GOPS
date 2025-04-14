@@ -38,8 +38,7 @@ class SurrVehicleModel:
         next_phi = angle_normalize(next_phi)
         return torch.cat((next_x, next_y, next_phi, u, delta), dim=-1)
 
-
-class Veh3dofcontiSurrCstrPenaltyModel(Veh3dofcontiModel):
+class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
     def __init__(
         self,
         pre_horizon: int,
@@ -123,7 +122,6 @@ class Veh3dofcontiSurrCstrPenaltyModel(Veh3dofcontiModel):
         sur_u_tf = next_surr_state[..., 3] - state[:, 3].unsqueeze(1)
         next_surr_obs = torch.stack((sur_x_tf, sur_y_tf, sur_phi_tf, sur_u_tf), 1).squeeze(2)
         next_obs = torch.cat((next_ego_obs, next_surr_obs), dim=1)
-
 
         next_info = {}
         for key, value in info.items():
@@ -262,4 +260,4 @@ def ego_vehicle_coordinate_transform(
     return ref_x_tf, ref_y_tf, ref_phi_tf
 
 def env_model_creator(**kwargs):
-    return Veh3dofcontiSurrCstrPenaltyModel(**kwargs)
+    return Veh3dofBimodalPlanningModel(**kwargs)

@@ -242,7 +242,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 1200
+        self.max_episode_steps = 750
 
         self.state = None
         self.ref_x = None
@@ -258,9 +258,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             "slope_num": {"shape": (), "dtype": np.uint8},
             "ref": {"shape": (6,), "dtype": np.float32},
             "ref_time": {"shape": (), "dtype": np.float32},
-            # "constraint": {"shape": (2, ), "dtype": np.float32},
-            "constraint_yawrate": {"shape": (1,), "dtype": np.float32},
-            "constraint_sideslip": {"shape": (1,), "dtype": np.float32},
+            "constraint": {"shape": (2, ), "dtype": np.float32},
+            # "constraint_yawrate": {"shape": (1,), "dtype": np.float32},
+            # "constraint_sideslip": {"shape": (1,), "dtype": np.float32},
         }
         self.seed()
 
@@ -288,7 +288,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         else:
             path_num = int(ref_num / 2)
             u_num = int(ref_num % 2)
-            slope_num = 1#int(ref_num % 2)
+            slope_num = int(ref_num % 2)
 
         # If no ref_num, then randomly select path and speed
         if path_num is not None:
@@ -336,7 +336,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             delta_state = self.sample_initial_state()
         torque = np.random.uniform(50, 298)
         steer = np.random.uniform(-0.5, 0.5)
-        action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
+        action_psc = np.array([0]*5)#np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(
             (self.ref_points[0][:4] + delta_state[:4], delta_state[4:8], action_psc))
 
@@ -475,6 +475,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
 
     def get_constraint(self) -> np.ndarray:
         side_slip_angle = self.state[4] / self.state[3]
+        print(abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g)))
         constraint = np.array([abs(self.state[5]) - abs(self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g/self.state[3]), abs(side_slip_angle) - abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g))], dtype=np.float32)
         return constraint
 
@@ -508,7 +509,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         else:
             path_num = int(ref_num / 2)
             u_num = 0#int(ref_num % 2)
-            slope_num = 1#int(ref_num % 2)
+            slope_num = int(ref_num % 2)
 
         # If no ref_num, then randomly select path and speed
         if path_num is not None:
@@ -611,9 +612,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             "slope_num": self.slope_num,
             "ref": self.ref_points[0].copy(),
             "ref_time": self.t,
-            # "constraint": self.get_constraint(),
-            "constraint_yawrate": self.get_constraint_yawrate(),
-            "constraint_sideslip": self.get_constraint_sideslip(),
+            "constraint": self.get_constraint(),
+            # "constraint_yawrate": self.get_constraint_yawrate(),
+            # "constraint_sideslip": self.get_constraint_sideslip(),
 
         }
 

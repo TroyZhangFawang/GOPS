@@ -391,22 +391,22 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
         )
         return done
 
-    # def get_constraint(self, state, info) -> torch.Tensor:
-    #     side_slip_angle = state[:, 4] / state[:, 3]
-    #     constraint = torch.stack(
-    #         (state[:, 5].abs() - self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3].abs(), side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)), dim=1
-    #     )
-    #     # constraint=state[:, 5].abs() - self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3].abs()
-    #     return constraint
-
-    def get_constraint_yawrate(self, state, info) -> torch.Tensor:
-        constraint = state[:, 5].abs() - (self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3]).abs()
-        return constraint
-
-    def get_constraint_sideslip(self, state, info) -> torch.Tensor:
+    def get_constraint(self, state, info) -> torch.Tensor:
         side_slip_angle = state[:, 4] / state[:, 3]
-        constraint = side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)
+        constraint = torch.stack(
+            (state[:, 5].abs() - self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3].abs(), side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)), dim=1
+        )
+        # constraint=state[:, 5].abs() - self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3].abs()
         return constraint
+
+    # def get_constraint_yawrate(self, state, info) -> torch.Tensor:
+    #     constraint = state[:, 5].abs() - (self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g / state[:, 3]).abs()
+    #     return constraint
+    #
+    # def get_constraint_sideslip(self, state, info) -> torch.Tensor:
+    #     side_slip_angle = state[:, 4] / state[:, 3]
+    #     constraint = side_slip_angle.abs() - np.arctan(0.02*self.vehicle_dynamics.mu_road * self.vehicle_dynamics.g)
+    #     return constraint
 
 def state_error_calculate(
     ego_x: torch.Tensor,

@@ -81,7 +81,7 @@ class Veh3dofcontiModel(PythBaseModel):
         super().__init__(
             obs_dim=ego_obs_dim + ref_obs_dim * pre_horizon,
             action_dim=2,
-            dt=0.1,
+            dt=0.05,
             action_lower_bound=[-max_steer, -3],
             action_upper_bound=[max_steer, 3],
             device=device,

@@ -30,6 +30,8 @@ class VehicleDynamicsData:
             I_z=1536.7,  # Polar moment of inertia at CG [kg*m^2]
             miu=1.0,  # tire-road friction coefficient
             g=9.81,  # acceleration of gravity [m/s^2]
+            ground_clearance=0.25,
+            wheel_distance=1.8,
         )
         l_f, l_r, mass, g = (
             self.vehicle_params["l_f"],
@@ -110,7 +112,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             high=np.array([max_steer, 3]),
             dtype=np.float32,
         )
-        self.dt = 0.1
+        self.dt = 0.05
         self.max_episode_steps = 500
 
         self.state = None
@@ -342,7 +344,7 @@ class SimuVeh3dofconti(PythBaseEnv):
         ref_speed = self.ref_points[0, 3] * 3.6  # [km/h]
         ax.text(left_x, top_y, f'time: {self.t:.1f}s')
         ax.text(left_x, top_y - delta_y, f'speed: {ego_speed:.1f}km/h')
-        ax.text(left_x, top_y - 2 * delta_y, f'ref speed: {ref_speed:.1f}km/h')
+        # ax.text(left_x, top_y - 2 * delta_y, f'ref speed: {ref_speed:.1f}km/h')
 
 
 def ego_vehicle_coordinate_transform(

@@ -134,10 +134,14 @@ class BaseSampler(metaclass=ABCMeta):
 
         #  above action means the trajectory in planning task, unput the traj to the controller to get the control command
         if "task" in self.kwargs.keys():
-            self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
-            action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
+            # for gym_offroadcarla env
+            # self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
+            # action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
             # add 0 to match the dimension of the env
-            action_clip = np.hstack((action_control, np.array([0] * 18)))
+            # action_clip = np.hstack((action_control, np.array([0] * 18)))
+
+            self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["state"][:2])
+            action_clip = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["state"], self.kwargs["vdes"], self.info["state"][:3], self.info["state"][3])
         # interact with environment
         if self._is_vector:
             curr_obs = self.obs.copy()

@@ -336,8 +336,6 @@ class StateValue(nn.Module, Action_Distribution):
         return torch.squeeze(v, -1)
 
 
-
-
 # Diffusion Policy
 class DiffusionMLP(nn.Module):
     """

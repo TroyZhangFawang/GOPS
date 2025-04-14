@@ -21,7 +21,7 @@ from gops.utils.math_utils import angle_normalize
 
 class VehicleDynamicsData:
     def __init__(self):
-        self.v_x = 20
+        self.v_x = 25
         self.m1 = 5760.  # Total mass of the tractor [kg]
         self.m1s = 4455.  # Sprung mass of the tractor [kg]
         self.m2 = 20665  # Total mass of the semitrailer [kg]
@@ -243,7 +243,7 @@ class Semitruckpu7dof(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 785
+        self.max_episode_steps = 1250
 
         self.state = None
         self.ref_points = None

@@ -26,32 +26,40 @@ DEFAULT_PATH_PARAM = {
     #     "y1": 0.0,
     #     "y2": 3.5,
     # }, # 挂卡
-    # "double_lane": {
-    #     "t1": 5.0,
-    #     "t2": 9.0,
-    #     "t3": 14.0,
-    #     "t4": 18.0,
-    #     "y1": 0.0,
-    #     "y2": 3.5,
-    # },
     "double_lane": {
-        "t1": 7.0,
-        "t2": 9.0,
-        "t3": 12.5,
-        "t4": 14.5,
+        "t1": 1.5,
+        "t2": 3.0,
+        "t3": 4.5,
+        "t4": 6.0,
         "y1": 0.0,
         "y2": 3.5,
-    }, # 标准的dlc
+    }, # 标准的dlc 20m/s
+    # "double_lane": {
+    #     "t1": 2.8,
+    #     "t2": 3.6,
+    #     "t3": 5.0,
+    #     "t4": 5.8,
+    #     "y1": 0.0,
+    #     "y2": 3.5,
+    # }, # 标准的dlc 25m/s
+    # "double_lane": {
+    #     "t1": 7.0,
+    #     "t2": 9.0,
+    #     "t3": 12.5,
+    #     "t4": 14.5,
+    #     "y1": 0.0,
+    #     "y2": 3.5,
+    # }, # 标准的dlc 10m/s
     "triangle": {"A": 3.0, "T": 10.0, },
-    "circle": {"r": 100.0, },
+    "circle": {"r": 50.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100} #李萨如曲线
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 10, },
-    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 10.0,},
+    "constant": {"u": 20, },
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 20.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
@@ -103,7 +111,6 @@ class MultiRefTrajData:
     def compute_phi(self, t: float, path_num: int, speed_num: int) -> float:
         return self.ref_trajs[path_num].compute_phi(t, speed_num)
 
-
 class MultiRoadSlopeData:
     def __init__(
         self,
@@ -125,7 +132,6 @@ class MultiRoadSlopeData:
     def compute_latslope(self, t: float, slope_num: int) -> float:
         return self.ref_slope[slope_num].compute_latslope(t)
 
-
 class RefSpeedData(metaclass=ABCMeta):
     @abstractmethod
     def compute_u(self, t: float) -> float:
@@ -134,7 +140,6 @@ class RefSpeedData(metaclass=ABCMeta):
     @abstractmethod
     def compute_integrate_u(self, t: float) -> float:
         ...
-
 
 class RefSlopeData(metaclass=ABCMeta):
     @abstractmethod
@@ -155,7 +160,6 @@ class ConstantRefSpeedData(RefSpeedData):
     def compute_integrate_u(self, t: float) -> float:
         return self.u * t
 
-
 @dataclass
 class SineRefSpeedData(RefSpeedData):
     A: float
@@ -172,7 +176,6 @@ class SineRefSpeedData(RefSpeedData):
             + self.b * t
             + self.A / self.omega * np.cos(self.phi)
         )
-
 
 @dataclass
 class RefTrajData(metaclass=ABCMeta):
@@ -195,7 +198,6 @@ class RefTrajData(metaclass=ABCMeta):
         dy = self.compute_y(t + dt, speed_num) - self.compute_y(t, speed_num)
         return np.arctan2(dy, dx)
 
-
 @dataclass
 class SineRefTrajData(RefTrajData):
     A: float
@@ -207,7 +209,6 @@ class SineRefTrajData(RefTrajData):
 
     def compute_y(self, t: float, speed_num: int) -> float:
         return self.A * np.sin(self.omega * t + self.phi)
-
 
 @dataclass
 class DoubleLaneRefTrajData(RefTrajData):
@@ -236,7 +237,6 @@ class DoubleLaneRefTrajData(RefTrajData):
             y = self.y1
         return y
 
-
 @dataclass
 class TriangleRefTrajData(RefTrajData):
     A: float
@@ -253,7 +253,6 @@ class TriangleRefTrajData(RefTrajData):
             y = -2 * self.A / self.T * (s - self.T)
         return y
 
-
 @dataclass
 class CircleRefTrajData(RefTrajData):
     r: float
@@ -265,7 +264,6 @@ class CircleRefTrajData(RefTrajData):
     def compute_y(self, t: float, speed_num: int) -> float:
         arc_len = self.ref_speeds[speed_num].compute_integrate_u(t)
         return self.r * (np.cos(arc_len / self.r) - 1)
-
 
 @dataclass
 class UTurnRefTrajData(RefTrajData):
@@ -310,7 +308,6 @@ class WaterDropRefTrajData(RefTrajData):
     def compute_y(self, t: float, speed_num: int) -> float:
         return -self.b * np.cos(t) * np.sin(t)/(1+np.sin(t)**2)
 
-
 @dataclass
 class FigureEightRefTrajData(RefTrajData):
     a: float  #表示在水平方向（𝑥）的振幅。
@@ -349,7 +346,7 @@ class SineRefSlopeData(RefSlopeData):
         return self.A * np.sin(self.omega * t + self.phi) + self.b
 
     def compute_latslope(self, t: float) -> float:
-        return self.A * np.sin(self.omega * t + self.phi) + self.b
+        return 0#self.A * np.sin(self.omega * t + self.phi) + self.b
 
 
 import matplotlib.pyplot as plt

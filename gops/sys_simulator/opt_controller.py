@@ -162,7 +162,7 @@ class OptController:
             self._print_statistics(res)
         # todo 要想正常控制，将下面的:改为0，即只取第一个控制量
         return res.x.reshape((self.num_ctrl_points, self.optimize_dim))[
-            0, : self.action_dim
+            :, : self.action_dim
         ]
 
     def _cost_fcn_and_jac(
