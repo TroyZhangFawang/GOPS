@@ -203,7 +203,7 @@ class SimuVeh3dofconti(PythBaseEnv):
         self.state_full[0, :] = self.state
         reward = self.compute_reward(action[0, :])
         self.action = action
-
+        #
         state = self.state
         for i in range(1, self.pre_horizon):
                 state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)

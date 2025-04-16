@@ -188,6 +188,12 @@ class BezierCurve:
         """
         return (1 - t) ** 2 * self.p0 + 2 * (1 - t) * t * self.p1 + t ** 2 * self.p2
 
+    # def compute_point(self, t: torch.Tensor) -> torch.Tensor:
+    #     """支持批量t输入"""
+    #     t = t.unsqueeze(-1) if t.dim() == 0 else t
+    #     return ((1 - t) ** 2 * self.p0 +
+    #             2 * (1 - t) * t * self.p1 +
+    #             t ** 2 * self.p2)
     def compute_derivative(self, t: torch.Tensor) -> torch.Tensor:
         """计算贝塞尔曲线在t处的导数"""
         return 2 * (1 - t) * (self.p1 - self.p0) + 2 * t * (self.p2 - self.p1)
@@ -232,7 +238,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         self.d_pre = d_pre
         self.lateral_sample = lateral_sample
         self.forward_sample = forward_sample
-        self.guide_traj = None
+        self.best_curve = None
         self.obstacle = None
     def forward(
         self,
@@ -241,6 +247,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         done: torch.Tensor,
         info: InfoDict,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, InfoDict]:
+        batch_size = obs.shape[0]
         state = info["state"]
         ref_points = info["ref_points"]
         path_num = info["path_num"]
@@ -248,12 +255,18 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         t = info["ref_time"]
         dynamic_state = info["dynamic_state"]
         static_state = info["static_state"]
+
         generate_guide = info["generate_guide"]
         guide_start = info["guide_start"]
         guide_end = info["guide_end"]
         guide_time_interval = info["guide_time_interval"]
         t_start = info["t_start"]
         t_end = info["t_end"]
+
+        # 初始化处理标记
+        if not hasattr(self, 'processed_obstacles'):
+            self.processed_obstacles = [set() for _ in range(batch_size)]
+
         self.static_obss = []
         for i_static in range(static_state.size(1)):
             self.static_obss.append(
@@ -288,191 +301,13 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         static_u_tf = torch.zeros_like(static_state[..., 1]) - state[:, 3].unsqueeze(1)
         next_static_obs = torch.stack((static_x_tf, static_y_tf, static_phi_tf, static_u_tf), 1).squeeze(2).reshape((-1, self.static_obstacle_num * 4))
 
-        next_ref_points = ref_points.clone() # [batch_size,N,4]
+        next_ref_points = ref_points.clone()  # [batch_size,N,4]
         next_ref_points[:, :-1] = ref_points[:, 1:]
-        # 判断是否需要生成引导轨迹，生成参考轨迹点
-        # if torch.any(generate_guide==1) and self.guide_traj == None:
-        #     indices = generate_guide.nonzero().squeeze(-1)
-        #     # mask = generate_guide.unsqueeze(-1).expand_as(state)
-        #     # state = state*mask
-        #     for index in indices:
-        #         obstacle, generate_guide_int = self.is_generate_guide(state[index, :])
-        #         if generate_guide_int and obstacle != None:
-        #             self.obstacle = obstacle
-        #             # curves = self.generate_quintic_curves(guide_start, guide_end, guide_time_interval)
-        #             curves = self.generate_bezier_curves(state[index, :2], obstacle)
-        #             self.guide_traj, can_cross = self.can_cross_decision(obstacle, curves)
-        #             # new_ref_point = self.get_quintic_guide_points(guide_traj, next_t + self.pre_horizon * self.dt, t_start)
-        #             new_ref_point = self.get_bezier_guide_points(self.guide_traj, next_t + self.pre_horizon * self.dt,
-        #                                                          t_start, t_end, path_num, u_num)
-        #             ref_x = self.ref_traj.compute_x(next_t + self.pre_horizon * self.dt, path_num, u_num)
-        #             t = (ref_x - new_ref_point[index, 0]) / state[index, 3]
-        #             while new_ref_point[index, 0] <= ref_x and t < t_end and t > 0:
-        #                 # new_ref_point = self.get_quintic_guide_points(guide_traj, t + self.pre_horizon * self.dt, t_start)
-        #                 new_ref_point = self.get_bezier_guide_points(self.guide_traj, t + self.pre_horizon * self.dt,
-        #                                                              t_start, t_end, path_num, u_num)
-        #                 t += self.dt
-        #
-        #             if new_ref_point[index, 0] > obstacle.x + self.forward_sample:
-        #                 generate_guide = 0
-        #                 new_ref_point = torch.stack((
-        #                     self.ref_traj.compute_x(next_t + self.pre_horizon * self.dt, path_num, u_num),
-        #                     self.ref_traj.compute_y(next_t + self.pre_horizon * self.dt, path_num, u_num),
-        #                     self.ref_traj.compute_phi(next_t + self.pre_horizon * self.dt, path_num, u_num),
-        #                     self.ref_traj.compute_u(next_t + self.pre_horizon * self.dt, path_num, u_num),
-        #                 ),
-        #                     dim=1,
-        #                 )
-        #         else:
-        #             new_ref_point = torch.stack(
-        #                 (
-        #                     self.ref_traj.compute_x(
-        #                         next_t + self.pre_horizon * self.dt, path_num, u_num
-        #                     ),
-        #                     self.ref_traj.compute_y(
-        #                         next_t + self.pre_horizon * self.dt, path_num, u_num
-        #                     ),
-        #                     self.ref_traj.compute_phi(
-        #                         next_t + self.pre_horizon * self.dt, path_num, u_num
-        #                     ),
-        #                     self.ref_traj.compute_u(
-        #                         next_t + self.pre_horizon * self.dt, path_num, u_num
-        #                     ),
-        #                 ),
-        #                 dim=1,
-        #             )
 
-        if torch.any(generate_guide == 1) and self.guide_traj != None:
-            indices = generate_guide.nonzero().squeeze(-1)
-            # new_ref_point = self.get_quintic_guide_points(guide_traj, next_t + self.pre_horizon * self.dt, t_start)
-            for index in indices:
-                new_ref_point = self.get_bezier_guide_points(self.guide_traj, next_t + self.pre_horizon * self.dt,
-                                                             t_start, t_end, path_num, u_num)
-                ref_x = self.ref_traj.compute_x(next_t + self.pre_horizon * self.dt, path_num, u_num)
-                t = (ref_x - new_ref_point[index, 0]) / next_state[index, 3]
-                while new_ref_point[index, 0] < ref_x and t < t_end[index] and t > 0:
-                    # new_ref_point = self.get_quintic_guide_points(guide_traj, t + self.pre_horizon * self.dt, t_start)
-                    new_ref_point = self.get_bezier_guide_points(self.guide_traj, t + self.pre_horizon * self.dt,
-                                                                 t_start, t_end, path_num, u_num)
-                    t += self.dt
-                if new_ref_point[index, 0] > self.obstacle.x+self.forward_sample:
-                        if state[:, 0] > self.obstacle.x + self.obstacle.length / 2:
-                            self.processed_obstacles.add(self.obstacle.obs_id)
-                        generate_guide = 0
-                        self.guide_traj = None
-                        new_ref_point = torch.stack((
-                            self.ref_traj.compute_x(next_t + self.pre_horizon * self.dt, path_num, u_num),
-                            self.ref_traj.compute_y(next_t + self.pre_horizon * self.dt, path_num, u_num),
-                            self.ref_traj.compute_phi(next_t + self.pre_horizon * self.dt, path_num, u_num),
-                            self.ref_traj.compute_u(next_t + self.pre_horizon * self.dt, path_num, u_num),
-                        ),
-                        dim=1,
-                        )
+        # 生成新参考点（批量处理）
+        new_ref_point, generate_guide = self._generate_new_ref_point(
+            batch_size, state, path_num, u_num, next_t, t_start, t_end, generate_guide)
 
-        # elif torch.all(generate_guide==0) and self.guide_traj != None:
-        #     new_ref_point = torch.stack(
-        #         (
-        #             self.ref_traj.compute_x(
-        #                 next_t + self.pre_horizon * self.dt, path_num, u_num
-        #             ),
-        #             self.ref_traj.compute_y(
-        #                 next_t + self.pre_horizon * self.dt, path_num, u_num
-        #             ),
-        #             self.ref_traj.compute_phi(
-        #                 next_t + self.pre_horizon * self.dt, path_num, u_num
-        #             ),
-        #             self.ref_traj.compute_u(
-        #                 next_t + self.pre_horizon * self.dt, path_num, u_num
-        #             ),
-        #         ),
-        #         dim=1,
-        #     )
-        #     if next_state[:, 0] >= self.obstacle.x:
-        #         self.guide_traj = None
-
-        else: # generate_guide==0  self.guide_traj==None
-            # for batch in range(len(next_state[:,0])):
-            obstacle, generate_guide = self.is_generate_guide(next_state)
-            if generate_guide and obstacle != None:
-                self.obstacle = obstacle
-                # quintic_curves = self.generate_quintic_curves(state, obstacle)
-                bezier_curves = self.generate_bezier_curves(next_state, obstacle)
-                guide_traj, can_cross = self.can_cross_decision(obstacle, bezier_curves)
-                self.guide_traj = guide_traj
-
-                t_start = next_t
-                t_end = next_t + (obstacle.x + self.forward_sample - next_state[:, 0]) / next_state[:, 3]
-                for i in range(1, self.pre_horizon+1):
-                    ref_x = self.ref_traj.compute_x(next_t + i * self.dt, path_num, u_num)
-                    if self.guide_traj is None and generate_guide == 0:
-                        # Use reference trajectory directly if guide trajectory is not available
-                        guide_point = torch.stack(
-                            (
-                                self.ref_traj.compute_x(
-                                    next_t + i * self.dt, path_num, u_num
-                                ),
-                                self.ref_traj.compute_y(
-                                    next_t + i * self.dt, path_num, u_num
-                                ),
-                                self.ref_traj.compute_phi(
-                                    next_t + i * self.dt, path_num, u_num
-                                ),
-                                self.ref_traj.compute_u(
-                                    next_t + i * self.dt, path_num, u_num
-                                ),
-                            ),
-                            dim=1,
-                        )
-                    else:
-                        guide_point = self.get_bezier_guide_points(guide_traj, next_t + i * self.dt, t_start, t_end, path_num, u_num)
-                        t = (ref_x - guide_point[:, 0]) / guide_point[:, 3]
-                        while guide_point[:, 0] < ref_x and t < t_end and t > 0:
-                            # guide_point = self.get_guide_points(self.guide_traj, t, self.t_start)
-                            guide_point = self.get_bezier_guide_points(guide_traj, t, t_start, t_end, path_num, u_num)
-                            t += self.dt
-                        # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
-                        if guide_point[:, 0] > obstacle.x + self.forward_sample:
-                            if state[:, 0] > obstacle.x + obstacle.length / 2:
-                                self.processed_obstacles.add(self.obstacle.obs_id)
-                            generate_guide = 0
-                            self.guide_traj = None
-                            guide_point = torch.stack(
-                                (
-                                    self.ref_traj.compute_x(
-                                        next_t + self.pre_horizon * self.dt, path_num, u_num
-                                    ),
-                                    self.ref_traj.compute_y(
-                                        next_t + self.pre_horizon * self.dt, path_num, u_num
-                                    ),
-                                    self.ref_traj.compute_phi(
-                                        next_t + self.pre_horizon * self.dt, path_num, u_num
-                                    ),
-                                    self.ref_traj.compute_u(
-                                        next_t + self.pre_horizon * self.dt, path_num, u_num
-                                    ),
-                                ),
-                                dim=1,
-                            )
-                    next_ref_points[:, i, :] = guide_point
-                new_ref_point = guide_point
-            else:
-                new_ref_point = torch.stack(
-                    (
-                        self.ref_traj.compute_x(
-                            next_t + self.pre_horizon * self.dt, path_num, u_num
-                        ),
-                        self.ref_traj.compute_y(
-                            next_t + self.pre_horizon * self.dt, path_num, u_num
-                        ),
-                        self.ref_traj.compute_phi(
-                            next_t + self.pre_horizon * self.dt, path_num, u_num
-                        ),
-                        self.ref_traj.compute_u(
-                            next_t + self.pre_horizon * self.dt, path_num, u_num
-                        ),
-                    ),
-                    dim=1,
-                )
         next_ref_points[:, -1] = new_ref_point
         next_ego_obs = self.get_obs(next_state, next_ref_points)
         next_obs = torch.cat((next_ego_obs, next_dynamic_obs, next_static_obs), dim=1)
@@ -489,7 +324,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
             "constraint": self.get_constraint(next_obs, next_info),
             "dynamic_state": next_dynamic_state,
             "static_state": static_state,
-            "generate_guide": torch.tensor([generate_guide]),
+            "generate_guide": generate_guide,
             "guide_start": guide_start,
             "guide_end": guide_end,
             "guide_time_interval": guide_time_interval,
@@ -499,6 +334,218 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
 
         next_done = self.judge_done(next_obs, next_info)
         return next_obs, reward, next_done, next_info
+
+
+    def _generate_new_ref_point(self, batch_size, state, path_num, u_num, t, t_start, t_end, guide_mask):
+        guide_mask = torch.tensor(guide_mask, dtype=torch.bool)
+        # 预计算全局参考点
+        global_refs = self._get_global_reference(
+            torch.arange(batch_size),
+            t + self.pre_horizon * self.dt,
+            path_num,
+            u_num
+        )
+        # 初始化guide_points为全局参考点
+        guide_points = global_refs.clone()
+        # 只处理需要引导的batch
+        guide_indices = torch.where(guide_mask)[0]
+        for b in guide_indices:
+            if guide_mask[b] == True and self.best_curve != None:
+
+                t_norm = (t[b] - t_start[b]) / (t_end[b] - t_start[b])
+                # 获取引导点
+                guide_point = self.get_bezier_guide_point(
+                    self.best_curve, t_norm, state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+                )
+                # 检查是否需要切换回全局参考轨迹
+                ref_x = self.ref_traj.compute_x(t[b], path_num[b], u_num[b])
+                t_gap = torch.tensor((ref_x - guide_point[0]) / state[b, 3]).reshape(1, )
+                while guide_point[0] < ref_x and t_gap[b] < t_end[b] and t_gap[b] > 0:
+                    guide_point = self.get_bezier_guide_point(
+                        self.best_curve, t_gap[b]+ self.pre_horizon * self.dt, state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+                    )
+                    t_gap += self.dt
+
+                if guide_point[0] >= obstacle.x[b] + self.forward_sample:
+                    if state[b, 0] > obstacle.x[b] + obstacle.length[b] / 2:
+                        # 标记障碍物为已处理
+                        self.processed_obstacles[b].add(obstacle.obs_id[b].item())
+                    guide_mask[b] = False
+                    self.best_curve = None
+                    # 使用全局参考轨迹
+                    guide_point = self._get_global_reference(
+                        torch.tensor([b]),
+                        t[b] + self.pre_horizon * self.dt,
+                        path_num[b],
+                        u_num[b]
+                    )
+            else:
+                current_pos = state[b, :2]
+                obstacle, generate_guide_b = self.is_generate_guide(current_pos, b)
+
+                if generate_guide_b and obstacle is not None:
+                    guide_mask[b] = True
+                    # 为当前batch生成轨迹
+                    curves = self.generate_bezier_curves(state[b], obstacle, b)
+                    self.best_curve, can_cross = self.can_cross_decision(obstacle, curves, b, state)
+
+                    # 计算当前batch的时间参数
+                    t_start_b = t[b]
+                    t_end_b = t[b] + (obstacle.x[b] + self.forward_sample - state[b, 0]) / state[b, 3]
+
+                    # 更新当前batch的参考点
+                    for i in range(1, self.pre_horizon + 1):
+                        ref_x = self.ref_traj.compute_x(t[b] + i * self.dt, path_num[b], u_num[b])
+                        if self.best_curve is None and guide_mask[b] == False:
+                            guide_point = self._get_global_reference(
+                                torch.tensor([b]),
+                                t[b]+self.pre_horizon*self.dt,
+                                path_num[b],
+                                u_num[b]
+                            )
+                        else:
+                            t_sample = t[b] + i * self.dt
+                            # 计算归一化时间参数
+                            t_norm = (t_sample - t_start_b) / (t_end_b - t_start_b)
+                            # 获取引导点
+                            guide_point = self.get_bezier_guide_point(
+                                self.best_curve, t_norm, state[b], t_start_b, t_end_b, path_num[b], u_num[b]
+                            )
+
+                            # 检查是否需要切换回全局参考轨迹
+                            t_gap = (ref_x - guide_point[0]) / state[b, 3]
+                            while guide_point[0] < ref_x and t_gap < t_end[b, ] and t_gap > 0:
+                                guide_point = self.get_bezier_guide_point(
+                                    self.best_curve, t_gap, state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+                                )
+                                t_gap += self.dt
+
+                            if guide_point[0] >= obstacle.x[b] + self.forward_sample:
+                                if state[b, 0] > obstacle.x[b] + obstacle.length[b] / 2:
+                                    # 标记障碍物为已处理
+                                    self.processed_obstacles[b].add(obstacle.obs_id[b].item())
+                                guide_mask[b] = False
+                                self.best_curve = None
+                                # 使用全局参考轨迹
+                                guide_point = self._get_global_reference(
+                                    torch.tensor([b]),
+                                    t[b] + self.pre_horizon* self.dt,
+                                    path_num[b:b + 1],
+                                    u_num[b:b + 1]
+                                )
+                            else:
+                                guide_points[b] = guide_point
+                else:
+                    guide_point = self._get_global_reference(
+                        torch.tensor([b]),
+                        t[b] + self.pre_horizon * self.dt,
+                        path_num[b:b + 1],
+                        u_num[b:b + 1]
+                    )
+            guide_points[b] = guide_point
+        # # 处理非引导轨迹的batch
+        # if torch.any(~guide_mask):
+        #     new_ref_points[~guide_mask, :-1] = ref_points[~guide_mask, 1:]
+        #     non_guide_indices = torch.where(~guide_mask)[0]
+        #     global_refs = self._get_global_reference(
+        #         non_guide_indices,
+        #         t + self.pre_horizon * self.dt,
+        #         path_num,
+        #         u_num
+        #     )
+        #     new_ref_points[non_guide_indices, -1] = global_refs
+
+        return guide_points, guide_mask
+    # def _generate_new_ref_point(self, batch_size, state, ref_points, path_num, u_num, t, t_start, t_end):
+    #     new_ref_points = ref_points.clone()
+    #     guide_mask = torch.zeros(batch_size, dtype=torch.bool)
+    #
+    #     # 批量判断是否需要生成引导轨迹
+    #     for b in range(batch_size):
+    #         current_pos = state[b, :2]
+    #         obstacle, generate_guide_b = self.is_generate_guide(current_pos, b)
+    #
+    #         if generate_guide_b and obstacle is not None:
+    #             guide_mask[b] = True
+    #             # 为当前batch生成轨迹
+    #             curves = self.generate_bezier_curves(state[b], obstacle, b)
+    #             best_curve, can_cross = self.can_cross_decision(obstacle, curves, b)
+    #
+    #             # 更新当前batch的参考点
+    #             for i in range(1, self.pre_horizon + 1):
+    #                 t_sample = t + i * self.dt
+    #                 guide_point = self.get_bezier_guide_point(
+    #                     best_curve, t_sample[b], state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+    #                 )
+    #                 # 检查是否需要切换回全局参考轨迹
+    #                 ref_x = self.ref_traj.compute_x(t_sample[b], path_num[b], u_num[b])
+    #                 t_gap = torch.tensor((ref_x - guide_point[0]) / state[b, 3]).reshape(1, )
+    #                 while guide_point[0] < ref_x and t_gap[b] < t_end[b] and t_gap[b]> 0:
+    #                     guide_point = self.get_bezier_guide_point(
+    #                         best_curve, t_gap[b], state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+    #                     )
+    #                     t_gap += self.dt
+    #                 # 如果车辆已经通过障碍物区域，切换回全局参考轨迹
+    #                 if (guide_point[0] > obstacle.x[b] + self.forward_sample):
+    #                     if state[b, 0] > obstacle.x[b] + obstacle.length[b] / 2:
+    #                         # 标记障碍物为已处理
+    #                         self.processed_obstacles[b].add(obstacle.obs_id[b].item())
+    #                         guide_mask[b] = False
+    #                     # 使用全局参考轨迹
+    #                     global_ref = self._get_global_reference(
+    #                         torch.tensor([b]),
+    #                         t + self.pre_horizon * self.dt,
+    #                         path_num[b:b + 1],
+    #                         u_num[b:b + 1]
+    #                     )
+    #                     new_ref_points[b, i] = global_ref.squeeze(0)
+    #                 new_ref_points[b, i] = guide_point
+    #
+    #     # 处理非引导轨迹的batch
+    #     if torch.any(~guide_mask):
+    #         new_ref_points[:, :-1] = ref_points[:, 1:]
+    #         non_guide_indices = torch.where(~guide_mask)[0]
+    #         global_refs = self._get_global_reference(
+    #             non_guide_indices, t + self.pre_horizon * self.dt,
+    #             path_num, u_num
+    #         )
+    #         new_ref_points[non_guide_indices, -1] = global_refs
+    #
+    #     return new_ref_points, guide_mask
+
+    def _get_global_reference(self, batch_indices: torch.Tensor, t: torch.Tensor,
+                              path_num: torch.Tensor, u_num: torch.Tensor) -> torch.Tensor:
+        """
+        优化版批量获取全局参考轨迹点
+        改进点：
+        1. 支持部分batch索引
+        2. 自动处理不同形状输入
+        3. 添加数值稳定性检查
+        """
+        # 输入校验
+        assert batch_indices.dim() == 1, "batch_indices应为1D Tensor"
+
+        # 获取有效batch数量
+        batch_size = batch_indices.shape[0]
+
+        # 处理标量输入（兼容单样本情况）
+        t = t.expand(batch_size) if t.numel() == 1 else t[batch_indices]
+        path_num = path_num.expand(batch_size) if path_num.numel() == 1 else path_num[batch_indices]
+        u_num = u_num.expand(batch_size) if u_num.numel() == 1 else u_num[batch_indices]
+
+        # 批量计算各维度（避免重复调用compute_x等）
+        ref_data = [
+            self.ref_traj.compute_x(t, path_num, u_num),
+            self.ref_traj.compute_y(t, path_num, u_num),
+            self.ref_traj.compute_phi(t, path_num, u_num),
+            self.ref_traj.compute_u(t, path_num, u_num)
+        ]
+
+        # 堆叠并确保形状正确 [B,4]
+        ref_points = torch.stack(ref_data, dim=1)
+        assert ref_points.shape == (batch_size, 4), f"形状错误: {ref_points.shape}"
+
+        return ref_points
 
     def compute_reward(
             self,
@@ -621,61 +668,226 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
 
         return nearest_id, min_dist
 
-    # def is_generate_guide(self, state) -> Tuple[Optional[StaticObstacle], int]:
-    #     current_pos = state[:, :2]
-    #     nearest_static_id, static_dist = self.find_nearest_obstacle(
-    #         current_pos, self.static_obss)
+    # def is_generate_guide(self, current_pos: torch.Tensor, batch_idx: int) -> Tuple[Optional[StaticObstacle], bool]:
+    #     min_dist = torch.full((1,), float('inf'), device=current_pos.device)
+    #     nearest_obstacle = None
     #
-    #     if static_dist <= self.d_pre:
-    #         obstacle = self.static_obss[nearest_static_id]
-    #         return obstacle, 1
+    #     for obs in self.static_obss:
+    #         obs_pos = torch.stack([obs.x, obs.y], dim=1)[batch_idx]
+    #         dist = torch.norm(current_pos - obs_pos)
+    #
+    #         # 只考虑前方障碍物且未处理的
+    #         if (obs_pos[0] > current_pos[0] and
+    #                 dist < self.d_pre and
+    #                 obs.obs_id not in self.processed_obstacles[batch_idx]):
+    #             if dist < min_dist:
+    #                 min_dist = dist
+    #                 nearest_obstacle = obs
+    #
+    #     return nearest_obstacle, min_dist < self.d_pre
+
+    # def get_bezier_guide_point(self, curve, t_sample, state, t_start: torch.Tensor, t_end: torch.Tensor, path_num, u_num):
+    #     # 确保时间参数在有效范围内
+    #     t_norm = torch.clip((t_sample - t_start) / (t_end - t_start), 0, 1)
+    #     point = curve.compute_point(t_norm)
+    #
+    #     derivative = curve.compute_derivative(t_norm)
+    #     # 确保导数不为零向量
+    #     if torch.norm(derivative) < 1e-6:
+    #         derivative = torch.tensor([1e-6, 0]).reshape((-1, 2))  # 小量向前
+    #     phi = torch.arctan2(derivative[1], derivative[0])
+    #
+    #     # 混合全局方向
+    #     global_phi = self.ref_traj.compute_phi(
+    #         t_sample, path_num, u_num
+    #     )
+    #     blend_ratio = torch.clamp(t_norm, 0.2, 0.8)
+    #     phi = angle_normalize(blend_ratio * phi + (1 - blend_ratio) * global_phi)
+    #
+    #     # 速度方向修正
+    #     u = self.ref_traj.compute_u(t_sample, path_num, u_num)
+    #     if u < 0:
+    #         phi += torch.pi
+    #         u = abs(u)
+    #
+    #     return torch.tensor([point[0], point[1], phi, u], device=state.device)
+
+    # def is_generate_guide(self, current_pos: torch.Tensor, batch_idx: int) -> Tuple[Optional[StaticObstacle], bool]:
+    #     min_dist = torch.tensor(float('inf'), device=current_pos.device)
+    #     nearest_obstacle = None
+    #
+    #     for obs in self.static_obss:
+    #         obs_pos = torch.stack([obs.x[batch_idx], obs.y[batch_idx]])
+    #         dist = torch.norm(current_pos - obs_pos)
+    #
+    #         # 只考虑前方障碍物且未处理的
+    #         if (obs_pos[0] > current_pos[0] and
+    #                 dist < self.d_pre and
+    #                 obs.obs_id[batch_idx] not in self.processed_obstacles[batch_idx]):
+    #             if dist < min_dist:
+    #                 min_dist = dist
+    #                 nearest_obstacle = obs
+    #
+    #     return nearest_obstacle, min_dist < self.d_pre
+    def is_generate_guide(self, current_pos: torch.Tensor, batch_idx: int) -> Tuple[Optional[StaticObstacle], bool]:
+        # 批量计算所有障碍物距离
+        obs_positions = torch.stack([torch.stack([obs.x[batch_idx], obs.y[batch_idx]])
+                                     for obs in self.static_obss])
+        dists = torch.norm(current_pos - obs_positions, dim=1)
+
+        # 筛选前方未处理的障碍物
+        forward_mask = obs_positions[:, 0] > current_pos[0]
+        unprocessed_mask = torch.tensor([obs.obs_id[batch_idx] not in self.processed_obstacles[batch_idx]
+                                         for obs in self.static_obss])
+        valid_mask = (dists < self.d_pre) & forward_mask & unprocessed_mask
+
+        if not torch.any(valid_mask):
+            return None, False
+
+        # 找到最近的有效障碍物
+        min_idx = torch.argmin(dists * valid_mask.float())
+        return self.static_obss[min_idx], True
+
+    def get_bezier_guide_point(self, curve, t_norm, state, t_start: torch.Tensor, t_end: torch.Tensor, path_num, u_num):
+        # 确保时间参数在有效范围内
+        t_norm = torch.clamp(t_norm, 0, 1)
+        point = curve.compute_point(t_norm)
+
+        derivative = curve.compute_derivative(t_norm)
+        # 确保导数不为零向量
+        if torch.norm(derivative) < 1e-6:
+            derivative = torch.tensor([1e-6, 0], device=state.device)
+        phi = torch.arctan2(derivative[1], derivative[0])
+
+        # 混合全局方向
+        global_phi = self.ref_traj.compute_phi(
+            t_start + t_norm * (t_end - t_start), path_num, u_num
+        )
+        blend_ratio = torch.clamp(t_norm, 0.2, 0.8)
+        phi = angle_normalize(blend_ratio * phi + (1 - blend_ratio) * global_phi)
+
+        # 速度方向修正
+        u = self.ref_traj.compute_u(t_start + t_norm * (t_end - t_start), path_num, u_num)
+        if u < 0:
+            phi += torch.pi
+            u = abs(u)
+
+        return torch.tensor([point[0], point[1], phi, u], device=state.device)
+
+    def get_quintic_guide_point(self, guide_traj, current_t: float, t_start: float) -> torch.Tensor:
+        """
+        获取指定轨迹的预测点
+        """
+        poly_x, poly_y = guide_traj
+        local_t = current_t - t_start
+        # 从五次多项式获取点
+        x_state = poly_x.compute_point(local_t)
+        y_state = poly_y.compute_point(local_t)
+
+        x, y = x_state[0], y_state[0]
+        vx, vy = x_state[1], y_state[1]
+        phi = torch.atan2(vy, vx)
+
+        return torch.stack([x, y, phi, vx], dim=1)
+
+    # def can_cross_decision(self, obstacle: StaticObstacle, curves: list, batch_idx: int) -> Tuple[Optional[BezierCurve], bool]:
+    #     can_cross = False
+    #
+    #     if (obstacle.height[batch_idx, ] < self.ground_clearance and
+    #             obstacle.width[batch_idx, ] < self.wheel_distance):
+    #         can_cross = True
+    #     self.curve_index = None
+    #     if can_cross:
+    #         self.curve_index = 1
+    #         best_curve = curves[self.curve_index]  # 可跨就选跨
     #     else:
-    #         return None, 0
+    #         self.curve_index = 2
+    #         best_curve = curves[self.curve_index]  # 不可跨就选择左绕
+    #     return best_curve, can_cross
+    def can_cross_decision(self, obstacle: StaticObstacle, curves: list, batch_idx: int, state: torch.Tensor) -> Tuple[
+        Optional[BezierCurve], bool]:
+        # 判断是否满足跨越条件
+        can_cross = (obstacle.height[batch_idx] < self.ground_clearance and
+                     obstacle.width[batch_idx] < self.wheel_distance)
 
-    def is_generate_guide(self, state) -> Tuple[Optional[StaticObstacle], int]:
-        current_pos = state[:, :2]
-        obstacles_in_range = []
-        # 找出所有在规划范围内的障碍物
-        for obstacle in self.static_obss:
-            obs_pos = torch.tensor([obstacle.x, obstacle.y])
-            dist = torch.norm(current_pos - obs_pos)
-            # 只考虑前方的障碍物且在规划范围内
-            if obs_pos[0] > current_pos[:, 0] and dist.item() <= self.d_pre:
-                obstacles_in_range.append((obstacle, dist))
-            # 没有障碍物需要处理
-            if not obstacles_in_range:
-                return None, 0
-            # 按距离排序，选择最近的障碍物
-            obstacles_in_range.sort(key=lambda x: x[1])
-            nearest_obstacle = obstacles_in_range[0][0]
+        # 评估曲线平滑性 (Tensor版本)
+        def evaluate_curve(curve: BezierCurve) -> torch.Tensor:
+            # 采样曲线上的点 (使用Tensor操作)
+            ts = torch.linspace(0, 1, 10, device=self.device)
+            points = torch.stack([curve.compute_point(t) for t in ts])
 
-            # 检查是否已经处理过这个障碍物
-            if hasattr(self, 'processed_obstacles'):
-                if nearest_obstacle.obs_id in self.processed_obstacles:
-                    # 如果已经处理过，检查是否还有其他障碍物需要处理
-                    for obstacle, _ in obstacles_in_range[1:]:
-                        if obstacle.obs_id not in self.processed_obstacles:
-                            return obstacle, 1
-                    return None, 0
-            else:
-                self.processed_obstacles = set()
+            # 计算导数 (使用自动微分)
+            dx = torch.gradient(points[:, 0])[0]
+            dy = torch.gradient(points[:, 1])[0]
+            ddx = torch.gradient(dx)[0]
+            ddy = torch.gradient(dy)[0]
 
-            return nearest_obstacle, 1
+            # 计算曲率
+            denominator = (dx.pow(2) + dy.pow(2)).pow(1.5) + 1e-6  # 避免除零
+            curvature = (dx * ddy - dy * ddx).abs() / denominator
 
-    def can_cross_decision(self, obstacle: StaticObstacle, curves: list) -> Tuple[Optional[BezierCurve], bool]:
-        can_cross = False
+            return curvature.mean()  # 返回平均曲率
 
-        if (obstacle.height < self.ground_clearance and
-                obstacle.width < self.wheel_distance):
-            can_cross = True
-        self.curve_index = None
         if can_cross:
-            self.curve_index = 1
-            best_curve = curves[self.curve_index]  # 可跨就选跨
+            # 可跨越时，选择最平滑的曲线
+            curve_scores = torch.tensor([evaluate_curve(curve) for curve in curves],
+                                        device=self.device)
+            best_idx = torch.argmin(curve_scores)
+            best_curve = curves[best_idx]
+            self.curve_index = best_idx
         else:
-            self.curve_index = 2
-            best_curve = curves[self.curve_index]  # 不可跨就选择左绕
+            # 不可跨越时，从左右两条曲线选择与当前航向最一致的绕行曲线
+            current_heading = state[batch_idx, 2]
+            heading_diffs = []
+            valid_indices = [0, 2]  # 对应的原始索引
+            valid_curves = [curves[0], curves[2]]
+            for curve in valid_curves:
+                # 计算曲线终点方向
+                end_heading = torch.atan2(curve.p2[1] - curve.p1[1],
+                                          curve.p2[0] - curve.p1[0])
+                # 计算角度差异
+                diff = (end_heading - current_heading).abs()
+                diff = torch.min(diff, 2 * np.pi - diff)  # 取最小角度差
+                heading_diffs.append(diff)
+
+            # 选择差异最小的曲线
+            heading_diffs = torch.stack(heading_diffs)
+            best_idx = torch.argmin(heading_diffs)
+            self.curve_index = valid_indices[best_idx]  # 使用原始索引
+            best_curve = valid_curves[best_idx]#best_idx
+
+            # 额外检查：如果选择的曲线与障碍物太近，选择另一条
+            if self._is_too_close_to_obstacle(best_curve, obstacle, batch_idx):
+                # 排除当前选择，选次优的
+                mask = torch.ones_like(heading_diffs, dtype=torch.bool)
+                mask[best_idx] = False
+                remaining_diffs = heading_diffs[mask]
+                if len(remaining_diffs) > 0:
+                    second_best_idx = torch.argmin(remaining_diffs)
+                    # 转换为原始索引
+                    original_indices = torch.arange(len(curves), device=self.device)[mask]
+                    best_idx = original_indices[second_best_idx]
+                    # 如果首选曲线不安全，选择另一条
+                    self.curve_index = valid_indices[1 - best_idx]
+                    best_curve = valid_curves[1 - best_idx]
+
         return best_curve, can_cross
+
+    def _is_too_close_to_obstacle(self, curve: BezierCurve, obstacle: StaticObstacle, batch_idx: int) -> bool:
+        """检查曲线是否离障碍物太近"""
+        # 采样曲线上的点
+        ts = torch.linspace(0, 1, 5, device=self.device)
+        points = torch.stack([curve.compute_point(t) for t in ts])
+
+        # 计算到障碍物的距离
+        obs_center = torch.tensor([obstacle.x[batch_idx], obstacle.y[batch_idx]],
+                                  device=self.device)
+        distances = torch.norm(points - obs_center, dim=1)
+
+        # 安全距离阈值
+        safe_distance = max(obstacle.width[batch_idx], obstacle.length[batch_idx]) * 1.2
+
+        return torch.any(distances < safe_distance)
 
     def generate_quintic_curves(self, state:torch.Tensor,obstacle: StaticObstacle) -> list:
         def _create_single_trajectory(start_point, end_point, T) -> Tuple[QuinticPolynomial, QuinticPolynomial]:
@@ -712,16 +924,16 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
             curves.append(curve)
         return curves
 
-    def generate_bezier_curves(self, state:torch.Tensor,obstacle: StaticObstacle) -> list:
+    def generate_bezier_curves(self, state:torch.Tensor, obstacle: StaticObstacle, batch_idx: int) -> list:
         """生成贝塞尔曲线(Tensor版本)
         Args:
             obstacle: 障碍物信息
         Returns:
             curves: 生成的贝塞尔曲线列表
         """
-        # 确保状态和采样参数为tensor
-        state = torch.tensor(state[:, :2], dtype=torch.float32) \
-            if not isinstance(state, torch.Tensor) else state[:, :2]
+        # # 确保状态和采样参数为tensor
+        state = torch.tensor(state[:2], dtype=torch.float32) \
+            if not isinstance(state, torch.Tensor) else state[:2]
         lateral_sample = torch.tensor(self.lateral_sample, dtype=torch.float32) \
             if not isinstance(self.lateral_sample, torch.Tensor) else self.lateral_sample
         forward_sample = torch.tensor(self.forward_sample, dtype=torch.float32) \
@@ -730,14 +942,14 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
 
         # 横向采样点 - 使用tensor
         lateral_points = torch.stack([
-            torch.tensor([obstacle.x, obstacle.y - lateral_sample-obstacle.width/2-1.0], dtype=torch.float32),  # 左侧
-            torch.tensor([obstacle.x, obstacle.y], dtype=torch.float32),  # 中心
-            torch.tensor([obstacle.x, obstacle.y + lateral_sample+obstacle.width/2+1.0], dtype=torch.float32)  # 右侧
+            torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ] - lateral_sample-obstacle.width[batch_idx,]/2-1.0], dtype=torch.float32),  # 左侧
+            torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ]], dtype=torch.float32),  # 中心
+            torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ] + lateral_sample+obstacle.width[batch_idx, ]/2+1.0], dtype=torch.float32)  # 右侧
         ])
 
         # 纵向采样点 - 使用tensor
         longitudinal_points = torch.tensor(
-            [[obstacle.x + forward_sample+obstacle.length*1.5, obstacle.y]],
+            [[obstacle.x[batch_idx, ] + forward_sample+obstacle.length[batch_idx, ]*1.5, obstacle.y[batch_idx, ]]],
             dtype=torch.float32
         )
 
@@ -752,199 +964,9 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
             curves.append(curve)
         return curves
 
-    def get_quintic_guide_points(self, guide_traj, current_t: float, t_start: float) -> torch.Tensor:
-        """
-        获取指定轨迹的预测点
-        """
-        poly_x, poly_y = guide_traj
-        local_t = current_t - t_start
-        # 从五次多项式获取点
-        x_state = poly_x.compute_point(local_t)
-        y_state = poly_y.compute_point(local_t)
 
-        x, y = x_state[0], y_state[0]
-        vx, vy = x_state[1], y_state[1]
-        phi = torch.atan2(vy, vx)
 
-        return torch.stack([x, y, phi, vx], dim=1)
 
-    def get_bezier_guide_points(self, guide_traj, t_interpolate: torch.Tensor, t_start: torch.Tensor, t_end: torch.Tensor, path_num, u_num)-> torch.Tensor:
-        if t_end <= t_start:
-            t_end = t_start + self.dt
-            print("please check the time end and time start model")
-        t = (t_interpolate - t_start) / (t_end - t_start)
-        point = guide_traj.compute_point(t)
-        derivative = guide_traj.compute_derivative(t)
-        # 确保导数不为零向量
-        if torch.norm(derivative) < 1e-6:
-            derivative = torch.tensor([1e-6, 0]).reshape((-1, 2))  # 小量向前
-        phi = torch.arctan2(derivative[:, 1], derivative[:, 0])
-        global_phi = self.ref_traj.compute_phi(t_interpolate, path_num, u_num)
-        blend_ratio = torch.clip(t, 0.2, 0.8)  # 渐进混合系数
-        phi = angle_normalize(blend_ratio * phi + (1 - blend_ratio) * global_phi)
-
-        u = self.ref_traj.compute_u(t_interpolate, path_num, u_num)
-
-        # 确保速度方向与航向一致
-        if torch.any(u<0):
-            phi = angle_normalize(phi+torch.pi)
-            u = torch.abs(u)
-        traj_point = torch.stack([point[:, 0], point[:, 1], phi, u]).reshape((-1, 4))
-        return traj_point
-
-    # def generate_bezier_curves(self, obstacle: StaticObstacle) -> List[BezierCurve]:
-    #     """生成贝塞尔曲线
-    #     Args:
-    #         current_pos: 当前位置[x, y]
-    #         obstacle: 障碍物信息
-    #     Returns:
-    #         curves: 生成的贝塞尔曲线列表
-    #     """
-    #     curves = []
-    #
-    #     # 横向采样点
-    #     lateral_points = [
-    #         np.array([obstacle.x, obstacle.y - self.lateral_sample]),  # 左侧
-    #         np.array([obstacle.x, obstacle.y]),  # 中心
-    #         np.array([obstacle.x, obstacle.y + self.lateral_sample])  # 右侧
-    #     ]
-    #
-    #     # 纵向采样点
-    #     longitudinal_points = [
-    #         np.array([obstacle.x + self.forward_sample, obstacle.y])  # 前方位置
-    #     ]
-    #
-    #     # 生成贝塞尔曲线
-    #     for i in lateral_points:
-    #         # 使用当前位置作为起点，障碍物位置作为控制点
-    #         curve = BezierCurve(
-    #             self.state[:2],
-    #             lateral_points[i],
-    #             longitudinal_points[0]
-    #         )
-    #         curves.append(curve)
-    #
-    #     return curves
-    #
-    # def is_generate_guide(self) -> Tuple[Optional[Obstacle], bool]:
-    #     generate_guide = False
-    #     current_pos = self.state[:2]
-    #     ego_velocity = self.state[3]  # 自车速度
-    #
-    #     # 查找最近的动态和静态障碍物
-    #     nearest_dynamic_id, dynamic_dist = self.obstacle_processor.find_nearest_obstacle(
-    #         current_pos, self.obstacle_processor.dynamic_obstacles)
-    #     nearest_static_id, static_dist = self.obstacle_processor.find_nearest_obstacle(
-    #         current_pos, self.obstacle_processor.static_obstacles)
-    #
-    #     # 确定处理顺序
-    #     if dynamic_dist == float('inf') and static_dist == float('inf'):
-    #         return None, generate_guide
-    #
-    #     # 判断是处理动态还是静态障碍物
-    #     if dynamic_dist <= static_dist:
-    #         if dynamic_dist <= self.d_pre:
-    #             obstacle = self.obstacle_processor.dynamic_obstacles[nearest_dynamic_id]
-    #             # 检查动态障碍物的速度
-    #             if obstacle.u >= ego_velocity:
-    #                 return None, generate_guide
-    #             else:
-    #                 generate_guide = True
-    #                 return obstacle, generate_guide
-    #         else:
-    #             return None, generate_guide
-    #     else:
-    #         if static_dist <= self.d_pre:
-    #             obstacle = self.obstacle_processor.static_obstacles[nearest_static_id]
-    #             generate_guide = True
-    #             return obstacle, generate_guide
-    #         else:
-    #             return None, generate_guide
-    #
-    # def can_cross_decision(self, obstacle: Obstacle, curves: List) -> Tuple[QuinticPolynomial, bool]:
-    #     """跨/绕决策
-    #     Args:
-    #         obstacle: 障碍物信息
-    #     Returns:
-    #         can_cross: 是否可以跨越
-    #     """
-    #
-    #     can_cross = False
-    #
-    #     # 如果是静态障碍物，则判断尺寸是否满足跨越条件
-    #     if (obstacle.height < self.ground_clearance and
-    #             obstacle.width < self.wheel_distance):
-    #         can_cross = True
-    #
-    #     if can_cross:
-    #         best_curve = curves[1]  # 可跨就选跨
-    #     else:
-    #         best_curve = curves[0]  # 不可跨就选择左绕
-    #
-    #     return best_curve, can_cross
-    #
-    # def generate_quintic_curves(self,
-    #                             obstacle: Obstacle) -> List:
-    #     """生成五次多项式曲线
-    #             Args:
-    #                 current_pos: 当前位置[x, y]
-    #                 obstacle: 障碍物信息
-    #             Returns:
-    #                 curves: 生成的五次多项式曲线列表
-    #             """
-    #
-    #     def _create_single_trajectory(start_point, end_point, T) -> Tuple[QuinticPolynomial, QuinticPolynomial]:
-    #         """创建单条轨迹的x和y方向多项式"""
-    #         # x方向多项式
-    #         poly_x = QuinticPolynomial(
-    #             [start_point[0], start_point[3] * np.cos(start_point[2]), 0],  # 位置、速度、加速度
-    #             [end_point[0], end_point[3] * np.cos(end_point[2]), 0],  # 位置、速度、加速度
-    #             T
-    #         )
-    #         # y方向多项式
-    #         poly_y = QuinticPolynomial(
-    #             [start_point[1], start_point[3] * np.sin(start_point[2]), 0],
-    #             [end_point[1], end_point[3] * np.sin(end_point[2]), 0],
-    #             T
-    #         )
-    #         return (poly_x, poly_y)
-    #
-    #     curves = []
-    #     # 横向采样点
-    #     lateral_points = [
-    #         np.array([obstacle.x, obstacle.y - self.lateral_sample, obstacle.phi, obstacle.u]),  # 左侧
-    #         np.array([obstacle.x, obstacle.y, obstacle.phi, obstacle.u]),  # 中心
-    #         np.array([obstacle.x, obstacle.y + self.lateral_sample, obstacle.phi, obstacle.u])  # 右侧
-    #     ]
-    #     # 生成五次多项式曲线
-    #     for i in lateral_points:
-    #         curve = _create_single_trajectory(self.state, lateral_points[i],
-    #                                           (obstacle.x - self.state[0]) / self.state[2])
-    #         # 使用当前位置作为起点，障碍物位置作为控制点
-    #         curves.append(curve)
-    #     return curves
-    #
-    # def get_guide_points(self, guide_traj, current_t: float,
-    #                      t_start: float) -> np.array:
-    #     """
-    #     获取指定轨迹的预测点
-    #
-    #     Args:
-    #         current_t: 当前时间
-    #         t_start: 当前曲线的起点时间
-    #
-    #     Returns:
-    #         np.ndarray: 预测轨迹点 shape=(1, 4) [x, y, phi, v]
-    #     """
-    #     poly_x, poly_y = guide_traj
-    #     local_t = current_t - t_start
-    #     # 尝试从五次多项式获取点
-    #     x_state = poly_x.calc_point(local_t)
-    #     y_state = poly_y.calc_point(local_t)
-    #     x, y = x_state[0], y_state[0]
-    #     vx, vy = x_state[1], y_state[1]
-    #     phi = np.arctan2(vy, vx)
-    #     return np.array([x, y, phi, vx], dtype=np.float32)
 
 def ego_vehicle_coordinate_transform(
     ego_x: torch.Tensor,
@@ -964,3 +986,25 @@ def ego_vehicle_coordinate_transform(
 
 def env_model_creator(**kwargs):
     return Veh3dofBimodalPlanningModel(**kwargs)
+
+
+def test_batch_processing():
+    model = Veh3dofBimodalPlanningModel(pre_horizon=10)
+    batch_size = 32
+    obs = torch.randn(batch_size, model.obs_dim)
+    action = torch.randn(batch_size, 2)
+    done = torch.zeros(batch_size, dtype=torch.bool)
+    info = {
+        "state": torch.randn(batch_size, 6),
+        "ref_points": torch.randn(batch_size, 10, 4),
+        "dynamic_state": torch.randn(batch_size, 1, 5),
+        "static_state": torch.randn(batch_size, 2, 7)
+    }
+
+    with torch.no_grad():
+        next_obs, reward, next_done, next_info = model(obs, action, done, info)
+
+    assert next_obs.shape == (batch_size, model.obs_dim)
+    assert reward.shape == (batch_size,)
+    assert next_done.shape == (batch_size,)
+    print("Batch processing test passed!")
