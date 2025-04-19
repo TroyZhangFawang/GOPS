@@ -355,54 +355,60 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         guide_indices = torch.where(guide_mask)[0]
         for b in guide_indices:
             current_pos = state[b, :2]
-            if self.obstacle == None:
-                self.obstacle, self.generate_guide_b = self.is_generate_guide(current_pos, b)
-            if guide_mask[b, ]==True and best_curve_isnone[b, ]==0:
-                if self.generate_guide_b and self.obstacle != None:
-                    guide_mask[b] = self.generate_guide_b
-                    curves = self.generate_bezier_curves(state[b], self.obstacle, b)
-                    self.best_curve, can_cross = self.can_cross_decision(self.obstacle, curves, b, state[b])
-                    ref_x = global_refs[b, 0]
-                    t_start_b = t[b]
-                    t_start[b] = t_start_b
-                    t_end_b = t[b] + (
-                                self.obstacle.x[b] + self.forward_sample + self.obstacle.width[b] / 2 - state[b, 0]) / \
-                              state[b, 3]
-                    t_end[b] = t_end_b
-                    guide_point = self.get_bezier_guide_point(
-                        self.best_curve, t[b] + self.pre_horizon * self.dt, state[b], t_start_b, t_end_b, path_num[b], u_num[b]
+            if self.obstacle != None:
+                if guide_mask[b, ]==True and best_curve_isnone[b, ]==0:
+                    guide_point = self._get_global_reference(
+                        torch.tensor([b]),
+                        t[b] + self.pre_horizon * self.dt,
+                        path_num[b],
+                        u_num[b]
                     )
-                    # 保证guide_point在x方向上和ref_x对齐
-                    t_gap = (ref_x - guide_point[0]) / state[b, 3]
-                    while guide_point[0] < ref_x and t_gap < t_end[b,] and t_gap > 0:
-                        guide_point = self.get_bezier_guide_point(
-                            self.best_curve, t[b]+t_gap, state[b], t_start[b], t_end[b], path_num[b], u_num[b]
-                        )
-                        t_gap += self.dt
+                    # if self.generate_guide_b and self.obstacle != None:
+                    #     guide_mask[b] = self.generate_guide_b
+                    #     curves = self.generate_bezier_curves(state[b], self.obstacle, b)
+                    #     self.best_curve, can_cross = self.can_cross_decision(self.obstacle, curves, b, state[b])
+                    #     ref_x = global_refs[b, 0]
+                    #     t_start_b = t[b]
+                    #     t_start[b] = t_start_b
+                    #     t_end_b = t[b] + (
+                    #                 self.obstacle.x[b] + self.forward_sample + self.obstacle.width[b] / 2 - state[b, 0]) / \
+                    #               state[b, 3]
+                    #     t_end[b] = t_end_b
+                    #     guide_point = self.get_bezier_guide_point(
+                    #         self.best_curve, t[b] + self.pre_horizon * self.dt, state[b], t_start_b, t_end_b, path_num[b], u_num[b]
+                    #     )
+                    #     # 保证guide_point在x方向上和ref_x对齐
+                    #     t_gap = (ref_x - guide_point[0]) / state[b, 3]
+                    #     while guide_point[0] < ref_x and t_gap < t_end[b,] and t_gap > 0:
+                    #         guide_point = self.get_bezier_guide_point(
+                    #             self.best_curve, t[b]+t_gap, state[b], t_start[b], t_end[b], path_num[b], u_num[b]
+                    #         )
+                    #         t_gap += self.dt
+                    #
+                    #     if guide_point[0] >= self.obstacle.x[b] + self.forward_sample and guide_point[0] < ref_x:
+                    #         if state[b, 0] > self.obstacle.x[b]:
+                    #             # 标记障碍物为已处理
+                    #             self.processed_obstacles[b].add(self.obstacle.obs_id[b].item())
+                    #             self.obstacle = None
+                    #             guide_mask[b] = False
+                    #         self.best_curve = None
+                    #         best_curve_isnone[b] = 0
+                    #         guide_point = self._get_global_reference(
+                    #             torch.tensor([b]),
+                    #             t[b] + self.pre_horizon * self.dt,
+                    #             path_num[b],
+                    #             u_num[b]
+                    #         )
 
-                    if guide_point[0] >= self.obstacle.x[b] + self.forward_sample and guide_point[0] < ref_x:
-                        if state[b, 0] > self.obstacle.x[b]:
-                            # 标记障碍物为已处理
-                            self.processed_obstacles[b].add(self.obstacle.obs_id[b].item())
-                            self.obstacle = None
-                            guide_mask[b] = False
-                        self.best_curve = None
-                        best_curve_isnone[b] = 0
-                        guide_point = self._get_global_reference(
-                            torch.tensor([b]),
-                            t[b] + self.pre_horizon * self.dt,
-                            path_num[b],
-                            u_num[b]
-                        )
-
-            elif guide_mask[b, ]==True and best_curve_isnone[b, ]==1:
-                guide_point = global_refs[b, :]
+                elif guide_mask[b, ]==True and best_curve_isnone[b, ]==1:
+                    guide_point = global_refs[b, :]
                 if state[b, 0] > self.obstacle.x[b]:
                     # 标记障碍物为已处理
                     self.processed_obstacles[b].add(self.obstacle.obs_id[b].item())
                     guide_mask[b] = False
                     self.obstacle = None
             else:
+                self.obstacle, self.generate_guide_b = self.is_generate_guide(current_pos, b)
                 if self.generate_guide_b and self.obstacle != None:
                     guide_mask[b] = self.generate_guide_b
                     # if self.best_curve != None:
