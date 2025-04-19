@@ -32,6 +32,8 @@ class VehicleDynamicsData:
             g=9.81,  # acceleration of gravity [m/s^2]
             ground_clearance=0.25,
             wheel_distance=1.8,
+            veh_length=4.8,
+            veh_width=2.0,
         )
         l_f, l_r, mass, g = (
             self.vehicle_params["l_f"],

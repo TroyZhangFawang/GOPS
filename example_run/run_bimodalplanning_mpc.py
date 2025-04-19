@@ -38,7 +38,7 @@ runner = OptRunner(
     },
     constrained_env=True,
     is_tracking=True,
-    dt=0.05,
+    dt=0.1,
 )
 
 runner.run()

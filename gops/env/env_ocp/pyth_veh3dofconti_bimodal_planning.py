@@ -138,15 +138,11 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         path_para: Optional[Dict[str, Dict]] = None,
         u_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = np.pi / 6,
-        dynamic_obstacle_num: int = 1,
-        static_obstacle_num: int = 2,
+        dynamic_obstacle_num: int = 2,
+        static_obstacle_num: int = 3,
         d_pre: float = 20.0,  # 离障碍物多少远开始规划
-        lateral_sample: float = 8.0,  # 横向采样距离
-        forward_sample: float = 12.0,  # 纵向采样距离
-        veh_length: float = 4.8,
-        veh_width: float = 2.0,
-        ground_clearance=0.25,
-        wheel_distance=1.8,
+        lateral_sample: float = 3.5,  # 横向采样距离
+        forward_sample: float = 10.0,  # 纵向采样距离
         **kwargs: Any,
     ):
         super().__init__(pre_horizon, path_para, u_para, **kwargs)
@@ -167,14 +163,15 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         self.static_obstacle_num = static_obstacle_num
         self.dynamic_state = np.zeros((dynamic_obstacle_num, 5), dtype=np.float32)
         self.static_state = np.zeros((static_obstacle_num, 7), dtype=np.float32)
-        self.veh_length = veh_length
-        self.veh_width = veh_width
-        self.wheel_distance = wheel_distance
-        self.ground_clearance = ground_clearance
+        self.veh_width = self.vehicle_dynamics.vehicle_params["veh_width"]
+        self.veh_length = self.vehicle_dynamics.vehicle_params["veh_length"]
+        self.wheel_distance = self.vehicle_dynamics.vehicle_params["wheel_distance"]
+        self.ground_clearance = self.vehicle_dynamics.vehicle_params["ground_clearance"]
         self.d_pre = d_pre
         self.lateral_sample = lateral_sample
         self.forward_sample = forward_sample
-        self.guide_traj = None
+        self.best_curve = None
+        self.obstacle = None
         self.info_dict.update(
             {
                 "dynamic_state": {"shape": (dynamic_obstacle_num, 5), "dtype": np.float32},
@@ -187,6 +184,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 "t_start": {"shape": (), "dtype": np.float32},
                 "t_end": {"shape": (), "dtype": np.float32},
                 "state": {"shape": (6, ), "dtype": np.float32},
+                "best_curve_isnone": {"shape": (), "dtype": bool},
             }
         )
 
@@ -229,7 +227,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             )
         self.static_obss = []
         # add static obstacle
-        time = [2, 6]
+        time = [0.4, 0.8]
         for i_static in range(self.static_obstacle_num):
             delta_t = self.np_random.uniform(2, 7) #time[i_static]#
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
@@ -238,8 +236,8 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
             self.static_length = np.random.uniform(0, 2, self.static_obstacle_num)
-            self.static_width = np.array([3, 0.5])#np.random.uniform(0, 2, self.static_obstacle_num)
-            self.static_height = np.array([0.5, 0.23])#np.random.uniform(0, 1, self.static_obstacle_num)
+            self.static_width = np.random.uniform(0, 2, self.static_obstacle_num)#np.array([3, 5]) #, 0.5
+            self.static_height = np.random.uniform(0, 1, self.static_obstacle_num)#np.array([0.5, 0.5]) #, 0.23
             self.static_obss.append(
                 StaticObstacle(
                     obs_id=i_static,
@@ -262,32 +260,39 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             self.obstacle = obstacle
             # quintic_curves = self.generate_quintic_curves(self.obstacle) # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
             bezier_curves = self.generate_bezier_curves(self.obstacle)  # 生成3条贝塞尔曲线，每条包含2个元素，为横向、纵向位置多项式
-            self.guide_traj, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
+            self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
             self.t_start = self.t
             self.t_end = self.t + (self.obstacle.x + self.forward_sample - self.state[0]) / self.state[3]
             guide_points = [self.state[:4]]
             for i in range(1, self.pre_horizon + 1):
                 ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
-                guide_point = self.get_bezier_guide_points(self.guide_traj, self.t + i * self.dt, self.t_start, self.t_end)
-                t = (ref_x - guide_point[0]) / self.state[3]
-                while guide_point[0] < ref_x and t < self.t_end and t > 0:
-                    # guide_point = self.get_guide_points(self.guide_traj, t, self.t_start)
-                    guide_point = self.get_bezier_guide_points(self.guide_traj, t, self.t_start, self.t_end)
-                    t += self.dt
-                # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
-                if guide_point[0] >= obstacle.x+self.forward_sample:
-                    if self.state[0] > obstacle.x + obstacle.length / 2:  # 确保车辆完全通过
-                        self.processed_obstacles.add(obstacle.obs_id)
-                    # self.processed_obstacles.add(self.obstacle.obs_id)
-                    self.generate_guide = 0
-                    self.guide_traj = None
+                if self.best_curve is None:
+                    # Use reference trajectory directly if guide trajectory is not available
                     guide_point = np.array([
                         self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
                         self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
                         self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
                         self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
-                    ], dtype=np.float32
-                    )
+                    ], dtype=np.float32)
+                else:
+                    guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start, self.t_end)
+                    t_gap = (ref_x - guide_point[0]) / self.state[3]
+                    while guide_point[0] < ref_x and t_gap < self.t_end and t_gap > 0:
+                        # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
+                        guide_point = self.get_bezier_guide_points(self.best_curve, self.t+t_gap, self.t_start, self.t_end)
+                        t_gap += self.dt
+                    # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
+                    if guide_point[0] >= obstacle.x+self.forward_sample:
+                        if self.state[0] > obstacle.x:  # 确保车辆完全通过
+                            self.processed_obstacles.add(obstacle.obs_id)
+                            self.generate_guide = 0
+                        self.best_curve = None
+                        guide_point = np.array([
+                            self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
+                        ], dtype=np.float32)
                 guide_points.append(guide_point)
             self.ref_points = np.array(guide_points, dtype=np.float32)
         self.state_full = np.zeros((self.pre_horizon, self.state_dim))
@@ -298,29 +303,82 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         for dynamic_veh in self.dynamic_obss:
             dynamic_veh.step()
         self.update_dynamic_state()
-
-        if self.generate_guide == 1 and self.guide_traj != None:
-            ref_x = self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num)
-            # new_ref_point = self.get_quintic_guide_points(self.guide_traj, self.t + self.pre_horizon * self.dt, self.t_start)
-            new_ref_point = self.get_bezier_guide_points(self.guide_traj, self.t + self.pre_horizon * self.dt, self.t_start, self.t_end)
-            t = (ref_x - new_ref_point[0]) / new_ref_point[3]
-            while new_ref_point[0] <= ref_x and t <= self.t_end and t > 0:
-                # new_ref_point = self.get_quintic_guide_points(self.guide_traj, t + self.pre_horizon * self.dt, self.t_start)
-                new_ref_point = self.get_bezier_guide_points(self.guide_traj, t + self.pre_horizon * self.dt, self.t_start, self.t_end)
-                t += self.dt
-            if new_ref_point[0] >= self.obstacle.x + self.forward_sample:
-                if self.state[0] > self.obstacle.x + self.obstacle.length / 2:  # 确保车辆完全通过
-                    self.processed_obstacles.add(self.obstacle.obs_id)
-                self.generate_guide = 0
-                self.guide_traj = None
+        if self.obstacle != None:
+            if self.generate_guide == 1 and self.best_curve == None:
                 new_ref_point = np.array([
-                    self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                    self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                    self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                    self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                ], dtype=np.float32
-                )
+                                    self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                                    self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                                    self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                                    self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                                ], dtype=np.float32
+                                )
 
+            #     obstacle, generate_guide = self.is_generate_guide()
+            #     if generate_guide and self.best_curve != None:
+            #         self.generate_guide = generate_guide
+            #         self.obstacle = obstacle
+            #         # quintic_curves = self.generate_quintic_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
+            #         bezier_curves = self.generate_bezier_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
+            #         self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
+            #         self.t_start = self.t
+            #         self.t_end = self.t + (self.obstacle.x + self.forward_sample - self.state[0]) / self.state[3]
+            #         for i in range(1, self.pre_horizon + 1):
+            #             ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
+            #             guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start,
+            #                                                        t_end=self.t_end)
+            #             t = (ref_x - guide_point[0]) / self.state[3]
+            #             while guide_point[0] < ref_x and t < self.t_end and t > 0:
+            #                 # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
+            #                 guide_point = self.get_bezier_guide_points(self.best_curve, t, self.t_start, self.t_end)
+            #                 t += self.dt
+            #             # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
+            #             if guide_point[0] >= self.obstacle.x + self.forward_sample:
+            #                 self.generate_guide = 0
+            #                 guide_point = np.array([
+            #                     self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
+            #                 ], dtype=np.float32
+            #                 )
+            #             self.ref_points[i] = guide_point
+            #         new_ref_point = guide_point
+
+            elif self.generate_guide == 1 and self.best_curve != None:
+                # ref_x = self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num)
+                # new_ref_point = self.get_quintic_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt, self.t_start)
+                new_ref_point = self.get_bezier_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt, self.t_start, self.t_end)
+                # t_gap = (ref_x - new_ref_point[0]) / new_ref_point[3]
+                # if t_gap > self.t_end and t_gap > 0:
+                #     new_ref_point = np.array([
+                #         self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #     ], dtype=np.float32
+                #     )
+                # else:
+                #     while new_ref_point[0] <= ref_x and t_gap <= self.t_end and t_gap > 0:
+                #         # new_ref_point = self.get_quintic_guide_points(self.best_curve, t + self.pre_horizon * self.dt, self.t_start)
+                #         new_ref_point = self.get_bezier_guide_points(self.best_curve, t_gap + self.pre_horizon * self.dt, self.t_start, self.t_end)
+                #         t_gap += self.dt
+                #     if new_ref_point[0] >= self.obstacle.x + self.forward_sample:
+                #         if self.state[0] > self.obstacle.x + self.obstacle.length / 2:  # 确保车辆完全通过
+                #             self.processed_obstacles.add(self.obstacle.obs_id)
+                #             self.generate_guide = 0
+                #             self.best_curve = None
+                #         new_ref_point = np.array([
+                #             self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         ], dtype=np.float32
+                #         )
+
+            if self.state[0] > self.obstacle.x:  # 确保车辆完全通过
+                self.processed_obstacles.add(self.obstacle.obs_id)
+                self.generate_guide = 0
+                self.obstacle = None
         else:
             # 判断下是否需要生成引导轨迹
             obstacle, generate_guide = self.is_generate_guide()
@@ -329,14 +387,13 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 self.obstacle = obstacle
                 # quintic_curves = self.generate_quintic_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
                 bezier_curves = self.generate_bezier_curves(obstacle)  # 生成3条贝塞尔曲线
-                self.guide_traj, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
+                self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
                 self.t_start = self.t
-                self.t_end = self.t + (self.obstacle.x + self.forward_sample - self.state[0]) / self.state[3]
+                self.t_end = self.t + (self.obstacle.x + self.forward_sample+obstacle.width/2 - self.state[0]) / self.state[3]
                 for i in range(1, self.pre_horizon+1):
                     ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
-
-                    # Check if guide_traj is None before proceeding
-                    if self.guide_traj is None and self.generate_guide == 0:
+                    # # Check if guide_traj is None before proceeding
+                    if self.best_curve is None:
                         # Use reference trajectory directly if guide trajectory is not available
                         guide_point = np.array([
                             self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
@@ -345,26 +402,25 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                             self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
                         ], dtype=np.float32)
                     else:
-                        guide_point = self.get_bezier_guide_points(self.guide_traj, self.t + i * self.dt, self.t_start,
-                                                                   t_end=self.t_end)
-
-                        t = (ref_x - guide_point[0]) / self.state[3]
-                        while guide_point[0] < ref_x and t < self.t_end and t > 0:
-                            # guide_point = self.get_guide_points(self.guide_traj, t, self.t_start)
-                            guide_point = self.get_bezier_guide_points(self.guide_traj, t, self.t_start, self.t_end)
-                            t += self.dt
+                        guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start,self.t_end)
+                        t_gap = (ref_x - guide_point[0]) / self.state[3]
+                        while guide_point[0] < ref_x and t_gap < self.t_end and t_gap > 0:
+                            # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
+                            guide_point = self.get_bezier_guide_points(self.best_curve, self.t+t_gap, self.t_start, self.t_end)
+                            t_gap += self.dt
                         # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
                         if guide_point[0] >= self.obstacle.x + self.forward_sample:
-                            if self.state[0] > self.obstacle.x + self.obstacle.length / 2:  # 确保车辆完全通过
-                                self.processed_obstacles.add(self.obstacle.obs_id)
+                            if self.state[0] > obstacle.x:  # 确保车辆完全通过
+                                self.processed_obstacles.add(obstacle.obs_id)
+                                self.generate_guide = 0
+                                self.obstacle = None
                             # self.processed_obstacles.add(self.obstacle.obs_id)
-                            self.generate_guide = 0
-                            self.guide_traj = None
+                            self.best_curve = None
                             guide_point = np.array([
-                                self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                                self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                                self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                                self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                                ref_x,
+                                self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+                                self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+                                self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
                             ], dtype=np.float32
                             )
                     self.ref_points[i] = guide_point
@@ -387,6 +443,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                     ],
                     dtype=np.float32,
                 )
+
         self.ref_points[-1] = new_ref_point
         self.update_dynamic_state()
         self.update_static_state()
@@ -426,6 +483,8 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 | (np.abs(angle_normalize(phi - ref_phi)) > np.pi)
                 | (np.any(dis < 0))
         )
+        # if np.any(dis < 0):
+        #     print("cillision with dynamic obstacle")
         return done
 
     def get_obs(self) -> np.ndarray:
@@ -526,25 +585,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 dtype=np.float32,
             )
 
-    def find_nearest_obstacle(self,
-                              current_pos: np.ndarray,
-                              static_obstacles) -> Tuple[Optional[int], float]:
-        """查找最近的障碍物"""
-        if not static_obstacles:
-            return None, float('inf')
-
-        min_dist = float('inf')
-        nearest_id = None
-        for obs_id, static_obstacle in enumerate(static_obstacles):
-            # 计算到障碍物的距离
-            obs_pos = np.array([static_obstacle.x, static_obstacle.y])
-            dist = np.linalg.norm(current_pos - obs_pos)
-            # 只考虑前方的障碍物
-            if obs_pos[0] > current_pos[0] and dist < min_dist:
-                min_dist = dist
-                nearest_id = obs_id
-        return nearest_id, min_dist
-
     def is_generate_guide(self) -> Tuple[Optional[StaticObstacle], int]:
         current_pos = self.state[:2]
         obstacles_in_range = []
@@ -633,12 +673,12 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 heading_diffs.append(abs(angle_normalize(end_heading - current_heading)))
             # 选择差异最小的曲线
             best_sub_idx = np.argmin(heading_diffs)
-            best_curve = valid_curves[best_sub_idx]#best_sub_idx
+            best_curve = valid_curves[best_sub_idx]#
             # 额外检查：如果选择的曲线与障碍物太近，选择另一条
-            if self._is_too_close_to_obstacle(best_curve, obstacle):
-                # 选择另一条曲线
-                self.curve_index = valid_indices[1 - best_sub_idx]
-                best_curve = valid_curves[1 - best_sub_idx]
+            # if self._is_too_close_to_obstacle(best_curve, obstacle):
+            #     # 选择另一条曲线
+            #     self.curve_index = valid_indices[1 - best_sub_idx]
+            #     best_curve = valid_curves[1 - best_sub_idx]
         return best_curve, can_cross
 
     def _is_too_close_to_obstacle(self, curve: BezierCurve, obstacle: StaticObstacle) -> bool:
@@ -668,16 +708,18 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         current_pos = self.state[:2]
         # 横向采样点
         lateral_offsets = [-self.lateral_sample-obstacle.width/2-self.veh_width/2, 0, self.lateral_sample+obstacle.width/2+self.veh_width/2]
-        lateral_points = [
+        mid_points = [
             np.array([obstacle.x, obstacle.y + offset]) for offset in lateral_offsets
         ]
 
         # 终点位置（统一使用前方采样点）
-        end_point = np.array([obstacle.x + self.forward_sample+obstacle.length*1.5, obstacle.y])
+        end_point = [
+            np.array([obstacle.x + self.forward_sample+obstacle.length/2, obstacle.y + offset]) for offset in lateral_offsets
+        ]
 
         # 生成三条候选曲线
-        for control_point in lateral_points:
-            curve = BezierCurve(current_pos, control_point, end_point)
+        for i in range(len(mid_points)):
+            curve = BezierCurve(current_pos, mid_points[i], end_point[i])
             curves.append(curve)
         return curves
 
@@ -761,7 +803,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         if t_end <= t_start:
             t_end = t_start + self.dt
         # 确保时间间隔合理
-        time_interval = max(t_end - t_start, 0.1)
+        time_interval = t_end - t_start
         # 确保时间参数在有效范围内
         t = np.clip((t_interpolate - t_start) / time_interval, 0, 1)
 
@@ -773,9 +815,9 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             derivative = np.array([1e-6, 0])  # 小量向前
 
         phi = np.arctan2(derivative[1], derivative[0])
-        global_phi = self.ref_traj.compute_phi(t_interpolate, self.path_num, self.u_num)
-        blend_ratio = np.clip(t, 0.2, 0.8)  # 渐进混合系数
-        phi = angle_normalize(blend_ratio * phi + (1 - blend_ratio) * global_phi)
+        # global_phi = self.ref_traj.compute_phi(t_interpolate, self.path_num, self.u_num)
+        # blend_ratio = np.clip(t, 0.2, 0.8)  # 渐进混合系数
+        # phi = angle_normalize(blend_ratio * phi + (1 - blend_ratio) * global_phi)
 
         u = self.ref_traj.compute_u(t_interpolate, self.path_num, self.u_num)
 
@@ -803,7 +845,8 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             "guide_time_interval": self.guide_time_interval,
             "t_start": self.t_start,
             "t_end": self.t_end,
-            "location":self.state
+            "location":self.state,
+            "best_curve_isnone": self.best_curve==None,
         })
         return info
 
@@ -866,8 +909,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         import matplotlib.patches as pc
         legend_label = ['Ego', 'Global', 'Local']
 
-
-
         # 原有障碍物绘制逻辑
         for i in range(self.dynamic_obstacle_num):
             dynamicx, dynamicy, dynamicphi = self.dynamic_state[i, :3]
@@ -881,8 +922,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 zorder=1
             ))
             legend_label.append(f'Dynamic_{i}')
-
-
 
         # 绘制静态障碍物（原有逻辑保持不变）
         for i_static in range(self.static_obstacle_num):
@@ -911,33 +950,22 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
             # 在图例中标注是否可跨越
             legend_label.append(f'Static_{i_static}({"Cross" if can_cross else "Avoid"})')
-            # ax.add_patch(pc.Rectangle(
-            #     (static_x - static_length / 2, static_y - static_width / 2),
-            #     static_length,
-            #     static_width,
-            #     angle=static_phi * 180 / np.pi,
-            #     facecolor='gray',
-            #     edgecolor='gray',
-            #     zorder=1
-            # ))
-            # legend_label.append(f'Static_{i_static}')
 
-        # 更新图例
-        ax.legend(legend_label, ncol=3, loc='upper left', fontsize=6)
+
         # 新增绘制逻辑 -------------------------------------------------
-        if hasattr(self, 'guide_traj') and self.guide_traj is not None:
+        if hasattr(self, 'guide_traj') and self.best_curve is not None:
             # 绘制贝塞尔曲线
             t_values = np.linspace(0, 1, 20)
-            curve_points = [self.guide_traj.compute_point(t) for t in t_values]
+            curve_points = [self.best_curve.compute_point(t) for t in t_values]
             x_coords = [p[0] for p in curve_points]
             y_coords = [p[1] for p in curve_points]
             ax.plot(x_coords, y_coords, 'c--', linewidth=1.5, zorder=3, label='Bezier Trajectory')
 
             # 绘制控制点
             control_points = [
-                self.guide_traj.p0,
-                self.guide_traj.p1,
-                self.guide_traj.p2
+                self.best_curve.p0,
+                self.best_curve.p1,
+                self.best_curve.p2
             ]
             colors = ['ro', 'go', 'bo']  # 红:起点, 绿:控制点, 蓝:终点
             labels = ['Start Point', 'Control Point', 'End Point']
@@ -947,14 +975,16 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                 ax.text(point[0] + 0.5, point[1] + 0.5, label, fontsize=8, color=color[0])
 
             # 连接控制点辅助线
-            ax.plot([self.guide_traj.p0[0], self.guide_traj.p1[0]],
-                    [self.guide_traj.p0[1], self.guide_traj.p1[1]],
+            ax.plot([self.best_curve.p0[0], self.best_curve.p1[0]],
+                    [self.best_curve.p0[1], self.best_curve.p1[1]],
                     'g:', linewidth=0.8, zorder=2)
-            ax.plot([self.guide_traj.p1[0], self.guide_traj.p2[0]],
-                    [self.guide_traj.p1[1], self.guide_traj.p2[1]],
+            ax.plot([self.best_curve.p1[0], self.best_curve.p2[0]],
+                    [self.best_curve.p1[1], self.best_curve.p2[1]],
                     'b:', linewidth=0.8, zorder=2)
             legend_label.extend(['Bezier Curve', 'Control Lines'])
         # ------------------------------------------------------------
+        # 更新图例
+        ax.legend(legend_label, ncol=3, loc='upper left', fontsize=6)
 
 def env_creator(**kwargs):
     return SimuVeh3dofBimodalPlanning(**kwargs)
