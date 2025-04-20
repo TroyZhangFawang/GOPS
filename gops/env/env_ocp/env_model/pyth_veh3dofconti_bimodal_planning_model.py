@@ -174,7 +174,11 @@ class QuinticPolynomial:
 class BezierCurve:
     """二阶贝塞尔曲线类"""
 
-    def __init__(self, p0: torch.Tensor, p1: torch.Tensor, p2: torch.Tensor):
+    def __init__(self, p0: torch.Tensor, p1: torch.Tensor, p2: torch.Tensor,device: Union[torch.device, str, None] = None,):
+        self.device = device
+        p0=p0.to(device=self.device)
+        p1 = p1.to(device=self.device)
+        p2 = p2.to(device=self.device)
         self.p0 = p0  # 起点
         self.p1 = p1  # 控制点
         self.p2 = p2  # 终点
@@ -186,6 +190,7 @@ class BezierCurve:
         Returns:
             point: [x, y]坐标的tensor
         """
+        t = t.to(device=self.device)
         return (1 - t) ** 2 * self.p0 + 2 * (1 - t) * t * self.p1 + t ** 2 * self.p2
 
     # def compute_point(self, t: torch.Tensor) -> torch.Tensor:
@@ -561,8 +566,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         delta_x, delta_y, delta_phi, delta_u = obs[:, 0], obs[:, 1], obs[:, 2], obs[:, 3]
         v, w = obs[:, 4], obs[:, 5]
         steer, a_x = action[:, 0], action[:, 1]
-        dis = - self.get_constraint(obs, info).min()
-        # dis = torch.min(dis)
+        dis = torch.min(- self.get_constraint(obs, info), dim=1)[0]# sum or min?
         collision_bound = 0.5
         dis_to_tanh = torch.maximum(8 - 8 * dis / collision_bound, torch.zeros_like(dis))
         punish_dis = torch.tanh(dis_to_tanh - 4) + 1
@@ -641,7 +645,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         #     | (torch.abs(delta_phi) > np.pi)
         #     # | (torch.any(dis < 0., dim=1))
         # )
-        done = torch.zeros(obs.shape[0]).bool()
+        done = torch.zeros(obs.shape[0], device=self.device).bool()
         return done
 
     # def is_generate_guide(self, current_pos: torch.Tensor, batch_idx: int) -> Tuple[Optional[StaticObstacle], bool]:
@@ -668,11 +672,10 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         dists = torch.norm(current_pos - obs_positions, dim=1)
 
         # 筛选前方未处理的障碍物
-        forward_mask = obs_positions[:, 0] > current_pos[0]
+        forward_mask = torch.tensor(obs_positions[:, 0] > current_pos[0], device=self.device)
         unprocessed_mask = torch.tensor([obs.obs_id[batch_idx] not in self.processed_obstacles[batch_idx]
-                                         for obs in self.static_obss])
-        valid_mask = (dists < self.d_pre) & forward_mask & unprocessed_mask
-
+                                         for obs in self.static_obss], device=self.device)
+        valid_mask = torch.tensor(dists < self.d_pre,  device=self.device) & forward_mask & unprocessed_mask
         if not torch.any(valid_mask):
             return None, False
 
@@ -998,7 +1001,8 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
             curve = BezierCurve(
                 state,
                 mid_points[i],
-                end_points[i]
+                end_points[i],
+                self.device
             )
             curves.append(curve)
         return curves
