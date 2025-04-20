@@ -567,7 +567,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
         v, w = obs[:, 4], obs[:, 5]
         steer, a_x = action[:, 0], action[:, 1]
         dis = torch.min(- self.get_constraint(obs, info), dim=1)[0]# sum or min?
-        collision_bound = 0.5
+        collision_bound = 1.0
         dis_to_tanh = torch.maximum(8 - 8 * dis / collision_bound, torch.zeros_like(dis))
         punish_dis = torch.tanh(dis_to_tanh - 4) + 1
 
@@ -580,7 +580,7 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
                 + 0.5 * w ** 2
                 + 0.5 * steer ** 2
                 + 0.5 * a_x ** 2
-                + 15.0 * punish_dis.squeeze()
+                + 20.0 * punish_dis.squeeze()
         )
 
 

@@ -16,6 +16,7 @@ __all__ = [
     "DetermPolicy",
     "FiniteHorizonPolicy",
     "FiniteHorizonFullPolicy",
+    "DiffusionPolicyeasy",
     "StochaPolicy",
     "ActionValue",
     "ActionValueDis",
@@ -342,9 +343,9 @@ class DiffusionMLP(nn.Module):
     MLP Model
     """
 
-    def __init__(self, state_dim, action_dim, hidden_dim, device, t_dim=16):
+    def __init__(self, state_dim, action_dim, hidden_dim, t_dim=16):#, device
         super(DiffusionMLP, self).__init__()
-        self.device = device
+        # self.device = device
         self.t_dim = t_dim
         self.a_dim = action_dim
         self.time_mlp = nn.Sequential(
@@ -376,9 +377,9 @@ class DiffusionMLP(nn.Module):
 
     def forward(self, x, time, state, **kwargs):
         t = self.time_mlp(time)
-        x = x.to(self.device)
-        t = t.to(self.device)
-        state = state.to(self.device)
+        # x = x.to(self.device)
+        # t = t.to(self.device)
+        # state = state.to(self.device)
         x = torch.cat([x, t, state], dim=1)
         x = self.mid_layer(x)
 
@@ -645,38 +646,37 @@ class DiffusionPolicyeasy(nn.Module,Action_Distribution):
         act_dim = kwargs["act_dim"]
         hidden_sizes = kwargs["hidden_sizes"]
         self.std_type = kwargs["std_type"]
-        self.device = torch.device(kwargs["device"])
+        # self.device = torch.device(kwargs["device"])
         self.action_distribution_cls = kwargs["action_distribution_cls"]
-
         self.min_log_std = kwargs["min_log_std"]
         self.max_log_std = kwargs["max_log_std"]
         self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]))
         self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]))
 
-        self.w = kwargs["policy_w"]
-        self.T = kwargs["policy_T"]
+        # self.w = kwargs["policy_w"]
+        self.T = kwargs["T"]
         self.state_dim = kwargs["obs_dim"]
         self.action_dim = kwargs["act_dim"]
         self.max_action = kwargs["act_high_lim"][0]
-        self.model = DiffusionMLP(obs_dim, act_dim, hidden_sizes, self.device).to(self.device)
-
+        # self.model = DiffusionMLP(obs_dim, act_dim, hidden_sizes, self.device).to(self.device)
+        self.model = DiffusionMLP(obs_dim, act_dim, hidden_sizes)
         if beta_schedule == "linear":
             betas = linear_beta_schedule(self.T)
         elif beta_schedule == "cosine":
             betas = cosine_beta_schedule(self.T)
         elif beta_schedule == "vp":
             betas = vp_beta_schedule(self.T)
-        betas = betas.to(self.device)
+        # betas = betas.to(self.device)
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, axis=0)
-        alphas_cumprod_prev = torch.cat([torch.ones(1, device=self.device), alphas_cumprod[:-1]])
+        alphas_cumprod_prev = torch.cat([torch.ones(1), alphas_cumprod[:-1]])#, device=self.device
 
         self.n_timesteps = self.T
         self.clip_denoised = clip_denoised
         self.predict_epsilon = predict_epsilon
 
         self.register_buffer("betas", betas)
-        self.register_buffer("alphas" , alphas)
+        self.register_buffer("alphas", alphas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
         self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
 
@@ -729,15 +729,15 @@ class DiffusionPolicyeasy(nn.Module,Action_Distribution):
     ):
         batch_size = shape[0]
         # x = torch.full(shape, -1.0, device=self.device, requires_grad=True)
-        x = torch.zeros(shape, device=self.device, requires_grad=True)
+        x = torch.zeros(shape, requires_grad=True)#, device=self.device
         # x = 0.5 * torch.randn(shape, device=self.device, requires_grad=True)
         if return_diffusion:
             diffusion = [x]
         for i in reversed(range(0, self.n_timesteps)):
             timesteps = torch.full(
-                (batch_size,), i, device=self.device, dtype=torch.long
-            )
-            device = x.device
+                (batch_size,), i, dtype=torch.long
+            )#, device=self.device
+            # device = x.device
             eps = self.model(x, timesteps, state)
             x_0_pred = extract(self.sqrt_recip_alphas_cumprod, timesteps, x.shape) * x- extract(self.sqrt_recipm1_alphas_cumprod, timesteps, x.shape) * eps
             x_0_pred = x_0_pred.clamp_(-self.max_action, self.max_action)
@@ -754,7 +754,7 @@ class DiffusionPolicyeasy(nn.Module,Action_Distribution):
             return x
 
     def forward(self, obs, **kwargs):
-        obs = obs.to(self.device)
+        # obs = obs.to(self.device)
         return self.sample(obs, **kwargs)
 
 # class doublemlpDiffusionPolicy(nn.Module,Action_Distribution):

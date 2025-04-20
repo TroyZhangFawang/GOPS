@@ -212,7 +212,6 @@ class SimuVeh3dofconti(PythBaseEnv):
         # for i in range(1, self.pre_horizon):
         #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
         #         self.state_full[i, :] = state
-        #
         # #############
 
         self.t = self.t + self.dt
