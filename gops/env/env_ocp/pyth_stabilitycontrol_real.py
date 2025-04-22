@@ -23,36 +23,36 @@ from gops.utils.math_utils import angle_normalize
 class VehicleDynamicsData:
     def __init__(self):
         self.vehicle_params = dict(
-            state_dim=13,
-            m=2257 + 139.4 + 172,  # Total mass[kg]
-            mu=139.4 + 172,
-            ms=2257,  # Sprung mass[kg]
+            state_dim=8,
+            m=2204,  # Total mass[kg]
+            mu=367.8,
+            ms=1836.2,  # Sprung mass[kg]
             A=3.3,  # Front area
             rho=1.206, #air mass density
             Cd=0.3,  # coefficient of air force
             g=9.81,
-            Rw=0.368,
+            Rw=0.426,
             Iw=3.1,  # wheel spin inertia [kg m2]
             mu_r=0.015,  # rolling resistence coefficient
-            lw=0.8625 * 2,
-            lf=1.33,  # Distance between the center of gravity (CG)and its front axle [m]
-            lr=3.140 - 1.33,  # Distance between the CGand its rear axle [m]
-            hs=0.766731475-0.2,  # Height of the CG of the sprung mass for to the ground [m]
-            hr=0.2,  # Height of the CG of the roll center to the ground
-            hu=0.4,  # Height of the CG of the un-sprung mass to the ground
-            Izz=3524.9,  # Yaw moment of inertia of the whole mass[kg m^2]
-            Ixx=846.6,  # Roll moment of inertia of the sprung mass[kg m^2]
+            lw=1.8,
+            lf=1.4442,  # Distance between the center of gravity (CG)and its front axle [m]
+            lr=1.5558,  # Distance between the CGand its rear axle [m]
+            hs=0.75,  # Height of the CG of the sprung mass for to the ground [m]
+            hr=0.5,  # Height of the CG of the roll center to the ground
+            hu=0.25,  # Height of the CG of the un-sprung mass to the ground
+            Izz=10550,  # Yaw moment of inertia of the whole mass[kg m^2]
+            Ixx=10.7,  # Roll moment of inertia of the sprung mass[kg m^2]
             Ixz=0,  # Roll–yaw product of inertia of the sprung mass[kg m^2]
-            k_alpha1=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
-            k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
-            k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
-            k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
+            k_alpha1=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the 1st wheel[N/rad]
+            k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the rear axle[N/rad]
+            k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the rear axle[N/rad]
             C_slip1=8.885 * 1.525 * 1.062e+04,  # N
             C_slip2=8.885 * 1.525 * 1.062e+04,  # N
             C_slip3=8.885 * 1.525 * 1.062e+04,  # N
             C_slip4=8.885 * 1.525 * 1.062e+04,  # N
-            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
-            C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
+            K_varphi=28000,#(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
+            C_varphi=5000,  # Roll damping of the suspension [N-m-s/rad]
         )
     
         self.m = self.vehicle_params["m"]  # Total mass[kg]
@@ -91,7 +91,6 @@ class VehicleDynamicsData:
     def f_xu(self, states, actions, delta_t, road_info):
         theta_road, varphi_road = road_info
         R = np.array([theta_road, varphi_road]).reshape(2, 1)
-
         x, y, phi, v_x, v_y, phi_dot, varphi, varphi_dot = states[:8]
         X = np.array(states[3:8]).reshape(5, 1)
         U = actions.reshape(5, 1)
@@ -183,7 +182,6 @@ class VehicleDynamicsData:
         state_next[2] = phi + delta_t * phi_dot
         state_next[2] = angle_normalize(state_next[2])
         state_next[3:8] = states[3:8] + delta_t * X_dot
-        state_next[8:13] = actions
         return state_next
 
 class Fourwdstabilitycontrol(PythBaseEnv):

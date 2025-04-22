@@ -29,14 +29,14 @@ class cost_update_pdp:
 
     def step(self, iter_up, traj, cost_paras):
         self.writer_up.add_scalar(tb_tags["Q_y1_tt"], cost_paras[0], iter_up)
-        self.writer_up.add_scalar(tb_tags["Q_v1_tt"], cost_paras[1], iter_up)
+        self.writer_up.add_scalar(tb_tags["Q_u1_tt"], cost_paras[1], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_psi1_tt"], cost_paras[2], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_psi1dot_tt"], cost_paras[3], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_beta1_tt"], cost_paras[4], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_phi1_tt"], cost_paras[5], iter_up)
         self.writer_up.add_scalar(tb_tags["Q_phi1dot_tt"], cost_paras[6], iter_up)
-        self.writer_up.add_scalar(tb_tags["R_str_tt"], cost_paras[7], iter_up)
-        self.writer_up.add_scalar(tb_tags["R_strdot_tt"], cost_paras[8], iter_up)
+        self.writer_up.add_scalar(tb_tags["R_u_tt"], cost_paras[7], iter_up)
+        self.writer_up.add_scalar(tb_tags["R_udot_tt"], cost_paras[8], iter_up)
         ref_state_traj = np.zeros((self.horizon+1, 3))
         dp = torch.zeros(cost_paras.shape)
 
@@ -66,12 +66,26 @@ class cost_update_pdp:
         dldX_traj = np.zeros((self.horizon, 1, self.env.state_dim))
         x_1, x_2 = MX.sym('x_1', (1, self.env.state_dim)), MX.sym('x_2', (1, 3))
         # (y2-y2_ref)**2 +phi2**2+ phi2dot**2+ (psi2-psi2_ref)**2 + psi2dot**2
-        dloss = jacobian(sum1(sum2((x_1[self.env.state_dim-3] - x_2[1]) ** 2+x_1[4]**2+x_1[5]**2+x_1[6]**2+(x_1[7])**2+(x_1[9]-x_2[2])**2)), x_1)
+        dloss = jacobian(sum1(sum2((x_1[5] - x_2[1]) ** 2+(x_1[6]-x_2[2])**2+x_1[12]**2+x_1[13]**2+x_1[14]**2+x_1[15]**2)), x_1)
         dloss_fn = casadi.Function('dfx', [x_1, x_2], [dloss])
         for i_step in range(self.horizon):
-            ref_state_tensor = self.env.ref_traj.find_nearst_point(torch.tensor([traj['state_traj_opt'][i_step, 14], traj['state_traj_opt'][i_step, 12]]).reshape(1,-1))
-            ref_state = np.array(ref_state_tensor)
-            ref_state_traj[i_step, :] = np.array(ref_state)
+            # ref_state_tensor = self.env.ref_traj.find_nearst_point(torch.tensor([traj['state_traj_opt'][i_step, 14], traj['state_traj_opt'][i_step, 12]]).reshape(1,-1))
+            # ref_state = np.array(ref_state_tensor)
+            # ref_state_traj[i_step, :] = np.array(ref_state)
+            next_t2 = traj['ref_time2_rollout'][i_step]
+            path_num = traj['path_num_rollout'][i_step]
+            u_num = traj['u_num_rollout'][i_step]
+            ref_state = np.array(
+                [self.env.ref_traj.compute_x(
+                    next_t2, path_num, u_num
+                ),
+                    self.env.ref_traj.compute_y(
+                        next_t2, path_num, u_num
+                    ),
+                    self.env.ref_traj.compute_phi(
+                        next_t2, path_num, u_num
+                    )])
+            ref_state_traj[i_step, :] = ref_state
             dldX = dloss_fn(traj['state_traj_opt'][i_step, 0, :], ref_state)
             dldX_traj[i_step, :, :] = np.array(dldX)
         # chain rule
@@ -79,7 +93,6 @@ class cost_update_pdp:
         for t in range(self.horizon):
             dp = dp + torch.mm(dldX_traj[t, :, :], torch.from_numpy(dxdp_traj[t]))
         dp = dp + torch.mm(dldX_traj[-1, :, :], torch.from_numpy(dxdp_traj[-1]))
-
 
         upper_loss = self.loss_upper_evaluator_2d(traj['state_traj_opt'][0, :, :],
                                                             ref_state_traj[:, :])
@@ -101,21 +114,21 @@ class cost_update_pdp:
         return cost_paras
 
     def loss_upper_evaluator_3d(self, state, state_up):
-        L = (((state[:, :,  self.env.state_dim - 3] - state_up[:, :, 1]) ** 2) +
-             state[:, :, 4] ** 2 +
-             state[:, :, 5] ** 2 +
-             state[:, :, 6] ** 2 +
-             (state[:, :, 9]-state_up[:, :, 2]) ** 2+
-             state[:, :, 7] ** 2).mean()
+        L = (((state[:, :,  5] - state_up[:, :, 1]) ** 2) +
+             (state[:, :, 6] - state_up[:, :, 2]) ** 2 +
+             state[:, :, 11] ** 2 +
+             state[:, :, 12] ** 2 +
+             state[:, :, 13] ** 2 +
+             state[:, :, 14] ** 2).mean()
         return L
 
     def loss_upper_evaluator_2d(self, state, state_up):
-        L = (((state[:,  self.env.state_dim - 3] - state_up[:, 1]) ** 2) +
-             state[:, 4] ** 2 +
-             state[:, 5] ** 2 +
-             state[:, 6] ** 2 +
-             (state[:, 9]-state_up[:, 2]) ** 2+
-             state[:, 7] ** 2).mean()
+        L = (((state[:,  5] - state_up[:, 1]) ** 2) +
+             (state[:, 6] - state_up[:, 2]) ** 2 +
+             state[:, 11] ** 2 +
+             state[:, 12] ** 2 +
+             state[:, 13] ** 2 +
+             state[:, 14] ** 2).mean()
         return L
 
 tb_tags = {
@@ -151,6 +164,6 @@ tb_tags = {
     "Q_phi1_tt": "Weight/Weight on rollangle_tractor",
     "Q_phi1dot_tt": "Weight/Weight on roll rate_tractor",
     "R_accel_tt": "Weight/Weight on acceleration action",
-    "R_str_tt": "Weight/Weight on steering angle action",
-    "R_strdot_tt": "Weight/Weight on steering angle action increment",
+    "R_u_tt": "Weight/Weight on steering angle action",
+    "R_udot_tt": "Weight/Weight on steering angle action increment",
 }

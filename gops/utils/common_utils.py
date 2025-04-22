@@ -74,6 +74,7 @@ def get_apprfunc_dict(key: str, **kwargs):
         var["hidden_sizes"] = kwargs[key + "_hidden_sizes"]
         var["hidden_activation"] = kwargs[key + "_hidden_activation"]
         var["output_activation"] = kwargs[key + "_output_activation"]
+        var["T"] = kwargs[key + "_T"]
     #################################################################
     elif apprfunc_type == "TFP" or apprfunc_type == "TFPLIPS" or apprfunc_type == "TTP":
         var["d_model"] = kwargs["d_model"]

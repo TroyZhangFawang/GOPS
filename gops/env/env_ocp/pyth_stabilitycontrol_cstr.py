@@ -47,10 +47,10 @@ class VehicleDynamicsData:
             k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the 1st wheel[N/rad]
             k_alpha3=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
             k_alpha4=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180,  # Tire cornering stiffness of the rear axle[N/rad]
-            C_slip1=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip2=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip3=8.885 * 1.525 * 1.062e+04,  # N
-            C_slip4=8.885 * 1.525 * 1.062e+04,  # N
+            C_slip1=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip2=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip3=8.885 * 1.525 * 1.062e+04/4,  # N
+            C_slip4=8.885 * 1.525 * 1.062e+04/4,  # N
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
             C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
             mu_road=0.85,  # road Adhesion coefficient
@@ -132,23 +132,23 @@ class VehicleDynamicsData:
 
         R_matrix = np.zeros((5, 2))
         R_matrix[0, 0] = -self.g
-        R_matrix[1, 1] = (self.Izz * self.ms * self.hs * self.K_varphi -
-                          self.g * self.m * (self.Ixx * self.Izz - self.Ixz ** 2)) / dividend
+        R_matrix[1, 1] = (self.Izz * self.ms * self.hs*self.K_varphi-
+                          self.g*self.m*(self.Ixx*self.Izz-self.Ixz**2)) / dividend
 
-        R_matrix[2, 1] = (self.m * self.Ixz * self.K_varphi -
-                          self.m * self.Ixz * self.ms * self.hs * self.g) / dividend
+        R_matrix[2, 1] = (self.m * self.Ixz *self.K_varphi-
+                          self.m*self.Ixz*self.ms*self.hs*self.g) / dividend
 
-        R_matrix[4, 1] = (self.m * self.Izz * self.K_varphi - self.m * self.Izz * self.ms * self.hs * self.g) / dividend
+        R_matrix[4, 1]= (self.m * self.Izz*self.K_varphi-self.m*self.Izz*self.ms*self.hs*self.g) / dividend
 
         Lc_matrix = np.zeros((3, 8))
         Lc_matrix[0, 0], Lc_matrix[0, 2], Lc_matrix[0, 4], Lc_matrix[0, 6] = 1, 1, 1, 1
 
-        Lc_matrix[1, 1], Lc_matrix[1, 3], Lc_matrix[1, 5], Lc_matrix[1, 7] = 1, 1, 1, 1
+        Lc_matrix[1, 1], Lc_matrix[1, 3], Lc_matrix[1, 5], Lc_matrix[1, 7]= 1, 1, 1, 1
 
         Lc_matrix[2, 0], Lc_matrix[2, 1], Lc_matrix[2, 2], Lc_matrix[2, 3], \
-            Lc_matrix[2, 4], Lc_matrix[2, 5], Lc_matrix[2, 6], Lc_matrix[2, 7] \
-            = -self.lw / 2, self.lf, self.lw / 2, self.lf, \
-              -self.lw / 2, -self.lr, self.lw / 2, -self.lr
+        Lc_matrix[2, 4], Lc_matrix[2, 5], Lc_matrix[2, 6], Lc_matrix[2, 7] \
+            = -self.lw/2, self.lf, self.lw/2, self.lf, \
+          -self.lw/2, -self.lr, self.lw/2, -self.lr
 
         Mw1 = np.array([[np.cos(delta), -np.sin(delta)],
                         [np.sin(delta), np.cos(delta)]])
@@ -163,7 +163,7 @@ class VehicleDynamicsData:
 
         At_matrix = np.zeros((8, 5))
 
-        At_matrix[1, 1], At_matrix[1, 2] = -self.k_alpha1 / v_x, -self.k_alpha1 * self.lf / v_x
+        At_matrix[1, 1], At_matrix[1, 2] = -self.k_alpha1/v_x, -self.k_alpha1*self.lf/v_x
 
         At_matrix[3, 1], At_matrix[3, 2] = -self.k_alpha2 / v_x, -self.k_alpha2 * self.lf / v_x
 
@@ -172,17 +172,16 @@ class VehicleDynamicsData:
         At_matrix[7, 1], At_matrix[7, 2] = -self.k_alpha4 / v_x, -self.k_alpha4 * (-self.lr) / v_x
 
         Bt_matrix = np.zeros((8, 5))
-        Bt_matrix[0, 0], Bt_matrix[2, 1], Bt_matrix[4, 2], Bt_matrix[
-            6, 3] = 1 / self.Rw, 1 / self.Rw, 1 / self.Rw, 1 / self.Rw
+        Bt_matrix[0, 0], Bt_matrix[2, 1], Bt_matrix[4, 2], Bt_matrix[6, 3] = 1/self.Rw, 1/self.Rw,1/self.Rw, 1/self.Rw
         Bt_matrix[1, 4], Bt_matrix[3, 4] = self.k_alpha1, self.k_alpha2
 
         temp = np.matmul(At_matrix, X) + np.matmul(Bt_matrix, U)
 
         X_dot = (np.matmul(A_matrix, X) + np.matmul(np.matmul(np.matmul(
-            B_matrix, Lc_matrix), Mw_matrix), temp) + np.matmul(R_matrix, R)).squeeze()
+            B_matrix, Lc_matrix), Mw_matrix), temp)+np.matmul(R_matrix, R)).squeeze()
 
-        state_next[0] = x + delta_t * (v_x * np.cos(phi) - v_y * np.sin(phi))
-        state_next[1] = y + delta_t * (v_y * np.cos(phi) + v_x * np.sin(phi))
+        state_next[0] = x + delta_t*(v_x*np.cos(phi)-v_y*np.sin(phi))
+        state_next[1] = y + delta_t*(v_y*np.cos(phi)+v_x*np.sin(phi))
         state_next[2] = phi + delta_t * phi_dot
         state_next[2] = angle_normalize(state_next[2])
         state_next[3:8] = states[3:8] + delta_t * X_dot
@@ -197,7 +196,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
     def __init__(
         self,
         pre_horizon: int = 30,
-        min_torque: float = 0.0,
+        min_torque: float = -298.0,
         max_torque: float = 298.0,
         max_steer: float = 0.5,
         max_delta_torque: float = 10.0,
@@ -243,7 +242,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 1000
+        self.max_episode_steps = 750
 
         self.state = None
         self.ref_x = None
@@ -260,6 +259,8 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             "ref": {"shape": (6,), "dtype": np.float32},
             "ref_time": {"shape": (), "dtype": np.float32},
             "constraint": {"shape": (2, ), "dtype": np.float32},
+            # "constraint_yawrate": {"shape": (1,), "dtype": np.float32},
+            # "constraint_sideslip": {"shape": (1,), "dtype": np.float32},
         }
         self.seed()
 
@@ -277,7 +278,8 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         if ref_time is not None:
             self.t = ref_time
         else:
-            self.t = self.np_random.uniform(0.0, 20.0)
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
+
         # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
         if ref_num is None:
             path_num = None
@@ -292,17 +294,17 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([1])
+            self.path_num = self.np_random.choice([0, 1])
 
         if u_num is not None:
             self.u_num = u_num
         else:
-            self.u_num = self.np_random.choice([0])
+            self.u_num = self.np_random.choice([0, 1])
 
         if slope_num is not None:
             self.slope_num = slope_num
         else:
-            self.slope_num = self.np_random.choice([1])
+            self.slope_num = self.np_random.choice([0, 1])
 
         ref_points = []
         slope_points = []
@@ -332,9 +334,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             delta_state = np.array(init_state, dtype=np.float32)
         else:
             delta_state = self.sample_initial_state()
-        torque = np.random.uniform(0, 298)
+        torque = np.random.uniform(50, 298)
         steer = np.random.uniform(-0.5, 0.5)
-        action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
+        action_psc = np.array([0]*5)#np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
         self.state = np.concatenate(
             (self.ref_points[0][:4] + delta_state[:4], delta_state[4:8], action_psc))
 
@@ -380,7 +382,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.slope_points[-1] = new_slope_point
         self.done = self.judge_done()
         if self.done:
-            reward = reward - 1000
+            reward = reward - 5000
         return self.get_obs(), reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -429,9 +431,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha3/self.vehicle_dynamics.Izz,
         #                       self.vehicle_dynamics.lr*self.vehicle_dynamics.k_alpha4/self.vehicle_dynamics.Izz]])
         # delta_matrix = np.array([[delta1], [delta2], [delta3], [delta4]])
-        #
         # later_ref = np.matmul(np.matmul(np.linalg.inv(I_matrix), k_matrix), delta_matrix)
-        # beta_ref = 0#later_ref[0][0]
+        # beta_ref = later_ref[0][0]
+
         phi_dot_ref = 0#later_ref[1][0]
         C_varphi = 2/(self.vehicle_dynamics.m*self.vehicle_dynamics.g*self.vehicle_dynamics.lw*np.cos(self.slope_points[0, 0])*np.cos(self.slope_points[0, 1]))*\
                    (self.vehicle_dynamics.K_varphi*(1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+
@@ -441,32 +443,26 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         C_varphi_dot = 2*C_varphi/(self.vehicle_dynamics.m*self.vehicle_dynamics.g*self.vehicle_dynamics.lw*np.cos(self.slope_points[0, 0])*np.cos(self.slope_points[0, 1]))*\
                        ((1+(self.vehicle_dynamics.ms*self.vehicle_dynamics.hr+self.vehicle_dynamics.mu*self.vehicle_dynamics.hu)/
                                                     (self.vehicle_dynamics.ms*self.vehicle_dynamics.hs)))
-        I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
+        self.I_rollover = C_varphi*varphi+C_varphi_dot*varphi_dot
         # kappa_constant = 0.15#vx/self.vehicle_dynamics.Rw
         # r_action_Q = np.sum((self.action[0:4]/254.8) ** 2)
         # print(r_action_Q)
         # r_action_str = np.sum((self.action[4:]) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
         r_action_strdot = (action[4]/0.02) ** 2
-        # r_action_deltaQ = dQ1 ** 2 + dQ2 ** 2 + dQ3 ** 2 + dQ4 ** 2
-        # r_action_deltastr = np.sum((action[9:16:2]) ** 2)
-        # r_action_deltaQdot = np.sum((action[8:16:2]-self.action_last[8:16:2]) ** 2)
-        # r_action_deltastrdot = np.sum((action[9:16:2]-self.action_last[9:16:2]) ** 2)
+
         return -(
                 0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-                + 0.04 * (vx - ref_vx) ** 2
+                + 0.07 * (vx - ref_vx) ** 2
                 + 0.02 * angle_normalize(phi - ref_phi) ** 2
                 + 0.01 * (phi_dot - phi_dot_ref) ** 2
-                + 0.02 * I_rollover ** 2
+                + 0.01 * self.I_rollover ** 2
                 # + 0.01 * r_action_Q
                 # + 0.01 * r_action_str
                 + 0.01 * r_action_Qdot
                 + 0.01 * r_action_strdot
+                # + 0.01 * r_slip
                 # + 0.5 * (beta - beta_ref) ** 2
-                # + 1e-8 * r_action_deltaQ
-                # + 1e-4 * r_action_deltastr
-                # + 1e-4 * r_action_deltaQdot
-                # + 1e-1 * r_action_deltastrdot
         )
 
     def judge_done(self) -> bool:
@@ -479,9 +475,131 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
 
     def get_constraint(self) -> np.ndarray:
         side_slip_angle = self.state[4] / self.state[3]
+        print(abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g)))
         constraint = np.array([abs(self.state[5]) - abs(self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g/self.state[3]), abs(side_slip_angle) - abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g))], dtype=np.float32)
         return constraint
 
+    def get_constraint_yawrate(self) -> np.ndarray:
+        constraint = np.array([abs(self.state[5]) - abs(self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g/self.state[3])], dtype=np.float32)
+        return constraint
+
+    def get_constraint_sideslip(self) -> np.ndarray:
+        side_slip_angle = self.state[4]/self.state[3]
+        constraint = np.array([abs(side_slip_angle) - abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g))], dtype=np.float32)
+        return constraint
+
+    def load_carsim_env(self):
+        self.carsim_env = gym.make("pyth_stabilitycontrol")
+
+    def reset_carsim(self,
+            init_state: Optional[Sequence] = None,
+            ref_time: Optional[float] = None,
+            ref_num: Optional[int] = None,
+            **kwargs,) -> Tuple[np.ndarray, dict]:
+        if ref_time is not None:
+            self.t = ref_time
+        else:
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0) #
+
+        # Calculate path num and speed num: ref_num = [0, 1, 2,..., 7]
+        if ref_num is None:
+            path_num = None
+            u_num = None
+            slope_num = None
+        else:
+            path_num = int(ref_num / 2)
+            u_num = 0#int(ref_num % 2)
+            slope_num = int(ref_num % 2)
+
+        # If no ref_num, then randomly select path and speed
+        if path_num is not None:
+            self.path_num = path_num
+        else:
+            self.path_num = self.np_random.choice([0, 1])
+
+        if u_num is not None:
+            self.u_num = u_num
+        else:
+            self.u_num = self.np_random.choice([0, 1])
+
+        if slope_num is not None:
+            self.slope_num = slope_num
+        else:
+            self.slope_num = self.np_random.choice([0, 1])
+
+        ref_points = []
+        slope_points = []
+        for i in range(self.pre_horizon + 1):
+            ref_x = self.ref_traj.compute_x(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y = self.ref_traj.compute_y(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi = self.ref_traj.compute_phi(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_u = self.ref_traj.compute_u(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+
+            road_longi = self.road_slope.compute_longislope(self.t+i*self.dt, self.slope_num)
+            road_lat = self.road_slope.compute_latslope(self.t+i*self.dt, self.slope_num)
+            ref_points.append([ref_x, ref_y, ref_phi, ref_u, road_longi, road_lat])
+            slope_points.append([road_longi, road_lat])
+        self.ref_points = np.array(ref_points, dtype=np.float32)
+        self.slope_points = np.array(slope_points, dtype=np.float32)
+        self.state, info = self.carsim_env.reset()
+        self.ref_points[1, 4:] = info["slope_points"]
+        self.slope_points[1] = info["slope_points"]
+        self.I_rollover = 0
+        return self.get_obs(), self.info
+
+    def step_carsim(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+        reward = self.compute_reward(action)
+        action_psc = self.state[8:13] + action
+        action_psc = np.clip(action_psc, self.action_psc_space.low, self.action_psc_space.high)
+        self.state, _, _, info = self.carsim_env.step(action_psc)
+        self.t = self.t + self.dt
+
+        self.ref_points[:-1] = self.ref_points[1:]
+        self.slope_points[:-1] = self.slope_points[1:]
+        new_ref_point = np.array(
+            [
+                self.ref_traj.compute_x(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_y(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_phi(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.ref_traj.compute_u(
+                    self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                ),
+                self.road_slope.compute_longislope(self.t + self.pre_horizon * self.dt,
+                                                   self.slope_num),
+                self.road_slope.compute_latslope(self.t + self.pre_horizon * self.dt,
+                                                 self.slope_num)
+            ],
+            dtype=np.float32,
+        )
+        new_slope_point = np.array([self.road_slope.compute_longislope(self.t+self.pre_horizon*self.dt, self.slope_num),
+                                    self.road_slope.compute_latslope(self.t+self.pre_horizon*self.dt, self.slope_num)])
+
+        self.ref_points[-1] = new_ref_point
+        self.slope_points[-1] = new_slope_point
+        self.ref_points[1, 4:] = info["slope_points"]
+        self.slope_points[1] = info["slope_points"]
+        self.done = self.judge_done()
+        if self.done:
+            reward = reward - 1000
+        return self.get_obs(), self.I_rollover, self.done, self.info
+
+    def get_ternimated(self):
+        self.carsim_env.get_ternimated()
 
     @property
     def info(self) -> dict:
@@ -495,6 +613,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             "ref": self.ref_points[0].copy(),
             "ref_time": self.t,
             "constraint": self.get_constraint(),
+            # "constraint_yawrate": self.get_constraint_yawrate(),
+            # "constraint_sideslip": self.get_constraint_sideslip(),
+
         }
 
 def state_error_calculate(

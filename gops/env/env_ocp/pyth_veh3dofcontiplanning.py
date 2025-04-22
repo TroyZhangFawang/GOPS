@@ -28,6 +28,10 @@ class VehicleDynamicsData:
             I_z=1536.7,  # Polar moment of inertia at CG [kg*m^2]
             miu=1.0,  # tire-road friction coefficient
             g=9.81,  # acceleration of gravity [m/s^2]
+            ground_clearance=0.25,
+            wheel_distance=1.8,
+            veh_length=4.8,
+            veh_width=2.0,
         )
         l_f, l_r, mass, g = (
             self.vehicle_params["l_f"],
@@ -203,12 +207,11 @@ class SimuVeh3dofconti(PythBaseEnv):
         # self.state_full[0, :] = self.state
         # reward = self.compute_reward(action[0, :])
         # self.action = action
-        #
+        # #
         # state = self.state
         # for i in range(1, self.pre_horizon):
         #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
         #         self.state_full[i, :] = state
-        #
         # #############
 
         self.t = self.t + self.dt

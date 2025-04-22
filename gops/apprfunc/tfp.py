@@ -418,7 +418,23 @@ class TP7(nn.Module, Action_Distribution):
             nn.GELU(),
             nn.Linear(d_model, self.act_dim)
         )
-
+        # # 使用 MLP 进行动作输出，使用 GELU 激活函数
+        # self.action_mlp1 = nn.Sequential(
+        #     nn.Linear(d_model, d_model),
+        #     nn.GELU(),
+        #     nn.Linear(d_model, d_model),
+        #     nn.GELU(),
+        #     nn.Linear(d_model, self.act_dim - 1)
+        # )
+        #
+        # # 使用 MLP 进行动作输出，使用 GELU 激活函数
+        # self.action_mlp2 = nn.Sequential(
+        #     nn.Linear(d_model, d_model),
+        #     nn.GELU(),
+        #     nn.Linear(d_model, d_model),
+        #     nn.GELU(),
+        #     nn.Linear(d_model, self.act_dim - 4)
+        # )
         # 动作空间的高低限制
         self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]).float())
         self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]).float())

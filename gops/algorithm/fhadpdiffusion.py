@@ -11,7 +11,7 @@
 #             Reinforcement Learning for Sequential Decision and Optimal Control. Springer, Singapore.
 #  create: 2023-07-28, Jiaxin Gao: create full horizon action fhadp algorithm
 
-__all__ = ["TRANSStolenMpc"]
+__all__ = ["FHADPDIFFUSION"]
 
 from copy import deepcopy
 from typing import Tuple
@@ -19,7 +19,6 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 import time
-import torch.nn.functional as F
 import warnings
 from gops.create_pkg.create_apprfunc import create_apprfunc
 from gops.create_pkg.create_env_model import create_env_model
@@ -45,7 +44,7 @@ class ApproxContainer(ApprBase):
         return self.policy.get_act_dist(logits)
 
 
-class TRANSStolenMpc(AlgorithmBase):
+class FHADPDIFFUSION(AlgorithmBase):
     """Approximate Dynamic Program Algorithm for Finity Horizon
 
     Paper: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4124940
@@ -61,10 +60,6 @@ class TRANSStolenMpc(AlgorithmBase):
         self.forward_step = kwargs["pre_horizon"]
         self.gamma = 1.0
         self.tb_info = dict()
-        self.max_trajectory = kwargs["max_trajectory"]
-        self.state_dim = kwargs["state_dim"]
-        self.ref_obs_dim = kwargs["ref_obs_dim"]
-        self.batch_size = kwargs["replay_batch_size"]
 
     @property
     def adjustable_parameters(self):
@@ -72,12 +67,12 @@ class TRANSStolenMpc(AlgorithmBase):
         return para_tuple
 
     def local_update(self, data, iteration: int):
-        self._compute_gradient(data)
+        self.__compute_gradient(data)
         self.networks.policy_optimizer.step()
         return self.tb_info
 
     def get_remote_update_info(self, data: dict, iteration: int) -> Tuple[dict, dict]:
-        self._compute_gradient(data)
+        self.__compute_gradient(data)
         policy_grad = [p._grad for p in self.networks.policy.parameters()]
         update_info = dict()
         update_info["grad"] = policy_grad
@@ -88,75 +83,31 @@ class TRANSStolenMpc(AlgorithmBase):
             p.grad = grad
         self.networks.policy_optimizer.step()
 
-    def _compute_gradient(self, data):
+    def __compute_gradient(self, data):
         start_time = time.time()
         self.networks.policy.zero_grad()
-        loss_policy, loss_info = self._compute_loss_policy(deepcopy(data))
+        loss_policy, loss_info = self.__compute_loss_policy(deepcopy(data))
         loss_policy.backward()
-        # self.tb_info[tb_tags["loss_actor"]] = loss_info
         end_time = time.time()
         self.tb_info.update(loss_info)
         self.tb_info[tb_tags["alg_time"]] = (end_time - start_time) * 1000  # ms
 
         return
 
-    # def pad_to_length(self, tensor, length):
-    #     padding_size = length - tensor.size(0)
-    #     if padding_size > 0:
-    #         # 填充 (前后填充 0, 上下填充 0, 左右填充)
-    #         padded_tensor = F.pad(tensor, (0, 0, 0, padding_size))
-    #     else:
-    #         padded_tensor = tensor[:length]
-    #     return padded_tensor
-
-    def _compute_loss_policy(self, data):
-        o, a, r, o2, d = (
-            data["obs"],
-            data["act"],
-            data["rew"],
-            data["obs2"],
-            data["done"],
-        )
-        random_number = self.forward_step
-        o_clip = o[:, :self.state_dim + random_number * self.ref_obs_dim]
+    def __compute_loss_policy(self, data):
+        o, d = data["obs"], data["done"]
         info = data
         v_pi = 0
-        a = self.networks.policy.forward_all_policy(o_clip)
-        for step in range(random_number):
-            o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
+        for step in range(self.forward_step):
+            a = self.networks.policy(o)
+            o, r, d, info = self.envmodel.forward(o, a, d, info)
             v_pi += r * (self.gamma ** step)
         loss_policy = -v_pi.mean()
-        return loss_policy
+        loss_info = {
+            tb_tags["loss_actor"]: loss_policy.item()
+        }
+        return loss_policy, loss_info
 
-
-    # def _compute_loss_policy(self, data):
-    #     o, a, r, o2, d = (
-    #         data["obs"],
-    #         data["act"],
-    #         data["rew"],
-    #         data["obs2"],
-    #         data["done"],
-    #     )
-    #     # torch.nn.utils.clip_grad_norm_(self.networks.policy.parameters(), max_norm=1.0)
-    #     random_len = torch.randint(1, self.forward_step+1, (self.batch_size,))
-    #     seq_range = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
-    #     key_padding_mask = seq_range >= random_len.unsqueeze(1)
-    #     steps = torch.arange(self.forward_step).expand(self.batch_size, self.forward_step)
-    #     gamma_powers = self.gamma ** steps
-    #     mask = steps < (random_len).unsqueeze(1)
-    #     info = data
-    #     v_pi = torch.zeros((o.size(0), self.forward_step))
-    #     a = self.networks.policy.forward_all_policy(o, key_padding_mask=key_padding_mask)
-    #     for step in range(self.forward_step):
-    #         o, r, d, info = self.envmodel.forward(o, a[:, step, :], d, info)
-    #         v_pi[:, step] = r
-    #     weighted_rewards = v_pi * gamma_powers * mask
-    #     v_pi_final = weighted_rewards.sum(dim=1)
-    #     loss_policy = -v_pi_final.mean()
-    #     loss_info = {
-    #         tb_tags["loss_actor"]: loss_policy.item()
-    #     }
-    #     return loss_policy, loss_info
 
 if __name__ == "__main__":
     print("11111")

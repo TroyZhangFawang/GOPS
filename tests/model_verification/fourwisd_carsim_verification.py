@@ -43,12 +43,12 @@ def unit_transform_4wisd(state):
     state[11] = state[11] # kappa_4
     # control feedback
     state[12] = state[12]  # drive torque on wheel 1
-    state[13] = state[13] / 180 * np.pi  # steering angle on wheel 1
+    state[13] = state[13]
     state[14] = state[14]
-    state[15] = state[15] / 180 * np.pi  # steering angle on wheel 2
-    state[16] = state[16]
-    state[17] = state[17] / 180 * np.pi  # steering angle on wheel 3
-    state[18] = state[18]
+    state[15] = state[15]
+    state[16] = state[16] / 180 * np.pi  # steering angle on wheel 1
+    state[17] = state[17] / 180 * np.pi  # steering angle on wheel 2
+    state[18] = state[18] / 180 * np.pi  # steering angle on wheel 3
     state[19] = state[19] / 180 * np.pi  # steering angle on wheel 4
     state[20] = state[20] / 180 * np.pi # beta
     state[21] = state[21] * 9.8 # acceleration
@@ -62,7 +62,7 @@ def unit_transform_4wisd(state):
     return state
 
 def model_compare_4wisd(env_id):
-    run_step = 2000
+    run_step = 200
     delta_t = 0.01
     model_mechnical = gym.make(env_id, disable_env_checker=True)
     state, _ = model_mechnical.reset()
@@ -71,7 +71,7 @@ def model_compare_4wisd(env_id):
     state = unit_transform_4wisd(state)
     model_self = create_env(env_id)
     # 4dof
-    state_python = state[:8]
+    state_python = state[:17]
 
     print(state[22:])
     step_sim = 0
@@ -124,11 +124,10 @@ def model_compare_4wisd(env_id):
 
     longi_slope = []
     lateral_slope = []
-    
 
     for i in range(run_step):
         road_info = state[31:33]
-        drive_torque = 183.475 * np.sin(np.pi * 2 / 10000 * i) + 114.525
+        drive_torque = 183.475 * np.sin(np.pi * 2 / 100 * i) + 114.525
         # if i< 4000 :
         #     steering_angle_degree = 0
         # # elif i>500and i<1000 :
@@ -137,7 +136,7 @@ def model_compare_4wisd(env_id):
         # #     steering_angle_degree = -3
         # else:
         #     steering_angle_degree = 3
-        steering_angle_degree = 3 * np.sin(np.pi * 2 / 1000 * i)
+        steering_angle_degree = 0#3 * np.sin(np.pi * 2 / 1000 * i)
         steering_angle_rad = steering_angle_degree / 180 * 3.14
         control_carsim = np.array([drive_torque,drive_torque,
                                    drive_torque, drive_torque,
@@ -163,19 +162,18 @@ def model_compare_4wisd(env_id):
         roll_self.append(state_python[6])
         rollrate_self.append(state_python[7])
 
-        kappa_1_self.append(state[8])
-        kappa_2_self.append(state[9])
-        kappa_3_self.append(state[10])
-        kappa_4_self.append(state[11])
+        kappa_1_self.append(state_python[8])
+        kappa_2_self.append(state_python[9])
+        kappa_3_self.append(state_python[10])
+        kappa_4_self.append(state_python[11])
         Qw1_self.append(control[0])
+        Qw3_self.append(control[2])
+        Qw4_self.append(control[3])
         delta_w1_self.append(control[4])
-
+        # delta_w3_self.append(control[5])
         # delta_w2_self.append(control[3])
         
-        Qw3_self.append(control[2])
-        # delta_w3_self.append(control[5])
-        
-        Qw4_self.append(control[3])
+
         # delta_w4_self.append(control[4])
         ax_self.append(state[21])
 
@@ -196,12 +194,11 @@ def model_compare_4wisd(env_id):
         
         
         Qw1_carsim.append(state[12])
-        delta_w1_carsim.append(state[13])
-
-        delta_w2_carsim.append(state[15])
-        Qw3_carsim.append(state[16])
-        delta_w3_carsim.append(state[17])
-        Qw4_carsim.append(state[18])
+        Qw3_carsim.append(state[14])
+        Qw4_carsim.append(state[15])
+        delta_w1_carsim.append(state[16])
+        delta_w2_carsim.append(state[17])
+        delta_w3_carsim.append(state[18])
         delta_w4_carsim.append(state[19])
         ax_carsim.append(state[21])
         longi_slope.append(road_info[0])

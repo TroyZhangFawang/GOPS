@@ -14,8 +14,8 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from gops.sys_simulator.sys_run import PolicyRunner_Multiopt
 import numpy as np
 init_path = "FHADP2_240823-152712-upper_20-inner_100000/0th-lower"
-abpo_path = "FHADP2_240823-183330-upper_20-inner_100000/3th-lower"
-result_path = "../results/pyth_semitruckpu7dof/"
+abpo_path = "FHADP2_240823-152712-upper_20-inner_100000/3th-lower"
+result_path = "../results/pyth_semitruckpu7doflateral/"
 runner = PolicyRunner_Multiopt(
     log_policy_dir_list=[result_path+init_path, result_path+abpo_path],
     trained_policy_iteration_list=["100000", "50000"],
@@ -42,8 +42,8 @@ runner = PolicyRunner_Multiopt(
     multi_opt=False,
     multi_opt_args={"opt_run_times":2,
         "cost_paras_list":[[1, 0.9, 0.8, 0.5, 0.5, 0.5, 0.5, 0.4, 2.0],
-                           [1.29976688, 0.53561693, 0.79591853, 0.48577294, 0.4991067,
-                            0.49982506, 0.49884216, 0.38836425, 1.98836425]],
+                           [[1.29999998, 0.866546, 0.58009083, 0.3951817, 0.49991916,
+       0.49986335, 0.49631859, 0.37355246, 1.97355246]]],
                     },
     constrained_env=False,
     is_tracking=True,

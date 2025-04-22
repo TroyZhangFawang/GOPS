@@ -8,20 +8,18 @@
 #
 #  Description: run a closed-loop system
 #  Update: 2022-12-05, Congsheng Zhang: create file
-
-
-from gops.sys_simulator.sys_run import PolicyRunner_CoSimulation
-import numpy as np
-result_path1 = "../results/pyth_stabilitycontrol_cstr/FHADP2Lagrangian_250108-085550/"
-result_path2 = "../results/pyth_stabilitycontrol_cstr/FHADP2Lagrangian_250318-094846/"
-runner = PolicyRunner_CoSimulation(
-    log_policy_dir_list=[result_path1, result_path2],#
-    trained_policy_iteration_list=["1000000", "600000"],#
+import os
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+from gops.sys_simulator.sys_run import OptRunner_CoSimulation
+result_path = "../results/pyth_stabilitycontrol_cstr/"
+runner = OptRunner_CoSimulation(
+    log_policy_dir_list=[result_path],
+    env_id="pyth_stabilitycontrol_cstr",
     is_init_info=True,
     init_info={"init_state": [0, 0.0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, #
     save_render=False,
-    legend_list=["CTMPC", "CMMPC"],#
-    use_opt=False,  # Use optimal solution for comparison
+    legend_list=[],
+    use_opt=True,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
         "num_pred_step": 30,
@@ -35,7 +33,7 @@ runner = PolicyRunner_CoSimulation(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=True,
+    constrained_env=False,
     is_tracking=True,
     dt=0.01,
 )

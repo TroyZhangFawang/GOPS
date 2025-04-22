@@ -122,7 +122,7 @@ class RMPC3(AlgorithmBase):
         # torch.nn.utils.clip_grad_norm_(self.networks.policy.parameters(), max_norm=1.0)
         # random_number = torch.randint(1, self.forward_step+1, (1,)).item()
         # weights = torch.arange(1, self.forward_step + 1).float()  # 生成权重为1, 2, ..., forward_step
-        weights = torch.ones(20).float()  # 生成权重为1, 1, ..., 1
+        weights = torch.ones(self.forward_step).float()  # 生成权重为1, 1, ..., 1
         # weights = torch.arange(20, 0, -1).float()  # 生成权重为1, 2, ..., forward_step
         random_len = torch.multinomial(weights, num_samples=1, replacement=True) + 1
         random_number = random_len.item()

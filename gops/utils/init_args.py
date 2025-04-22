@@ -130,6 +130,6 @@ def init_args(env, **args):
 
     # Start a new local Ray instance
     # This is necessary since all training scripts use evaluator, which uses ray.
-    ray.init(address="local")
+    ray.init(address="local")#,_temp_dir="/home/bit/install_root/temp"
     # env.close()
     return args

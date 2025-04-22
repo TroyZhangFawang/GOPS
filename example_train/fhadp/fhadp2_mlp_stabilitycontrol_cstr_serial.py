@@ -53,7 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--policy_func_type", type=str, default="MLP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256])
+    parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256, 256])
     parser.add_argument("--policy_hidden_activation", type=str, default="elu")
     
     ################################################
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     # 5. Parameters for sampler
     parser.add_argument("--sampler_name", type=str, default="off_sampler")
     # Batch size of sampler for buffer store
-    parser.add_argument("--sample_batch_size", type=int, default=256)
+    parser.add_argument("--sample_batch_size", type=int, default=128)
     # Add noise to action for better exploration
     parser.add_argument(
         "--noise_params",
