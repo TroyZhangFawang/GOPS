@@ -27,13 +27,21 @@ DEFAULT_PATH_PARAM = {
     #     "y2": 3.5,
     # },
     "double_lane": {
-        "t1": 5.0,
-        "t2": 9.0,
-        "t3": 14.0,
-        "t4": 18.0,
+        "t1": 1.5,
+        "t2": 3.0,
+        "t3": 4.5,
+        "t4": 6.0,
         "y1": 0.0,
         "y2": 3.5,
-    },
+    }, #标准DLC 20m/s
+    # "double_lane": {
+    #     "t1": 7.0,
+    #     "t2": 9.0,
+    #     "t3": 12.5,
+    #     "t4": 14.5,
+    #     "y1": 0.0,
+    #     "y2": 3.5,
+    # },#standard DLC
     "triangle": {"A": 3.0, "T": 10.0, },
     "circle": {"r": 100.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
@@ -42,13 +50,13 @@ DEFAULT_PATH_PARAM = {
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 10, },
-    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 10.0,},
+    "constant": {"u": 20, },
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 20.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
     "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
-    "sine": {"A": 0.05, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 0.0,},
+    "sine": {"A": 0.05, "omega": 2 * np.pi / 5, "phi": 0.0, "b": 0.0,},
 }
 
 class MultiRefTrajData:
@@ -338,7 +346,7 @@ class SineRefSlopeData(RefSlopeData):
     b: float
 
     def compute_longislope(self, t: float) -> float:
-        return self.A * np.sin(self.omega * t + self.phi) + self.b
+        return self.A * np.cos(self.omega * t + self.phi) + self.b
 
     def compute_latslope(self, t: float) -> float:
         return self.A * np.sin(self.omega * t + self.phi) + self.b

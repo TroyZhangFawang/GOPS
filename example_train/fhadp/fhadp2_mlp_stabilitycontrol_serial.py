@@ -31,8 +31,8 @@ if __name__ == "__main__":
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_stabilitycontrol_cstr")
-    parser.add_argument("--algorithm", type=str, default="FHADP2Lagrangian")
+    parser.add_argument("--env_id", type=str, default="pyth_stabilitycontrol")
+    parser.add_argument("--algorithm", type=str, default="FHADP2")
     parser.add_argument("--pre_horizon", type=int, default=30)
     parser.add_argument("--enable_cuda", default=False)
     ################################################
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=100000)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=1000)
     # Save key info every N updates
     parser.add_argument("--log_save_interval", type=int, default=1000)
 

@@ -12,14 +12,15 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-result_path = "../results/pyth_stabilitycontrol/TRANSStolenMpc_241230-205021/"
+result_path1 = "../results/pyth_stabilitycontrol/TRANSStolenMpc_250107-093339/"
+result_path2 = "../results/pyth_stabilitycontrol/FHADP2_250110-141341/"
 runner = PolicyRunner(
-    log_policy_dir_list=[result_path],
-    trained_policy_iteration_list=["100000"],
+    log_policy_dir_list=[result_path1, result_path2],
+    trained_policy_iteration_list=["782000", "670000"],
     is_init_info=True,
-    init_info={"init_state": [0, 0.2, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':1}, #
+    init_info={"init_state": [0, 0.2, 0, -0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, #
     save_render=False,
-    legend_list=["FHADP2"],
+    legend_list=["TFMPC","FHADP2"],
     use_opt=False,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",

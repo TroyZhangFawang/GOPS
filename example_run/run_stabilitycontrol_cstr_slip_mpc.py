@@ -12,12 +12,12 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 from gops.sys_simulator.sys_run import OptRunner
 import numpy as np
-result_path = "../results/pyth_stabilitycontrol_cstr/"
+result_path = "../results/pyth_stabilitycontrol_cstr_slip/"
 runner = OptRunner(
     log_policy_dir_list=[result_path],
-    env_id="pyth_stabilitycontrol_cstr",
+    env_id="pyth_stabilitycontrol_cstr_slip",
     is_init_info=True,
-    init_info={"init_state": [0, 0.2, 0, -0.2, 0.0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, #
+    init_info={"init_state": [0, 0.2, 0, -0.5, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, #
     save_render=False,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
@@ -34,7 +34,7 @@ runner = OptRunner(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=False,
+    constrained_env=True,
     is_tracking=True,
     dt=0.01,
 )
