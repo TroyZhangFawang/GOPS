@@ -16,13 +16,15 @@ import os
 import gym
 from typing import Any, Optional, Tuple
 import matplotlib.pyplot as plt
+import gops.utils.planner_benchmark.visualize as vis
 import numpy as np
 import seaborn as sns
 import torch
 import pandas as pd
 from gym import wrappers
-from copy import copy
+from copy import copy, deepcopy
 import time
+from abc import abstractmethod
 from gops.create_pkg.create_alg import create_approx_contrainer
 from gops.create_pkg.create_env_model import create_env_model
 from gops.create_pkg.create_env import create_env
@@ -6085,6 +6087,577 @@ class PolicyRunner_CoSimulation:
         self.__run_data()
         self.__save_mp4_as_gif()
         self.draw()
+
+
+class PlanningBaseBenchmark:
+    def __init__(self,
+                 config=None):
+
+        self.config = self.default_config()
+        if not (config is None):
+            self.config.update(config)
+
+        self.env = None # wrapped environment
+        # self.metrics = {}
+        # self.initial_environment()
+        # data for plot
+
+    @classmethod
+    def default_config(cls) -> dict:
+        """
+        :return: a configuration dict
+        """
+        return {
+            "max_steps": 100,
+            "random_seed": 666,
+            "offscreen_rendering": True,
+            "save_video": True,
+            "video_root": './videos/',
+            "video_name": 'benchmark.mp4'
+        }
+
+    @abstractmethod
+    def reset(self):
+        pass
+
+    @abstractmethod
+    def initial_environment(self):
+        '''
+        根据给定的config，初始化环境self.env
+        '''
+        pass
+
+    @abstractmethod
+    def test(self, spider_planner):
+        '''
+        给定一个planner，在设置好的环境里面开一遍，返回config中指定的metrics
+        '''
+        pass
+
+    @abstractmethod
+    def update_metrics(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def visualize_plan(self, *args, **kwargs):
+        '''
+        把规划结果画在仿真器渲染的画面上
+        '''
+        pass
+
+class PlanningRunner(PlanningBaseBenchmark):
+    def __init__(self,
+                 log_policy_dir_list: list,
+                 env_id:str = None,
+                 planner: str = None,
+                 controller: str = None,
+                 save_render: bool = False,
+                 plot_range: list = None,
+                 is_init_info: bool = False,
+                 init_info: dict = None,
+                 legend_list: list = None,
+                 constrained_env: bool = False,
+                 use_dist: bool = False,
+                 dt: float = None,
+                 use_opt: bool = False,
+                 load_opt_path: Optional[str] = None,
+                 opt_args: Optional[dict] = None,
+                 save_opt: bool = True,
+                 is_tracking: bool = False,
+                 obs_noise_type: str = None,
+                 obs_noise_data: list = None,
+                 action_noise_type: str = None,
+                 action_noise_data: list = None,
+                 config=None):
+        super(PlanningRunner, self).__init__(config)
+
+        from gops.utils.planner_benchmark.interface.BaseInterface import DummyInterface
+        self.planner_name = planner
+        self.controller_name = controller
+        self.log_policy_dir_list = [
+            os.path.join(gops_path, d) for d in log_policy_dir_list
+        ]
+        self.save_render = save_render
+        self.args = None
+        self.plot_range = plot_range
+        if is_init_info:
+            self.init_info = init_info
+        else:
+            self.init_info = {}
+        self.legend_list = legend_list
+        self.constrained_env = constrained_env
+        self.use_dist = use_dist
+        self.dt = dt
+        # self.ego_veh_state = None
+        # self.obstacles = None
+        # self.local_map = None
+        self.use_opt = use_opt
+        if use_opt:
+            assert load_opt_path is not None or opt_args is not None
+            self.load_opt_path = load_opt_path
+            self.opt_args = opt_args
+            if isinstance(self.opt_args, dict) and \
+                    "use_MPC_for_general_env" not in self.opt_args.keys():
+                self.opt_args["use_MPC_for_general_env"] = False
+            self.save_opt = save_opt
+        self._debug = self.config["debug_mode"]
+        self._evaluation = self.config["evaluation"]
+        self._destination_x_range = (250, 260)
+        self._destination_y_range = (-10, 10)
+        # todo 更改这部分
+        # self.env = DummyInterface(self.config)
+        if self.config["evaluation"]:
+            self.init_metric_evaluators()
+        self.constrained_env = constrained_env
+        self.use_dist = use_dist
+        self.is_tracking = is_tracking
+        self.dt = dt
+        self.policy_num = len(self.log_policy_dir_list)
+        self.obs_noise_type = obs_noise_type
+        self.obs_noise_data = obs_noise_data
+        self.action_noise_type = action_noise_type
+        self.action_noise_data = action_noise_data
+        self.ref_state_num = 0
+        # data for plot
+        self.args_list = []
+        self.eval_list = []
+        self.env_id_list = []
+        self.algorithm_list = []
+        self.tracking_list = []
+
+        self.__load_all_args()
+        self.env_id = self.get_n_verify_env_id()
+        # save path
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "figures")
+        path = os.path.abspath(path)
+
+        algs_name = "Planner-"
+        self.save_path = os.path.join(
+            path,
+            algs_name + self.env_id,
+            datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
+        )
+        os.makedirs(self.save_path, exist_ok=True)
+    @staticmethod
+    def __load_args(log_policy_dir: str):
+        json_path = os.path.join(log_policy_dir, "config.json")
+        parser = argparse.ArgumentParser()
+        args_dict = vars(parser.parse_args())
+        args = get_args_from_json(json_path, args_dict)
+        return args
+
+    def __load_all_args(self):
+        log_policy_dir = self.log_policy_dir_list[0]
+        args = self.__load_args(log_policy_dir)
+        args['vector_env_num'] = None
+        args['gym2gymnasium'] = False
+        self.args_list.append(args)
+        env_id = args["env_id"]
+        self.env_id_list.append(env_id)
+        self.algorithm_list.append(args["algorithm"])
+
+    def __load_env(self, use_opt: bool = False):
+        if use_opt:
+            env = create_env(**self.args)
+        else:
+            env_args = {
+                **self.args,
+                "obs_noise_type": self.obs_noise_type,
+                "obs_noise_data": self.obs_noise_data,
+                "action_noise_type": self.action_noise_type,
+                "action_noise_data": self.action_noise_data,
+            }
+            env = create_env(**env_args)
+        if self.save_render:
+            video_path = os.path.join(self.save_path, "videos")
+            if use_opt:
+                name_prefix = "{}_video".format(self.opt_args["opt_controller_type"])
+            else:
+                name_prefix = "{}_video".format(self.args["algorithm"])
+            env = wrappers.RecordVideo(env, video_path, name_prefix=name_prefix)
+        # self.args["action_high_limit"] = self.args['action_high_limit']#env.action_space.high
+        # self.args["action_low_limit"] = env.action_space.low
+        return env
+
+    def __convert_format(self, origin_data_list: list):
+        data_list = copy(origin_data_list)
+        for i in range(len(origin_data_list)):
+            if isinstance(origin_data_list[i], list) or isinstance(
+                    origin_data_list[i], np.ndarray
+            ):
+                data_list[i] = self.__convert_format(origin_data_list[i])
+            else:
+                data_list[i] = "{:.2g}".format(origin_data_list[i])
+        return data_list
+
+    def __save_mp4_as_gif(self):
+        if self.save_render:
+            videos_path = os.path.join(self.save_path, "videos")
+
+            videos_list = [i for i in glob.glob(os.path.join(videos_path, "*.mp4"))]
+            for v in videos_list:
+                mp4togif(v)
+
+    def get_n_verify_env_id(self):
+        env_id = self.env_id_list[0]
+        for i, eid in enumerate(self.env_id_list):
+            assert (
+                    env_id == eid
+            ), "GOPS: policy {} is not trained in the same environment".format(i)
+        return env_id
+
+    def init_metric_evaluators(self):
+        from spider.interface.metrics_collection import (MetricCombiner, CompletionMetric, CollisionRateMetric,
+                                                         TTCMetric, SpeedMetric, JerkMetric, StuckMetric)
+        self.metric_evaluators = MetricCombiner(
+            CompletionMetric(self._destination_x_range, self._destination_y_range, self._max_duration),
+            CollisionRateMetric(self.config["ego_veh_length"], self.config["ego_veh_width"]),
+            TTCMetric(self.config["ego_veh_length"] / 2),
+            SpeedMetric(),
+            JerkMetric(delta_t=0.1),  # 这里要改成和planner的dt一致
+            StuckMetric(0.2),
+        )
+
+    @property
+    def metrics(self):
+        if self.config["evaluation"]:
+            return self.metric_evaluators.get_result()
+        else:
+            return {}
+
+    def set_rendering(self, rendering=True):
+        self.config["rendering"] = rendering
+
+    def set_snapshot(self, snapshot=True):
+        self.config["snapshot"] = snapshot
+
+    def run(self):
+        self.__run_data()
+        # self.__save_mp4_as_gif()
+
+    def __run_data(self):
+        self.args = self.args_list[0]
+        # initialize the planner
+        print("GOPS: Use an Planner")
+        env = self.__load_env()
+        print("The environment for planner")
+        if self.planner_name == "LatticePlanner":
+            from gops.utils.planner_benchmark.planner_zoo import LatticePlanner
+            planner = LatticePlanner({
+                "steps": self.args['pre_horizon'],
+                "dt": self.dt,
+                "end_s_candidates": (20, 40, 60),
+                "end_l_candidates": (-3.5, 0, 3.5),
+            })
+            print("LatticePlanner for planning")
+        elif self.planner_name == "BezierPlanner":
+            from gops.utils.planner_benchmark.planner_zoo import BezierPlanner
+            planner = BezierPlanner({
+                "steps": self.args['pre_horizon'],
+                "dt": self.dt,
+                "end_s_candidates": (20, 40, 60),
+                "end_l_candidates": (-3.5, 0, 3.5),
+            })
+            print("BezierPlanner for planning")
+        elif self.planner_name == "MPCPlanner":
+            from gops.sys_simulator.opt_controller import OptController
+            model = create_env_model(**self.args_list[0], mask_at_done=False)
+            opt_args = self.opt_args.copy()
+            opt_args.pop("opt_controller_type")
+            opt_args.pop("use_MPC_for_general_env")
+            planner = OptController(model, **opt_args, )
+            print("MPCPlanner for planning")
+        else:
+            raise ValueError(
+                "Please specify the planner"
+            )
+
+        # initialize the controller
+        if self.controller_name == "IDMController":
+            from gops.utils.planner_benchmark.control.IDMController import IDMController
+            controller = IDMController()
+            print("IDMController for control")
+        elif self.controller_name == "SimpleController":
+            from gops.utils.planner_benchmark.control.SimpleController import SimpleController
+            controller = SimpleController()
+            print("SimpleController for control")
+        elif self.controller_name == "MPCController":
+            if self.planner_name == "MPCPlanner":
+                controller = planner
+                print("MPC for plannning and control")
+            else:
+                if self.load_opt_path is not None:
+                    eval_dict_opt = np.load(
+                        os.path.join(self.load_opt_path, "eval_dict_opt.npy"),
+                        allow_pickle=True).item()
+                    tracking_dict_opt = np.load(
+                        os.path.join(self.load_opt_path, "tracking_dict_opt.npy"),
+                        allow_pickle=True).item()
+                    print("Successfully load an optimal controller result!")
+                    print("===========================================================\n")
+                else:
+                    self.args = self.args_list[0]
+                    print("GOPS: Use an optimal controller")
+                    env = self.__load_env(use_opt=True)
+                    print("The environment for opt")
+                    if hasattr(env, "set_mode"):
+                        env.set_mode("test")
+
+                    assert (
+                            self.opt_args is not None
+                    ), "Choose to use optimal controller, but the opt_args is None."
+
+                    if self.opt_args["opt_controller_type"] == "OPT":
+                        assert (
+                            env.has_optimal_controller
+                        ), "The environment has no theoretical optimal controller."
+                        opt_controller = env.control_policy
+                    elif self.opt_args["opt_controller_type"] == "MPC":
+                        if self.opt_args["use_MPC_for_general_env"] == True:
+                            self.args_list[0]["env"] = env
+                            from gops.sys_simulator.opt_controller_for_gen_env import OptController
+                        else:
+                            from gops.sys_simulator.opt_controller import OptController
+                        model = create_env_model(**self.args_list[0], mask_at_done=False)
+                        opt_args = self.opt_args.copy()
+                        opt_args.pop("opt_controller_type")
+                        opt_args.pop("use_MPC_for_general_env")
+                        controller = OptController(model, **opt_args, )
+                        print("MPCController for control")
+                    else:
+                        raise ValueError(
+                            "The optimal controller type should be either 'OPT' or 'MPC'."
+                        )
+        else:
+            raise ValueError(
+                "Please specify the controller"
+            )
+        eval_dict_opt, tracking_dict_opt = self.run_an_episode(
+            env, planner, controller, self.init_info, is_opt=True, render=False
+        )
+        print("Successfully run an episode!")
+        print("===========================================================\n")
+        if self.opt_args["opt_controller_type"] == "OPT":
+            legend = "OPT"
+        elif self.opt_args["opt_controller_type"] == "MPC":
+            legend = "MPC-" + str(self.opt_args["num_pred_step"])
+            if (
+                    "use_terminal_cost" not in self.opt_args.keys()
+                    or self.opt_args["use_terminal_cost"] == False
+            ):
+                legend += " (w/o TC)"
+            else:
+                legend += " (w/ TC)"
+        self.legend_list.append(legend)
+
+        if self.save_opt:
+            np.save(os.path.join(self.save_path, "eval_dict_opt.npy"), eval_dict_opt)
+            np.save(os.path.join(self.save_path, "tracking_dict_opt.npy"), tracking_dict_opt)
+
+        self.eval_list.append(eval_dict_opt)
+        if self.is_tracking:
+            self.tracking_list.append(tracking_dict_opt)
+
+    def run_an_episode(
+            self,
+            env: Any,
+            planner: Any,
+            controller: Any,
+            init_info: dict,
+            is_opt: bool,
+            render: bool = True,
+    ) -> Tuple[dict, dict]:
+        if self.config["evaluation"]:
+            self.init_metric_evaluators()
+        state_list = []
+        action_list = []
+        reward_list = []
+        constrain_list = []
+        obs_list = []
+        step = 0
+        step_list = []
+        calctime_list = []
+        info_list = [init_info]
+
+        obs, info = env.reset(**init_info)
+        state = env.state
+        print("Initial robot state: ")
+        print(self.__convert_format(np.asarray(state.robot_state)))
+        # plot tracking
+        state_with_ref_error = {}
+        done = False
+        info.update({"TimeLimit.truncated": False})
+
+        planner.set_local_map(env.local_map)
+        import matplotlib.pyplot as plt
+
+        import gops.utils.planner_benchmark.visualize as vis
+        if self.save_render:
+            vis.figure(figsize=(14, 4))
+            if self.config["snapshot"]:
+                video_name = type(planner).__name__ + '.avi' if self.config["video_name"] is None else self.config[
+                    "video_name"]
+                videos_path = os.path.join(self.save_path, "videos")
+                snapshot = vis.SnapShot(True, 15, record_video=self.config["save_video"],
+                                        video_path=videos_path+'/' + video_name)
+        while not (done or info["TimeLimit.truncated"]):
+            # 地图信息更新
+            if self.config["map_frequency"] == 0:
+                local_map = None
+            else:
+                if step % self.config["map_frequency"] == 0:
+                    local_map = deepcopy(self.env.local_map)
+                else:
+                    local_map = None
+            # local_map = deepcopy(env.local_map)
+            print("step:", step + 1)
+            state_list.append(state.robot_state)
+            obs_list.append(obs)
+            traj = planner.plan(deepcopy(env.ego_veh_state), deepcopy(env.obstaclesBox),
+                                       local_map)  # , self.local_map
+            if traj is None:
+                raise RuntimeError("DummyBenchmark receives no feasible trajectory!")
+            if self.save_render:
+                plt.cla()
+                env.visualize(traj)
+                plt.pause(0.05)
+                if self.config["snapshot"]:
+                    snapshot.snap(plt.gca())
+
+            # 评估
+            # if self.config["evaluation"]:
+            #     self.metric_evaluators.evaluate(env.ego_veh_state, env.obstaclesBox, local_map)
+            if self.controller_name == "IDMController":
+                ref = np.stack((traj.x, traj.y)).reshape(-1, 2)
+                current_pose = state.robot_state[:3]
+                current_speed = state.robot_state[3]
+                front_veh_speed, front_veh_dist = 0, 0
+                time_start = time.time()
+                action = controller.get_control(ref, front_veh_speed, front_veh_dist, traj.v[0], current_pose, current_speed)
+                calc_time = time.time() - time_start
+            elif self.controller_name == "SimpleController":
+                ref = np.stack((traj.x, traj.y)).reshape(-1, 2)
+                current_pose = state.robot_state[:3]
+                current_speed = state.robot_state[3]
+                time_start = time.time()
+                action = controller.get_control(ref, traj.v[0], current_pose, current_speed)
+                calc_time = time.time() - time_start
+            elif self.controller_name == "MPCController":
+                if is_opt:
+                    if isinstance(env.unwrapped, Env):
+                        time_start = time.time()
+                        action = controller(state)
+                        calc_time = time.time() - time_start
+                    else:
+                        time_start = time.time()
+                        action = controller(obs, info)
+                        calc_time = time.time() - time_start
+                else:
+                    time_start = time.time()
+                    action = self.compute_action(obs, controller)
+                    action = self.__action_noise(action)
+                    calc_time = time.time() - time_start
+                if self.use_dist:
+                    action = np.hstack((action, env.dist_func(step * env.tau)))
+                if self.constrained_env:
+                    constrain_list.append(info["constraint"])
+                if self.is_tracking:
+                    reference = get_reference_from_info(info)
+                    state_num = len(reference)
+                    self.ref_state_num = sum(x is not None for x in reference)
+                    if step == 0:
+                        for i in range(state_num):
+                            if reference[i] is not None:
+                                state_with_ref_error["state-{}".format(i)] = []
+                                state_with_ref_error["ref-{}".format(i)] = []
+                                state_with_ref_error["state-{}-error".format(i)] = []
+
+                    robot_state = get_robot_state_from_info(info)
+                    for i in range(state_num):
+                        if reference[i] is not None:
+                            state_with_ref_error["state-{}".format(i)].append(robot_state[i])
+                            state_with_ref_error["ref-{}".format(i)].append(reference[i])
+                            state_with_ref_error["state-{}-error".format(i)].append(
+                                reference[i] - robot_state[i]
+                            )
+                action = action[0, :]
+            next_obs, reward, done, info = env.step(action)
+            # save the real action (without scaling)
+            # todo 若做model based planning, 需要把action的第0个存到action_list中
+            action_list.append(info.get("raw_action", action))#
+            step_list.append(step)
+            reward_list.append(reward)
+            info_list.append(info)
+            calctime_list.append(calc_time*1000)
+            #
+            obs = next_obs
+            state = env.state
+            step = step + 1
+
+            if "TimeLimit.truncated" not in info.keys():
+                info["TimeLimit.truncated"] = False
+            # Draw environment animation
+            # if render:
+            # #     env.render()
+            # finally:
+            #     if self.config["rendering"]:
+            #         plt.close()
+            #         if self.config["snapshot"]:
+            #             snapshot.print(3, 2, figsize=(15, 6))
+            #             plt.show()
+        eval_dict = {
+            "reward_list": reward_list,
+            "action_list": action_list,
+            "state_list": state_list,
+            "step_list": step_list,
+            "obs_list": obs_list,
+            "info_list": info_list,
+            "calctime_list": calctime_list
+        }
+        if self.constrained_env:
+            eval_dict.update(
+                {"constrain_list": constrain_list, }
+            )
+
+        if self.is_tracking:
+            tracking_dict = state_with_ref_error
+        else:
+            tracking_dict = {}
+
+        return eval_dict, tracking_dict
+
+
+    @staticmethod
+    def get_environment_presets(ego_length=5.0, ego_width=2.0, racetrack="curve"):
+        from spider.interface.BaseInterface import DummyInterface
+        return DummyInterface.get_environment_presets(ego_length, ego_width, racetrack)
+
+    def update_metrics(self, *args, **kwargs):
+        pass
+    #
+    #
+    # def visualize_plan(self, *args, **kwargs):
+    #     '''
+    #     把规划结果画在仿真器渲染的画面上
+    #     '''
+    #     pass
+
+    @classmethod
+    def default_config(cls) -> dict:
+        """
+        :return: a configuration dict
+        """
+        return {
+            "debug_mode": False,
+            "evaluation": False,
+            "collision_termination": False,
+            "map_frequency": 0,  # 几帧更新一次map，0表示仅更新一次
+            "snapshot": True,
+            "save_video":True,
+            # "video_path": None,
+            "video_root": './',
+            "video_name": 'benchmark.mp4'
+        }
 
 def get_robot_state_from_info(info: dict) -> np.ndarray:
     state = info["state"]

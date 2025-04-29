@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodal_planning")
     parser.add_argument("--algorithm", type=str, default="FHADP2Lagrangian")
     parser.add_argument("--pre_horizon", type=int, default=30)
-    parser.add_argument("--enable_cuda", default=False)
+    parser.add_argument("--enable_cuda", default=True)
     parser.add_argument("--seed", default=2680492381)
     ################################################
     # 1. Parameters for environment
@@ -53,6 +53,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--policy_func_type", type=str, default="MLP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
+    parser.add_argument("--policy_T", type=int, default=30)
     policy_func_type = parser.parse_known_args()[0].policy_func_type
     parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256])
     parser.add_argument("--policy_hidden_activation", type=str, default="elu")
@@ -68,7 +69,7 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=50000)
+    parser.add_argument("--max_iteration", type=int, default=1000000)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -90,7 +91,7 @@ if __name__ == "__main__":
     # 5. Parameters for sampler
     parser.add_argument("--sampler_name", type=str, default="off_sampler")
     # Batch size of sampler for buffer store
-    parser.add_argument("--sample_batch_size", type=int, default=256)
+    parser.add_argument("--sample_batch_size", type=int, default=128)
     # Add noise to action for better exploration
     parser.add_argument(
         "--noise_params",

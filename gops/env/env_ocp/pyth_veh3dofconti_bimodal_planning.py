@@ -14,6 +14,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import gym
 import numpy as np
 from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
+from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
+from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
+from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+import numpy as np
 
 @dataclass
 class DynamicObstacleData:
@@ -206,6 +210,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
         # add dynamic obstacle
         self.dynamic_obss = []
+        self.obstacle_trackingbox = []
         for i_dynamic in range(self.dynamic_obstacle_num):
             # avoid ego vehicle
             delta_t = self.np_random.uniform(3, 5)
@@ -225,6 +230,8 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                     dt=self.dt
                 )
             )
+            obstacle = TrackingBox(obb=(dynamic_x, dynamic_y, self.veh_length, self.veh_width, dynamic_phi), vx=dynamic_u[i_dynamic], vy=0.0)
+            self.obstacle_trackingbox.append(obstacle)
         self.static_obss = []
         # add static obstacle
         time = [0.4, 0.8]
@@ -249,9 +256,27 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                     height=self.static_height[i_static],
                 )
             )
+            obstacle = TrackingBox(obb=(static_obs_x, static_obs_y, self.static_length[i_static], self.static_width[i_static], static_obs_phi),
+                                   vx=0, vy=0.0)
+            self.obstacle_trackingbox.append(obstacle)
 
         self.update_dynamic_state()
         self.update_static_state()
+        self.ego_veh_state = VehicleState.from_kine_states(self.state[0], self.state[1], self.state[2], vx=self.state[3], vy=self.state[4],
+                                                       length=self.veh_length, width=self.veh_width)
+        self.local_map = RoutedLocalMap()
+        for idx, yy in enumerate([-3.5, 0, 3.5]):
+            xs = []
+            ys = []
+            for t in range(1, self.max_episode_steps, ):
+                x = self.ref_traj.compute_x(t*self.dt, self.path_num, self.u_num)
+                y = self.ref_traj.compute_y(t*self.dt, self.path_num, self.u_num)
+                xs.append(x)
+                ys.append(y)
+            center_line = np.column_stack((np.array(xs), np.array(ys)+yy))  # 中心线的x y
+            lane = Lane(idx, center_line, width=3.5, speed_limit=60 / 3.6)
+            self.local_map.lanes.append(lane)
+        self.obstaclesBox = TrackingBoxList(self.obstacle_trackingbox)
 
         # 初始时刻添加完障碍物之后就先判断下是否需要生成引导轨迹
         obstacle, generate_guide = self.is_generate_guide()
@@ -448,6 +473,8 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         self.update_dynamic_state()
         self.update_static_state()
         done = self.judge_done()
+        self.ego_veh_state = VehicleState.from_kine_states(self.state[0], self.state[1], self.state[2], vx=self.state[3], vy=self.state[4],
+                                                       length=self.veh_length, width=self.veh_width)
         return self.get_obs(), reward, done, self.info
 
     def compute_reward(self, action: np.ndarray) -> float:
@@ -831,6 +858,51 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
     def update_loca_traj(self, local_traj):
         self.planned_traj = local_traj
+
+    def conduct_trajectory(self, trajectory):
+        traj = trajectory
+        # 控制+定位，假设完美控制到下一个轨迹点
+        print("[x, y]:",traj.x[1], traj.y[1])
+        self.ego_veh_state.transform.location.x, self.ego_veh_state.transform.location.y, self.ego_veh_state.transform.rotation.yaw \
+            = traj.x[1], traj.y[1], traj.heading[1]
+        self.ego_veh_state.kinematics.speed, self.ego_veh_state.kinematics.acceleration, self.ego_veh_state.kinematics.curvature \
+            = traj.v[1], traj.a[1], traj.curvature[1]
+        for tb in self.obstaclesBox:
+            tb.set_obb([tb.x + tb.vx * traj.dt, tb.y + tb.vy * traj.dt, tb.length, tb.width, tb.box_heading])
+    def visualize(self,traj):
+        '''
+        qzl: 要修改，统一格式
+        '''
+        import gops.utils.planner_benchmark.visualize as vis
+        import matplotlib.pyplot as plt
+        for lane in self.local_map.lanes:
+            plt.plot(lane.centerline[:, 0], lane.centerline[:, 1], color='gray', linestyle='--', lw=1.5)  # 画地图
+        # vis.draw_ego_vehicle(self.ego_veh_state, color='green', fill=True, alpha=0.2, linestyle='-', linewidth=1.5) # 画自车
+
+        for tb in self.obstaclesBox:
+            vis.draw_boundingbox(tb, color='black', fill=True, alpha=0.1, linestyle='-', linewidth=1.5)  # 画他车
+            # 画他车预测轨迹
+            tb_pred_traj = np.column_stack((tb.x + np.asarray(traj.t) * tb.vx, tb.y + np.asarray(traj.t) * tb.vy))
+            vis.draw_polyline(tb_pred_traj, show_buffer=True, buffer_dist=tb.width * 0.5, buffer_alpha=0.1,
+                              color='C3')
+
+        # vis.draw_ego_history(self.ego_veh_state, '-', lw=1, color='gray')  # 画自车历史
+        vis.draw_trajectory(traj, '.-', show_footprint=True, color='C2')  # 画轨迹
+        if "control_points" in traj.debug_info:  # bezier planner
+            pts = traj.debug_info["control_points"]
+            plt.plot(pts[:, 0], pts[:, 1], 'or')
+        # if "corridor" in traj.debug_info: # optimizer planner
+        #     vis.draw_corridor(traj.debug_info["corridor"], color='green', linewidth=0.5)
+        if "initial_trajectory" in traj.debug_info:
+            vis.draw_trajectory(traj.debug_info["initial_trajectory"], '--', color="black", show_footprint=False)
+
+        vis.draw_ego_vehicle(self.ego_veh_state, color='C0', fill=True, alpha=0.3, linestyle='-', linewidth=1.5)  # 画自车
+        # plt.axis('equal')
+        # plt.tight_layout()
+        vis.ego_centric_view(self.ego_veh_state.x(), self.ego_veh_state.y(), [-20, 80], [-5, 5])
+        # plt.xlim([ego_veh_state.x() - 20, ego_veh_state.x() + 80])
+        # plt.ylim([ego_veh_state.y() - 5, ego_veh_state.y() + 5])
+        # plt.pause(0.001)
 
     @property
     def info(self):
