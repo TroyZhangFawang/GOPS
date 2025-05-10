@@ -196,23 +196,23 @@ class SimuVeh3dofconti(PythBaseEnv):
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
-        reward = self.compute_reward(action)
+        # self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
+        # reward = self.compute_reward(action)
 
-        # # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
-        # # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
-        # # 如果要plot，还得在sys run里修改action_list
-        # self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], self.dt)
-        # self.state_full = np.empty((self.pre_horizon, self.state_dim))
-        # self.state_full[0, :] = self.state
-        # reward = self.compute_reward(action[0, :])
-        # self.action = action
-        # #
-        # state = self.state
-        # for i in range(1, self.pre_horizon):
-        #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
-        #         self.state_full[i, :] = state
-        # #############
+        # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
+        # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
+        # 如果要plot，还得在sys run里修改action_list
+        self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], self.dt)
+        self.state_full = np.empty((self.pre_horizon, self.state_dim))
+        self.state_full[0, :] = self.state
+        reward = self.compute_reward(action[0, :])
+        self.action = action
+        #
+        state = self.state
+        for i in range(1, self.pre_horizon):
+                state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
+                self.state_full[i, :] = state
+        #############
 
         self.t = self.t + self.dt
 

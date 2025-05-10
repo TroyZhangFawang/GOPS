@@ -25,6 +25,7 @@ from gops.create_pkg.create_env_model import create_env_model
 from gops.utils.common_utils import get_apprfunc_dict
 from gops.utils.tensorboard_setup import tb_tags
 from gops.algorithm.base import AlgorithmBase, ApprBase
+from gops.utils.planner_benchmark.elements import RoutedLocalMap
 
 
 class ApproxContainer(ApprBase):
@@ -43,6 +44,8 @@ class ApproxContainer(ApprBase):
         """create action distribution"""
         return self.policy.get_act_dist(logits)
 
+    def set_local_map(self, local_map:RoutedLocalMap):
+        self.local_map = local_map
 
 class FHADP2(AlgorithmBase):
     """Approximate Dynamic Program Algorithm for Finity Horizon

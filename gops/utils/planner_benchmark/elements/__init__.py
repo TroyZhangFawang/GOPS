@@ -1,8 +1,8 @@
-from spider.elements.box import TrackingBoxList, TrackingBox, BoundingBox
-from spider.elements.map import ScenarioType, TrafficLight, Lane, LocalMap, RoutedLocalMap
-from spider.elements.grid import OccupancyGrid2D
-from spider.elements.vehicle import VehicleState, Location, Rotation, Transform, Vector3D
-from spider.elements.trajectory import Trajectory, FrenetTrajectory, Path
+from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox, BoundingBox
+from gops.utils.planner_benchmark.elements.map import ScenarioType, TrafficLight, Lane, LocalMap, RoutedLocalMap
+from gops.utils.planner_benchmark.elements.grid import OccupancyGrid2D
+from gops.utils.planner_benchmark.elements.vehicle import VehicleState, Location, Rotation, Transform, Vector3D
+from gops.utils.planner_benchmark.elements.trajectory import Trajectory, FrenetTrajectory, Path
 
 from typing import Tuple, Union
 

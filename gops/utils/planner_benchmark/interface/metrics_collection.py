@@ -203,3 +203,4 @@ class LateralOffsetMetric(BaseMetric):
     def get_result(self) -> dict:
         return {"avg_lateral_offset": self.total_offset / self.num_frames if self.num_frames > 0 else 0.0}
 
+# todo add stability metric

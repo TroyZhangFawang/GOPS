@@ -40,6 +40,7 @@ from gops.utils.diffusion_helpers import (
     SinusoidalPosEmb,
 )
 
+
 # Define MLP function
 def mlp(sizes, activation, output_activation=nn.Identity):
     layers = []
@@ -144,13 +145,16 @@ class FiniteHorizonFullPolicy(nn.Module, Action_Distribution):
         self.action_distribution_cls = kwargs["action_distribution_cls"]
 
     def forward(self, obs):
-        return self.forward_all_policy(obs)[:, 0, :]
+        return self.forward_all_policy(obs)[:, :, :]
 
     def forward_all_policy(self, obs):
         actions = self.pi(obs).reshape(obs.shape[0], self.pre_horizon, self.act_dim)
         action = (self.act_high_lim - self.act_low_lim) / 2 * torch.tanh(actions) \
                  + (self.act_high_lim + self.act_low_lim) / 2
         return action
+
+
+
 
 
 # Stochastic Policy

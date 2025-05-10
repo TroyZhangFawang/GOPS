@@ -23,7 +23,7 @@ import scipy.optimize as opt
 from gops.utils.planner_benchmark.elements import RoutedLocalMap
 
 
-class OptController:
+class OptPlanner:
     """Implementation of optimal controller based on MPC.
 
     :param PythBaseModel model: model of environment to work on
@@ -344,3 +344,6 @@ class OptController:
         print("* Final cost:", res.fun, "\n")
         if reset:
             self._reset_statistics()
+
+    def set_local_map(self, local_map:RoutedLocalMap):
+        self.local_map = local_map
