@@ -20,9 +20,6 @@ import os
 import sys
 import random
 import weakref
-from gops.env.env_gym.recources.utills import numpy_imwrite
-import torchvision.transforms as transforms
-import gops.env.env_gym.recources.const as const
 import cv2
 import subprocess
 import time
@@ -1079,7 +1076,7 @@ if __name__ == '__main__':
 
     env = env_creator(**args)
 
-    from gops.utils.control.rule_based_controller import mathDriver
+    from gops.utils.planner_benchmark.control.rule_based_controller import mathDriver
 
     agent = mathDriver(speed_limits=[5, 6])
     print(env.observation_space)
