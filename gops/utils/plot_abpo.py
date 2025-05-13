@@ -35,9 +35,9 @@ default_cfg["label_font"] = {
     "weight": "normal",
 "family": "Times New Roman",
 }
-default_cfg["img_fmt"] = "png"
-# mpl.rcParams['font.sans-serif'] = ['SimSun']  # 指定宋体
-# mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+default_cfg["img_fmt"] = "svg"
+mpl.rcParams['font.sans-serif'] = ['SimSun']  # 指定宋体
+mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 def cm2inch(*tupl):
     inch = 2.54
     if isinstance(tupl[0], tuple):
@@ -78,17 +78,17 @@ def read_csv_line5(root_path, line_num):
 def read_csv_line4(root_path, line_num):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     start_index = 1
-    end_index = 1249
-    interval = 5
+    end_index = 1199
+    interval = 1
     step_list = np.array(data_result.iloc[0, start_index:end_index:interval], dtype='float32')
 
     data_pool = np.zeros((line_num+1, len(step_list)))
     data_pool[0, :] = step_list
 
-    data_pool[1, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')/100  # Ref
-    data_pool[2, :] = np.array(data_result.iloc[4, start_index:end_index:interval], dtype='float32')/100  # MPC
-    data_pool[3, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')/10  # FHADP
-    data_pool[4, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')/10  # Bilevel
+    data_pool[1, :] = np.array(data_result.iloc[4, start_index:end_index:interval], dtype='float32')  # Ref
+    data_pool[2, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')  # MPC
+    data_pool[3, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')  # FHADP
+    data_pool[4, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')  # Bilevel
     # print(np.average(data_pool[1, :]),np.average(data_pool[2, :]), np.average(data_pool[3, :]), np.average(data_pool[4, :]))
     # for num in range(line_num):
     #     data_numi = np.array(data_result.iloc[num+1, 1:], dtype='float32')
@@ -98,16 +98,16 @@ def read_csv_line4(root_path, line_num):
 def read_csv_line3(root_path, line_num):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     start_index = 1
-    end_index = 1249
-    interval = 5
+    end_index = 1199
+    interval = 1
     step_list = np.array(data_result.iloc[0, start_index:end_index:interval], dtype='float32')
 
     data_pool = np.zeros((line_num+1, len(step_list)))
     data_pool[0, :] = step_list
 
-    data_pool[1, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')/10#3.14*180  # MPC
-    data_pool[2, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')/10#3.14*180 # FHADP
-    data_pool[3, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')/10#3.14*180  # ABPO
+    data_pool[1, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')#/3.14*180  # MPC
+    data_pool[2, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')#/3.14*180 # FHADP
+    data_pool[3, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')#/3.14*180  # ABPO
     # data_pool[4, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')  # Bilevel
     # for num in range(line_num):
     #     data_numi = np.array(data_result.iloc[num+1, 1:], dtype='float32')
@@ -148,8 +148,11 @@ def plot_Timevs_(data_read, args):
 
         sns.lineplot(x=data_read[0, :]*dt, y=data_read[i+1, :], linewidth=2, color="{}".format(color), label="{}".format(legend)) #
         # plt.scatter(x=data_x[i + 1, :], y=data_[i + 1, :], label="{}".format(legend), s=2)
-    # x = [0, 2.5, 5.0, 7.5]
-    # plt.xticks(x)
+    plt.xticks([0, 4,  8,  12])
+    plt.xlim(0, 12)
+    plt.yticks([25.6, 25.4, 25.2, 25.0])
+    # plt.ylim(-40, 0)
+
     # plt.yticks(range(0,50000,10000))
     plt.tick_params(labelsize=default_cfg["tick_size"])
     # 使用 ax.tick_params 来设置刻度线方向
@@ -161,19 +164,21 @@ def plot_Timevs_(data_read, args):
     if args["language"] == "ch":
         plt.xlabel(args["x_label"], default_cfg["label_font"], fontproperties=zhfont1, fontsize=20) #
         plt.ylabel(args["y_label"], default_cfg["label_font"], fontproperties=zhfont1, fontsize=20) #
+        plt.legend(loc="best", prop=zhfont1)  # ,ncol=2
     else:
         plt.xlabel(args["x_label"], default_cfg["label_font"])
         plt.ylabel(args["y_label"], default_cfg["label_font"])
-    plt.legend(loc="best", prop=default_cfg["legend_font"])#,ncol=2
+        plt.legend(loc="best", prop=default_cfg["legend_font"])  # ,ncol=2
+
     # plt.legend(frameon=False) # 不显示图例框线
     fig.tight_layout(pad=default_cfg["pad"])
 
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
     )
-    plt.savefig(
-        path_state_fmtpdf, format="pdf", bbox_inches="tight"
-    )
+    # plt.savefig(
+    #     path_state_fmtpdf, format="pdf", bbox_inches="tight"
+    # )
 
     plt.close()
 
@@ -211,9 +216,12 @@ def plot_stateXvs_(data_x, data_, args):
         # sns.lineplot(x=data_x[i+1, :], y=data_[i+1, :], label="{}".format(legend), linewidth=2,color="{}".format(color))  #
         plt.scatter(x=data_x[i+1, :], y=data_[i+1, :], label="{}".format(legend), s=2, c="{}".format(color)) #, linewidths=0.1
     # x = [0, 5, 10, 15, 20] sns.lineplot
-    # plt.xticks(range(0,8,1))
-    plt.axis('equal')
+    plt.xticks([0, 50, 100])
+    plt.yticks([-200, -100, 0])
+    # plt.axis('equal')
     # plt.legend(ncol=2)
+    # plt.xlim(0, 100)
+    # plt.ylim(-200, 0)
     plt.tick_params(labelsize=default_cfg["tick_size"])
     # 使用 ax.tick_params 来设置刻度线方向
     ax.tick_params(axis='x', direction='in')  # x轴刻度线向内
@@ -224,19 +232,20 @@ def plot_stateXvs_(data_x, data_, args):
     if args["language"] == "ch":
         plt.xlabel(args["x_label"], default_cfg["label_font"], fontproperties=zhfont1, fontsize=20) #
         plt.ylabel(args["y_label"], default_cfg["label_font"], fontproperties=zhfont1, fontsize=20) #
+        plt.legend(loc="best", prop=zhfont1)
     else:
         plt.xlabel(args["x_label"], default_cfg["label_font"])
         plt.ylabel(args["y_label"], default_cfg["label_font"])
-    plt.legend(loc="best", prop=default_cfg["legend_font"])
+        plt.legend(loc="best", prop=default_cfg["legend_font"])
     # plt.legend(frameon=False)
-    fig.tight_layout(pad=default_cfg["pad"])
+    # fig.tight_layout(pad=default_cfg["pad"])
     # plt.show()
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
     )
-    plt.savefig(
-        path_state_fmt_o, format="pdf", bbox_inches="tight"
-    )
+    # plt.savefig(
+    #     path_state_fmt_o, format="pdf", bbox_inches="tight"
+    # )
     plt.close()
 
 def plot_upperloss(data, args):
@@ -263,7 +272,8 @@ def plot_upperloss(data, args):
     ax.tick_params(axis='x', direction='in')  # x轴刻度线向内
     ax.tick_params(axis='y', direction='in')  # y轴刻度线向内
     fig.tight_layout(pad=default_cfg["pad"])
-    # plt.xlim(0, 19)
+    plt.xlim(0, 20)
+    plt.ylim(None, 4)
     # plt.show()
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
@@ -310,7 +320,6 @@ def compute_yoff_metrics(args):
     # R_ABPO = remove_min_max(R_ABPO.tolist())
     print("absmaxR[MPC, PUMPC, FHADP, ABPO]:", max(abs(R_MPC)), max(abs(R_PUMPC)), max(abs(R_FHADP)), max(abs(R_ABPO)))
     # print("avgR[MPC, PUMPC, FHADP, ABPO]:", R_MPC, R_PUMPC, R_FHADP, R_ABPO)
-
 
 def compute_IR_metrics(args):
     root_path_varphi_tt = args["figures_root"] + "State-9.csv"
@@ -375,13 +384,13 @@ if __name__ == "__main__":
     # Parameters Setup
     parser = argparse.ArgumentParser()
     parser.add_argument("--time_step", type=float, default=0.01)
-    parser.add_argument("--csv_file_name", type=str, default="Calc time")
+    parser.add_argument("--csv_file_name", type=str, default="State-4")
     parser.add_argument("--csv_file_name2", type=str, default="State-5")
     parser.add_argument("--line_num", type=int, default=4)
-    parser.add_argument("--language", type=str, default="en")
+    parser.add_argument("--language", type=str, default="ch")
     # parser.add_argument("--x_label", type=str, default=r"Pos $p_{\rm x,tt}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"Pos $p_{\rm y,tt}\ /\mathrm{m}$")
-    parser.add_argument("--x_label", type=str, default=r"Time $/\mathrm{s}$")
+    # parser.add_argument("--x_label", type=str, default=r"Time $/\mathrm{s}$")
     # parser.add_argument("--y_label", type=str, default=r"Lateral error $p_{\rm y,tt}^{\rm err}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"Yaw $\phi_{\rm tt}\ /\mathrm{rad}$")
     # parser.add_argument("--y_label", type=str, default=r"Yaw error $\phi_{\rm tl}^{\rm err}\ /\mathrm{rad}$")
@@ -390,34 +399,36 @@ if __name__ == "__main__":
     # parser.add_argument("--y_label", type=str, default=r"Roll rate $\dot\varphi_{\rm tl}\ /\mathrm{rad·s^{-1}}$")
     # parser.add_argument("--y_label", type=str, default=r"Lateral speed $v_{\rm tt}\ /\mathrm{m·s^{-1}}$") # ·s^{-1}
     # parser.add_argument("--y_label", type=str, default=r"Steering Angle $\delta_{\rm tt}\ /\mathrm{rad}$")  #
-    parser.add_argument("--y_label", type=str, default=r"Calculation time $/\mathrm{ms}$")  #
+    # parser.add_argument("--y_label", type=str, default=r"Calculation time $/\mathrm{ms}$")  #
 
-    # parser.add_argument("--x_label", type=str, default=r"$p_{\rm x,tt}\ /\mathrm{m}$")
-    # parser.add_argument("--y_label", type=str, default=r"$p_{\rm y,tt}\ /\mathrm{m}$")
-    # parser.add_argument("--x_label", type=str, default=r"时间 $/\mathrm{s}$")
-    # parser.add_argument("--y_label", type=str, default=r" $u_{\rm tt}\ /\mathrm{(m·s^{-1})}$")
+    # parser.add_argument("--x_label", type=str, default=r"$p_{\rm x,tl}\ /\mathrm{m}$")
+    # parser.add_argument("--y_label", type=str, default=r"$p_{\rm y,tl}\ /\mathrm{m}$")
+    parser.add_argument("--x_label", type=str, default=r"时间 $/\mathrm{s}$")
+    parser.add_argument("--y_label", type=str, default=r" $u_{\rm tt}\ /\mathrm{(m·s^{-1})}$")
     # parser.add_argument("--y_label", type=str, default=r"速度误差$u_{\rm tt}^{\rm err}\ /\mathrm{(m·s^{-1})}$")
-    # parser.add_argument("--y_label", type=str, default=r"横向误差$p_{\rm y,tl}^{\rm err}\ /\mathrm{m}$")
+    # parser.add_argument("--y_label", type=str, default=r"横向误差$p_{\rm y,tt}^{\rm err}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"$\phi_{\rm tt}\ /\degree$")
     # parser.add_argument("--y_label", type=str, default=r"横摆角误差$\phi_{\rm tt}^{\rm err}\ /\degree$")
     # parser.add_argument("--y_label", type=str, default=r"$\dot\phi_{\rm tt}/\mathrm{(rad·s^{-1})}$")
     # parser.add_argument("--y_label", type=str, default=r"$\varphi_{\rm tt}\ /\degree$") #
-    # parser.add_argument("--y_label", type=str, default=r"$\dot\varphi_{\rm tl}\ /\mathrm{(rad·s^{-1})}$")
+    # parser.add_argument("--y_label", type=str, default=r"$\dot\varphi_{\rm tt}\ /\mathrm{(rad·s^{-1})}$")
     # parser.add_argument("--y_label", type=str, default=r"$v_{\rm tt}\ /\mathrm{(m·s^{-1})}$") # ·s^{-1}
-    # parser.add_argument("--y_label", type=str, default=r"$\delta_{\rm tt}\ /\mathrm{rad}$")  #
+    # parser.add_argument("--y_label", type=str, default=r"$\delta_{\rm tt}\ /\degree$")  #
     # parser.add_argument("--y_label", type=str, default=r"$a_{x,\rm tt}\ /\mathrm{(m·s^{-2})}$")  #
-    # parser.add_argument("--y_label", type=str, default=r"Calculation time $/\mathrm{ms}$")  #
+    # parser.add_argument("--y_label", type=str, default=r"单步计算时间 $/\mathrm{ms}$")  #
 
     # parser.add_argument("--y_label", type=str, default=r"$J_\mathrm{L}$")
     # parser.add_argument("--x_label", type=str, default=r"$M$")
 
     parser.add_argument("--legend_list", type=list, default=
-    ["MPC", "PUMPC", "FHADP", "ABPO"])#"Ref",
+    ["参考状态","MPC方法", "FHADP方法", "Bi-level方法"])#
+    # ["MPC", "PUMPC", "FHADP", "ABPO"])#"Ref",
     parser.add_argument("--color_list", type=list, default=
-    ["#8A2BE2", "#FA8072", "lime", "magenta"]) #,"b",
+    ["b","#8A2BE2", "lime", "magenta"]) #,
+    # ["#8A2BE2", "#FA8072", "lime", "magenta"]) #,"b",
     parser.add_argument("--figures_root", type=str,
                         default='../../figures/FHADP2-FHADP2-pyth_semitruckpu7dof/241223-184240-circle90/')
-    # parser.add_argument("--figures_root", type=str,default='../../results/pyth_semitruckpu7dof/FHADP2_240426-091408-upper_20-inner_50000/')
+    # parser.add_argument("--figures_root", type=str,default='../../results/pyth_semitruckpu7doflateral/FHADP2_240426-091408-upper_20-inner_50000/')
     # Get parameter dictionary
     args = vars(parser.parse_args())
 
