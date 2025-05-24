@@ -20,7 +20,6 @@ from functorch import jacrev
 import numpy as np
 from cyipopt import minimize_ipopt
 import scipy.optimize as opt
-from gops.utils.planner_benchmark.elements import RoutedLocalMap
 
 
 class OptController:

@@ -14,12 +14,12 @@ from gops.sys_simulator.sys_run import OptRunner
 import numpy as np
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-result_path = "../results/pyth_veh3dofconti_bimodal_planning/"
+result_path = "../results/pyth_energybimodalplanning2a/"
 runner = OptRunner(
     log_policy_dir_list=[result_path],
-    env_id="pyth_veh3dofconti_bimodal_planning",
+    env_id="pyth_energybimodalplanning2a",
     is_init_info=True,
-    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":2, "u_num":0, "ref_time":0}, #
+    init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":14, "u_num":0, "ref_time":0}, #
     save_render=True,
     legend_list=[],
     use_opt=True,  # Use optimal solution for comparison
@@ -36,9 +36,9 @@ runner = OptRunner(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=True,
+    constrained_env=False,
     is_tracking=True,
-    dt=0.1,
+    dt=0.05,
 )
 
 runner.run()

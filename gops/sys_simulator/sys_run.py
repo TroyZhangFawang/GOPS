@@ -16,7 +16,7 @@ import os
 import gym
 from typing import Any, Optional, Tuple
 import matplotlib.pyplot as plt
-import gops.utils.planner_benchmark.visualize as vis
+# import gops.utils.planner_benchmark.visualize as vis
 import numpy as np
 import seaborn as sns
 import torch

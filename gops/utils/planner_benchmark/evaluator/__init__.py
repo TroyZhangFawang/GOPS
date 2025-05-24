@@ -1,2 +1,2 @@
-from spider.evaluator.CostEvaluator import FrenetCostEvaluator, CartCostEvaluator
+from gops.utils.planner_benchmark.evaluator.CostEvaluator import FrenetCostEvaluator, CartCostEvaluator
 

@@ -63,8 +63,9 @@ class FrenetCostEvaluator:
 
         efficiency = -(traj.s[-1]-traj.s[0]) ** 2 -\
                      5 * traj.s_dot[-1] ** 2
-
+        # todo 安全性就是让车辆尽可能在车道中心线行驶？
         safety = np.sum(np.array(traj.l) ** 2)
+        # 限制从左走到右也就是限制了频繁的换道
         if traj.l[-1] * traj.l[0] <0: # 异号，说明从左走到右了，惩罚
             safety *= 5
 
@@ -81,6 +82,6 @@ class FrenetCostEvaluator:
         sorted_cost, sorted_idx = zip(*sorted(zip(all_cost, idx)))
         sorted_trajectories = [trajectory_list[i] for i in sorted_idx]
         # sorted_cost, sorted_trajectories = zip(*sorted(zip(all_cost, trajectory_list)))
-        return sorted_trajectories,sorted_cost
+        return sorted_trajectories, sorted_cost
 
 
