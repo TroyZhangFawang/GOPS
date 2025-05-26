@@ -16,6 +16,7 @@ from typing import Dict, Optional, Sequence, Tuple, List
 import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.signal import savgol_filter
 
 DEFAULT_PATH_PARAM = {
     "sine": {"A": 1.5, "omega": 2 * np.pi / 10, "phi": 0.0,},
@@ -56,7 +57,7 @@ DEFAULT_PATH_PARAM = {
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100}, #李萨如曲线
-    "rtk_path": {"root": "C:/Users/Troy.Z/Desktop/GOPS/gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
+    "rtk_path": {"root": "../gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
 }
 
 DEFAULT_SPEED_PARAM = {
@@ -331,11 +332,24 @@ class RTKRefTrajData(RefTrajData):
       root: str  # 轨迹存放目录
       def __post_init__(self):
           data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
-          state_1 = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
-          state_2 = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
-          unique_indices = np.unique(state_1, return_index=True)[1]
-          state_1 = state_1[unique_indices]
-          state_2 = state_2[unique_indices]
+          raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
+          raw_y = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
+
+          # 3. 应用Savitzky-Golay平滑滤波
+          window_size = 15  # 滑动窗口大小(奇数)
+          poly_order = 3  # 多项式阶数
+
+          # 确保窗口大小不超过数据长度
+          window_size = min(window_size, len(raw_x) - 1)
+          if window_size % 2 == 0:  # 确保是奇数
+              window_size -= 1
+
+          smooth_x = savgol_filter(raw_x, window_size, poly_order)
+          smooth_y = savgol_filter(raw_y, window_size, poly_order)
+
+          unique_indices = np.unique(smooth_x, return_index=True)[1]
+          state_1 = smooth_x[unique_indices]
+          state_2 = smooth_y[unique_indices]
           self.recorded_points = np.zeros((len(state_1), 2))
           self.recorded_points[:, 0] = state_1
           self.recorded_points[:, 1] = state_2

@@ -168,7 +168,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
             dtype=np.float32,
         )
         self.dt = 0.05
-        self.max_episode_steps = 1570
+        self.max_episode_steps = 500
 
         self.state = None
         self.path_num = None
@@ -522,12 +522,13 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         x, y, phi = self.state[:3]
         ref_x, ref_y, ref_phi = self.ref_points[0, :3]
         done = (
-            (np.abs(x - ref_x) > 5)
-            | (np.abs(y - ref_y) > 5)
+             (np.abs(y - ref_y) > 10)
             | (np.abs(angle_normalize(phi - ref_phi)) > np.pi)
         )
+        # (np.abs(x - ref_x) > 10)
+        # |
         if done:
-            print((np.abs(x - ref_x) > 5), np.abs(y - ref_y) > 5, np.abs(angle_normalize(phi - ref_phi)) > np.pi)
+            print((np.abs(x - ref_x) > 10), np.abs(y - ref_y) > 10, np.abs(angle_normalize(phi - ref_phi)) > np.pi)
         return done
 
     def update_static_state(self):
@@ -575,7 +576,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         elif obstacle.material == 1:
             can_cross = (obstacle.height < self.ground_clearance and
                          obstacle.width < self.wheel_distance)
-
+        # can_cross = False
         # 轨迹评估函数
         def evaluate_curve(curve, is_crossing):
             # 采样曲线上的点
@@ -724,15 +725,27 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         curves = []
         current_pos = self.state[:2]
         # 横向采样点
-        lateral_offsets = [-self.lateral_sample-obstacle.width/2-self.veh_width/2, 0, self.lateral_sample+obstacle.width/2+self.veh_width/2]
+        lateral_offsets = [(-self.lateral_sample-obstacle.width/2-self.veh_width/2)*np.cos(obstacle.phi),
+                           0,
+                           (self.lateral_sample+obstacle.width/2+self.veh_width/2)*np.cos(obstacle.phi)]
+        longitudinal_offsets = [(self.lateral_sample + obstacle.width / 2 + self.veh_width / 2) * np.sin(obstacle.phi),
+                                0,
+                            (-self.lateral_sample - obstacle.width / 2 - self.veh_width / 2) * np.sin(obstacle.phi)]
+
         mid_points = [
-            np.array([obstacle.x, obstacle.y + offset]) for offset in lateral_offsets
-        ]
+            np.array([obstacle.x + longitudinal_offsets[0], obstacle.y + lateral_offsets[0]]),
+            np.array([obstacle.x + longitudinal_offsets[1], obstacle.y + lateral_offsets[1]]),
+            np.array([obstacle.x + longitudinal_offsets[2], obstacle.y + lateral_offsets[2]])
+                    ]
 
         # 终点位置（统一使用前方采样点）
-        end_point = [
-            np.array([obstacle.x + self.forward_sample+obstacle.length/2, obstacle.y + offset]) for offset in lateral_offsets
-        ]
+        end_point = [np.array([obstacle.x + (self.forward_sample+obstacle.length/2)*np.cos(obstacle.phi)+longitudinal_offsets[0],
+                               obstacle.y + (self.forward_sample+obstacle.length/2)*np.sin(obstacle.phi)+lateral_offsets[0]]),
+                    np.array([obstacle.x + (self.forward_sample+obstacle.length/2)*np.cos(obstacle.phi)+longitudinal_offsets[1],
+                              obstacle.y + (self.forward_sample+obstacle.length/2)*np.sin(obstacle.phi)+lateral_offsets[1]]) ,
+                     np.array([obstacle.x + (self.forward_sample + obstacle.length / 2) * np.cos(obstacle.phi)+longitudinal_offsets[2],
+                               obstacle.y + (self.forward_sample + obstacle.length / 2) * np.sin(obstacle.phi)+lateral_offsets[2]])
+                    ]
 
         # 生成三条候选曲线
         for i in range(len(mid_points)):
@@ -796,8 +809,8 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
 
         fig = plt.figure(num=0, figsize=(6.4, 3.2), dpi=300)
         plt.clf()
-        ego_x, ego_y, ego_phi = self.state[:3]
-        ax = plt.axes(xlim=(ego_x - 5, ego_x + 100), ylim=(ego_y - 50, ego_y + 50))
+        ego_x, ego_y = self.state[:2]
+        ax = plt.axes(xlim=(ego_x - 5, ego_x + 30), ylim=(ego_y - 10, ego_y + 10))
         ax.set_aspect('equal')
         
         self._render(ax)

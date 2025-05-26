@@ -272,8 +272,8 @@ class PythEnergybimodalplanning2aModel(PythBaseModel):
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
         delta_x, delta_y, delta_phi = obs[:, 0], obs[:, 1], obs[:, 2]
         done = (
-            (torch.abs(delta_x) > 5)
-            | (torch.abs(delta_y) > 3)
+            (torch.abs(delta_x) > 10)
+            | (torch.abs(delta_y) > 10)
             | (torch.abs(delta_phi) > np.pi)
         )
         return done
@@ -453,7 +453,7 @@ class PythEnergybimodalplanning2aModel(PythBaseModel):
         elif obstacle.material[batch_idx] == 1:
             can_cross = (obstacle.height[batch_idx] < self.ground_clearance and
                          obstacle.width[batch_idx] < self.wheel_distance)
-
+        # can_cross = False
         # 评估曲线平滑性 (Tensor版本)
         def evaluate_curve(curve: BezierCurve, is_crossing) -> torch.Tensor:
             # 采样曲线上的点 (使用Tensor操作)
@@ -626,18 +626,21 @@ class PythEnergybimodalplanning2aModel(PythBaseModel):
 
         # 横向采样点 - 使用tensor
         mid_points = torch.stack([
-            torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ] - lateral_sample-obstacle.width[batch_idx,]/2-self.veh_width/2], dtype=torch.float32),  # 左侧
+            torch.tensor([obstacle.x[batch_idx, ]+ (lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2)*torch.sin(obstacle.phi[batch_idx, ]),
+                          obstacle.y[batch_idx, ]+ (- lateral_sample-obstacle.width[batch_idx,]/2-self.veh_width/2)*torch.cos(obstacle.phi[batch_idx, ])], dtype=torch.float32),  # 左侧
             torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ]], dtype=torch.float32),  # 中心
-            torch.tensor([obstacle.x[batch_idx, ], obstacle.y[batch_idx, ] + lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2], dtype=torch.float32)  # 右侧
-        ])
+            torch.tensor([obstacle.x[batch_idx, ]+ (- lateral_sample-obstacle.width[batch_idx,]/2-self.veh_width/2)*torch.sin(obstacle.phi[batch_idx, ]),
+                          obstacle.y[batch_idx, ]+(lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2)*torch.cos(obstacle.phi[batch_idx, ])], dtype=torch.float32)  # 右侧
+                                ])
 
         # 纵向采样点 - 使用tensor
         end_points = torch.stack([
-            torch.tensor([obstacle.x[batch_idx,] + forward_sample + obstacle.length[batch_idx,] / 2, obstacle.y[batch_idx,]- lateral_sample-obstacle.width[batch_idx,]/2-self.veh_width/2],
-                dtype=torch.float32),
-            torch.tensor([obstacle.x[batch_idx, ] + forward_sample+obstacle.length[batch_idx, ]/2, obstacle.y[batch_idx, ]], dtype=torch.float32),
-            torch.tensor([obstacle.x[batch_idx,] + forward_sample + obstacle.length[batch_idx,] / 2, obstacle.y[batch_idx,]+ lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2],
-                dtype=torch.float32)
+            torch.tensor([obstacle.x[batch_idx,] + (forward_sample + obstacle.length[batch_idx,] / 2)*torch.cos(obstacle.phi[batch_idx,])+(lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2)*torch.sin(obstacle.phi[batch_idx, ]),
+                          obstacle.y[batch_idx,]+(forward_sample+obstacle.length[batch_idx, ]/2)*torch.sin(obstacle.phi[batch_idx,])+(- lateral_sample-obstacle.width[batch_idx,]/2-self.veh_width/2)*torch.cos(obstacle.phi[batch_idx,])],dtype=torch.float32),
+            torch.tensor([obstacle.x[batch_idx, ] + (forward_sample+obstacle.length[batch_idx, ]/2)*torch.cos(obstacle.phi[batch_idx,]),
+                          obstacle.y[batch_idx, ]+(forward_sample+obstacle.length[batch_idx, ]/2)*torch.sin(obstacle.phi[batch_idx,])], dtype=torch.float32),
+            torch.tensor([obstacle.x[batch_idx,] + forward_sample + obstacle.length[batch_idx,] / 2-(lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2)*torch.sin(obstacle.phi[batch_idx, ]),
+                          obstacle.y[batch_idx,]+(forward_sample+obstacle.length[batch_idx, ]/2)*torch.sin(obstacle.phi[batch_idx,])+ (lateral_sample+obstacle.width[batch_idx, ]/2+self.veh_width/2)*torch.cos(obstacle.phi[batch_idx,])], dtype=torch.float32)
             ])
 
         # 生成贝塞尔曲线

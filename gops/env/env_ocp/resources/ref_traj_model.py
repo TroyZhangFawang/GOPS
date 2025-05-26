@@ -14,6 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 from torch.nn.functional import interpolate
+from scipy.signal import savgol_filter
 import numpy as np
 import pandas as pd
 import torch
@@ -369,13 +370,25 @@ class RTKRefTrajModel(RefTrajModel):
     root: str
     def __post_init__(self):
         data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
-        state_1 = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
-        state_2 = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
+        raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
+        raw_y = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
+
+        # 3. 应用Savitzky-Golay平滑滤波
+        window_size = 15  # 滑动窗口大小(奇数)
+        poly_order = 3  # 多项式阶数
+
+        # 确保窗口大小不超过数据长度
+        window_size = min(window_size, len(raw_x) - 1)
+        if window_size % 2 == 0:  # 确保是奇数
+            window_size -= 1
+
+        smooth_x = savgol_filter(raw_x, window_size, poly_order)
+        smooth_y = savgol_filter(raw_y, window_size, poly_order)
         # # Process data (remove duplicates and sort)
-        unique_indices = np.unique(state_1, return_index=True)[1]
+        unique_indices = np.unique(smooth_x, return_index=True)[1]
         # # Convert to torch tensors
-        state_1 = torch.tensor(state_1[unique_indices], dtype=torch.float32)
-        state_2 = torch.tensor(state_2[unique_indices], dtype=torch.float32)
+        state_1 = torch.tensor(smooth_x[unique_indices], dtype=torch.float32)
+        state_2 = torch.tensor(smooth_y[unique_indices], dtype=torch.float32)
         self.recorded_points = torch.zeros((len(state_1), 2))
         self.recorded_points[:, 0] = state_1
         self.recorded_points[:, 1] = state_2
