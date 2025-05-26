@@ -160,7 +160,6 @@ class OptController:
         )
         if self.verbose > 0:
             self._print_statistics(res)
-        # todo 要想正常控制，将下面的:改为0，即只取第一个控制量
         return res.x.reshape((self.num_ctrl_points, self.optimize_dim))[
             :, : self.action_dim
         ]

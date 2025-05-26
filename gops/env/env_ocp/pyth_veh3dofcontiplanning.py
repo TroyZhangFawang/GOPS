@@ -11,6 +11,7 @@
 
 from typing import Dict, Optional, Sequence, Tuple
 import gym
+import matplotlib.pyplot as plt
 import numpy as np
 from gops.env.env_ocp.pyth_base_env import PythBaseEnv
 from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
@@ -113,7 +114,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             dtype=np.float32,
         )
         self.dt = 0.1
-        self.max_episode_steps = 100
+        self.max_episode_steps = 120
 
         self.state = None
         self.path_num = None
@@ -196,23 +197,23 @@ class SimuVeh3dofconti(PythBaseEnv):
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
-        reward = self.compute_reward(action)
+        # self.state = self.vehicle_dynamics.f_xu(self.state, action, self.dt)
+        # reward = self.compute_reward(action)
 
-        # # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
-        # # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
-        # # 如果要plot，还得在sys run里修改action_list
-        # self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], self.dt)
-        # self.state_full = np.empty((self.pre_horizon, self.state_dim))
-        # self.state_full[0, :] = self.state
-        # reward = self.compute_reward(action[0, :])
-        # self.action = action
-        # #
-        # state = self.state
-        # for i in range(1, self.pre_horizon):
-        #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
-        #         self.state_full[i, :] = state
-        # #############
+        # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
+        # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
+        # 如果要plot，还得在sys run里修改action_list
+        self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], self.dt)
+        self.state_full = np.empty((self.pre_horizon, self.state_dim))
+        self.state_full[0, :] = self.state
+        reward = self.compute_reward(action[0, :])
+        self.action = action
+        #
+        state = self.state
+        for i in range(1, self.pre_horizon):
+                state = self.vehicle_dynamics.f_xu(state, action[i, :], self.dt)
+                self.state_full[i, :] = state
+        #############
 
         self.t = self.t + self.dt
 
@@ -294,6 +295,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             "u_num": self.u_num,
             "ref_time": self.t,
             "ref": self.ref_points[0].copy(),
+
         }
 
     def render(self, mode="human"):
@@ -323,7 +325,10 @@ class SimuVeh3dofconti(PythBaseEnv):
 
     def _render(self, ax, veh_length=4.8, veh_width=2.0):
         import matplotlib.patches as pc
-
+        from matplotlib.colors import LinearSegmentedColormap
+        import matplotlib.cm as cm
+        # 创建从深绿到浅绿的渐变
+        cmap = LinearSegmentedColormap.from_list('green_gradient', ['#006400', '#90EE90'])
         # draw ego vehicle
         ego_x, ego_y, phi = self.state[:3]
         x_offset = veh_length / 2 * np.cos(phi) - veh_width / 2 * np.sin(phi)
@@ -333,8 +338,8 @@ class SimuVeh3dofconti(PythBaseEnv):
             veh_length, 
             veh_width, 
             angle=np.rad2deg(phi),
-            facecolor='w', 
-            edgecolor='r', 
+            facecolor='g',
+            edgecolor='g',
             zorder=1
         ))
 
@@ -351,7 +356,7 @@ class SimuVeh3dofconti(PythBaseEnv):
             ))
         ax.plot(ref_x, ref_y, 'b--', lw=1, zorder=2)
 
-        # draw planning paths
+        # # draw planning paths
         plan_x = []
         plan_y = []
 
@@ -366,7 +371,31 @@ class SimuVeh3dofconti(PythBaseEnv):
         delta_y = 2
         ego_speed = self.state[3] * 3.6  # [km/h]
         ref_speed = self.ref_points[0, 3] * 3.6  # [km/h]
-        ax.legend(['Self Car', 'Global', 'Local'], loc=2)
+        ax.legend(['Ego', 'Global', 'Local'], loc=2)
+        # draw planning paths as gradient colored rectangles
+        # for i in range(self.pre_horizon):
+        #     # 计算颜色 (根据位置渐变)
+        #     color_ratio = i / max(1, self.pre_horizon - 1)  # 0到1之间的值
+        #     rect_color = cmap(color_ratio)
+        #
+        #     # 获取当前位置和角度
+        #     x, y, phi = self.state_full[i, :3]
+        #
+        #     # 计算矩形偏移
+        #     x_offset = veh_length / 2 * np.cos(phi) - veh_width / 2 * np.sin(phi)
+        #     y_offset = veh_length / 2 * np.sin(phi) + veh_width / 2 * np.cos(phi)
+        #
+        #     # 添加矩形
+        #     ax.add_patch(pc.Rectangle(
+        #         (x - x_offset, y - y_offset),
+        #         veh_length,
+        #         veh_width,
+        #         angle=np.rad2deg(phi),
+        #         facecolor=rect_color,
+        #         edgecolor='g',  # 无边框
+        #         alpha=0.3,  # 适当透明度
+        #         zorder=1
+        #     ))
         ax.text(left_x, top_y, f'time: {self.t:.1f}s')
         ax.text(left_x, top_y - delta_y, f'speed: {ego_speed:.1f}km/h')
         ax.text(left_x, top_y - 2 * delta_y, f'ref speed: {ref_speed:.1f}km/h')

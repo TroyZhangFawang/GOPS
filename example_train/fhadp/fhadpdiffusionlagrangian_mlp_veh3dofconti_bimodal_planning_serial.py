@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodal_planning")
     parser.add_argument("--algorithm", type=str, default="FHADPDIFFUSIONLagrangian")
     parser.add_argument("--pre_horizon", type=int, default=30)
-    parser.add_argument("--enable_cuda", default=False)
+    parser.add_argument("--enable_cuda", default=True)
     parser.add_argument("--seed", default=2680492381)
     ################################################
     # 1. Parameters for environment
@@ -53,9 +53,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--policy_func_type", type=str, default="MLP")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
-    parser.add_argument("--policy_T", type=int, default=5)
+    parser.add_argument("--policy_T", type=int, default=30)
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--policy_hidden_sizes", type=int, default=128)
+    parser.add_argument("--policy_hidden_sizes", type=int, default=256)
     parser.add_argument("--policy_hidden_activation", type=str, default="elu")
     ################################################
     # 3. Parameters for RL algorithm
@@ -67,7 +67,7 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=50000)
+    parser.add_argument("--max_iteration", type=int, default=1000000)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     ################################################
     # 6. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
-    parser.add_argument("--num_eval_episode", type=int, default=10)
+    parser.add_argument("--num_eval_episode", type=int, default=100)
     parser.add_argument("--eval_interval", type=int, default=100)
     parser.add_argument("--eval_save", type=str, default=True, help="save evaluation data")
 
@@ -108,9 +108,9 @@ if __name__ == "__main__":
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=1000)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=5000)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=1000)
+    parser.add_argument("--log_save_interval", type=int, default=5000)
 
     ################################################
     # Get parameter dictionary

@@ -14,6 +14,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import gym
 import numpy as np
 from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
+from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
+from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
+from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+import numpy as np
 
 @dataclass
 class DynamicObstacleData:
@@ -172,6 +176,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         self.forward_sample = forward_sample
         self.best_curve = None
         self.obstacle = None
+        self.last_curve_index = None
         self.info_dict.update(
             {
                 "dynamic_state": {"shape": (dynamic_obstacle_num, 5), "dtype": np.float32},
@@ -206,52 +211,74 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
         # add dynamic obstacle
         self.dynamic_obss = []
+        self.obstacle_trackingbox = []
+        dynamic_time = [5, 5]
         for i_dynamic in range(self.dynamic_obstacle_num):
             # avoid ego vehicle
-            delta_t = self.np_random.uniform(3, 5)
-            dynamic_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
-            delta_lon = 1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = 1.0 * self.np_random.uniform(-1, 1)
+            delta_t = dynamic_time[i_dynamic]#self.np_random.uniform(3, 5)
+            dynamic_phi = np.array([np.pi*5/4, np.pi/4])#self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
+            delta_lon = 0#1.0 * self.np_random.uniform(-1, 1)
+            delta_lat = np.array([-3.5, 3.5])#1.0 * self.np_random.uniform(-1, 1)
             dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
-            dynamic_u = np.random.uniform(0, 10, self.dynamic_obstacle_num)
+            dynamic_y = 0#self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)
+            dynamic_u = np.array([-4, -4])#np.random.uniform(0, 10, self.dynamic_obstacle_num)
             self.dynamic_obss.append(
                 DynamicObstacleData(
                     x=dynamic_x,
-                    y=dynamic_y,
-                    phi=dynamic_phi,
+                    y=dynamic_y + delta_lat[i_dynamic],
+                    phi=dynamic_phi[i_dynamic],
                     u=dynamic_u[i_dynamic],
                     delta=dynamic_delta,
                     dt=self.dt
                 )
             )
+            obstacle = TrackingBox(obb=(dynamic_x, dynamic_y+ delta_lat[i_dynamic], self.veh_length, self.veh_width, dynamic_phi[i_dynamic], 2), vx=dynamic_u[i_dynamic], vy=0.0, id=i_dynamic)
+            self.obstacle_trackingbox.append(obstacle)
         self.static_obss = []
         # add static obstacle
-        time = [0.4, 0.8]
+        static_time = [3, 7, 9]
         for i_static in range(self.static_obstacle_num):
-            delta_t = self.np_random.uniform(2, 7) #time[i_static]#
+            delta_t = static_time[i_static]#self.np_random.uniform(2, 7)
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
-            delta_lon = 1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = 1.0 * self.np_random.uniform(-1, 1)
+            delta_lon = 0#1.0 * self.np_random.uniform(-1, 1)
+            delta_lat = np.array([0., 0, 0])#1.0 * self.np_random.uniform(-1, 1)
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
-            self.static_length = np.random.uniform(0, 2, self.static_obstacle_num)
-            self.static_width = np.random.uniform(0, 2, self.static_obstacle_num)#np.array([3, 5]) #, 0.5
-            self.static_height = np.random.uniform(0, 1, self.static_obstacle_num)#np.array([0.5, 0.5]) #, 0.23
+            static_obs_y = 0#self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)
+            self.static_length = np.array([0.5, 3, 5])#np.random.uniform(0, 2, self.static_obstacle_num)
+            self.static_width = np.array([1.5, 2.0, 1.3]) #np.random.uniform(0, 2, self.static_obstacle_num)#, 0.5
+            self.static_height = np.array([0.2, 0.5, 0.1]) #np.random.uniform(0, 1, self.static_obstacle_num)#, 0.23
             self.static_obss.append(
                 StaticObstacle(
                     obs_id=i_static,
                     x=static_obs_x,
-                    y=static_obs_y,
+                    y=static_obs_y+ delta_lat[i_static],
                     phi=static_obs_phi,
                     length=self.static_length[i_static],
                     width=self.static_width[i_static],
                     height=self.static_height[i_static],
                 )
             )
+            obstacle = TrackingBox(obb=(static_obs_x, static_obs_y+ delta_lat[i_static], self.static_length[i_static], self.static_width[i_static], static_obs_phi, self.static_height[i_static]),
+                                   vx=0, vy=0.0, id=i_static)
+            self.obstacle_trackingbox.append(obstacle)
 
         self.update_dynamic_state()
         self.update_static_state()
+        self.ego_veh_state = VehicleState.from_kine_states(self.state[0], self.state[1], self.state[2], vx=self.state[3], vy=self.state[4],
+                                                       length=self.veh_length, width=self.veh_width)
+        self.local_map = RoutedLocalMap()
+        for idx, yy in enumerate([-3.5, 0, 3.5]):
+            xs = []
+            ys = []
+            for t in range(1, self.max_episode_steps, ):
+                x = self.ref_traj.compute_x(t*self.dt, self.path_num, self.u_num)
+                y = self.ref_traj.compute_y(t*self.dt, self.path_num, self.u_num)
+                xs.append(x)
+                ys.append(y)
+            center_line = np.column_stack((np.array(xs), np.array(ys)+yy))  # 中心线的x y
+            lane = Lane(idx, center_line, width=3.5, speed_limit=80 / 3.6)
+            self.local_map.lanes.append(lane)
+        self.obstaclesBox = TrackingBoxList(self.obstacle_trackingbox)
 
         # 初始时刻添加完障碍物之后就先判断下是否需要生成引导轨迹
         obstacle, generate_guide = self.is_generate_guide()
@@ -303,6 +330,9 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         for dynamic_veh in self.dynamic_obss:
             dynamic_veh.step()
         self.update_dynamic_state()
+        for tb in self.obstaclesBox:
+            if tb.vx != 0:
+                tb.set_obb([tb.x + tb.vx *np.cos(tb.box_heading) * self.dt, tb.y + tb.vx *np.sin(tb.box_heading)* self.dt, tb.length, tb.width, tb.box_heading, tb.height])
         if self.obstacle != None:
             if self.generate_guide == 1 and self.best_curve == None:
                 new_ref_point = np.array([
@@ -448,6 +478,9 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         self.update_dynamic_state()
         self.update_static_state()
         done = self.judge_done()
+        self.ego_veh_state = VehicleState.from_kine_states(self.state[0], self.state[1], self.state[2], vx=self.state[3], vy=self.state[4],
+                                                       length=self.veh_length, width=self.veh_width)
+        # done = False
         return self.get_obs(), reward, done, self.info
 
     def compute_reward(self, action: np.ndarray) -> float:
@@ -640,45 +673,183 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
     #         self.curve_index = 2
     #     return best_curve, can_cross
 
+    # def can_cross_decision(self, obstacle: StaticObstacle, curves: List) -> Tuple[Optional[BezierCurve], bool]:
+    #     can_cross = (obstacle.height < self.ground_clearance and
+    #                  obstacle.width < self.wheel_distance)
+    #
+    #     # 评估曲线平滑性
+    #     def evaluate_curve(curve):
+    #         # 采样曲线上的点
+    #         ts = np.linspace(0, 1, 10)
+    #         points = np.array([curve.compute_point(t) for t in ts])
+    #
+    #         # 计算曲率变化
+    #         dx = np.gradient(points[:, 0])
+    #         dy = np.gradient(points[:, 1])
+    #         ddx = np.gradient(dx)
+    #         ddy = np.gradient(dy)
+    #         curvature = np.abs(dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2) ** 1.5
+    #
+    #         return np.mean(curvature)  # 返回平均曲率
+    #
+    #     # 选择最平滑的曲线
+    #     if can_cross:
+    #         best_curve = min(curves, key=evaluate_curve)
+    #     else:
+    #         # 选择绕行时，优先选择与当前方向更一致的曲线
+    #         current_heading = self.state[2]
+    #         heading_diffs = []
+    #         valid_indices = [0, 2]  # 对应的原始索引
+    #         valid_curves = [curves[0], curves[2]]
+    #         for curve in valid_curves:
+    #             end_heading = np.arctan2(curve.p2[1] - curve.p1[1], curve.p2[0] - curve.p1[0])
+    #             heading_diffs.append(abs(angle_normalize(end_heading - current_heading)))
+    #         # 选择差异最小的曲线
+    #         best_sub_idx = np.argmin(heading_diffs)
+    #         best_curve = valid_curves[best_sub_idx]#
+    #         # 额外检查：如果选择的曲线与障碍物太近，选择另一条
+    #         # if self._is_too_close_to_obstacle(best_curve, obstacle):
+    #         #     # 选择另一条曲线
+    #         #     self.curve_index = valid_indices[1 - best_sub_idx]
+    #         #     best_curve = valid_curves[1 - best_sub_idx]
+    #     return best_curve, can_cross
     def can_cross_decision(self, obstacle: StaticObstacle, curves: List) -> Tuple[Optional[BezierCurve], bool]:
         can_cross = (obstacle.height < self.ground_clearance and
                      obstacle.width < self.wheel_distance)
 
-        # 评估曲线平滑性
-        def evaluate_curve(curve):
+        # 轨迹评估函数
+        def evaluate_curve(curve, is_crossing):
             # 采样曲线上的点
-            ts = np.linspace(0, 1, 10)
+            ts = np.linspace(0, 1, 20)  # 增加采样点数量
             points = np.array([curve.compute_point(t) for t in ts])
 
-            # 计算曲率变化
+            # 计算参数化曲线的一阶和二阶导数
             dx = np.gradient(points[:, 0])
             dy = np.gradient(points[:, 1])
             ddx = np.gradient(dx)
             ddy = np.gradient(dy)
+
+            # 1. 曲率评估
             curvature = np.abs(dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2) ** 1.5
+            mean_curvature = np.mean(curvature)
+            max_curvature = np.max(curvature)
 
-            return np.mean(curvature)  # 返回平均曲率
+            # 2. 横向动力学评估
+            # 假设速度为v (可根据实际情况调整)
+            v = self.state[4]
+            # 横向加速度 (ay = v^2 * curvature)
+            lateral_acc = v ** 2 * curvature
+            max_lateral_acc = np.max(lateral_acc)
 
-        # 选择最平滑的曲线
+            # 3. 向心加速度评估 (与横向加速度相同)
+            centripetal_acc = lateral_acc
+
+            # 4. 横向jerk评估 (加速度变化率)
+            jerk = np.gradient(lateral_acc)
+            max_jerk = np.max(np.abs(jerk))
+
+            # 5. 方向变化评估 (用于减少频繁切换)
+            if hasattr(self, 'last_curve_index'):
+                current_curve_index = curves.index(curve)
+                is_switching = current_curve_index != self.last_curve_index
+            else:
+                is_switching = False
+
+            # 6. 轨迹长度评估 (避免不必要的绕行)
+            curve_length = np.sum(np.sqrt(np.diff(points[:, 0]) ** 2 + np.diff(points[:, 1]) ** 2))
+
+            # 权重设置 (可根据实际需求调整)
+            weights = {
+                'mean_curvature': 0.3,
+                'max_curvature': 0.2,
+                'max_lateral_acc': 0.2,
+                'max_jerk': 0.15,
+                'is_switching': 0.1 if is_switching else 0,
+                'curve_length': 0.05
+            }
+
+            # 归一化处理 (假设这些是最大允许值)
+            max_values = {
+                'mean_curvature': 0.5,
+                'max_curvature': 1.0,
+                'max_lateral_acc': 2.0,  # m/s^2
+                'max_jerk': 0.5,  # m/s^3
+                'is_switching': 1,
+                'curve_length': 20.0  # meters
+            }
+
+            # 计算加权得分 (得分越低越好)
+            score = 0
+            score += weights['mean_curvature'] * (mean_curvature / max_values['mean_curvature'])
+            score += weights['max_curvature'] * (max_curvature / max_values['max_curvature'])
+            score += weights['max_lateral_acc'] * (max_lateral_acc / max_values['max_lateral_acc'])
+            score += weights['max_jerk'] * (max_jerk / max_values['max_jerk'])
+            score += weights['is_switching'] * is_switching
+            score += weights['curve_length'] * (curve_length / max_values['curve_length'])
+
+            return score, {
+                'mean_curvature': mean_curvature,
+                'max_curvature': max_curvature,
+                'max_lateral_acc': max_lateral_acc,
+                'max_jerk': max_jerk,
+                'is_switching': is_switching,
+                'curve_length': curve_length
+            }
+
+        # 选择最佳曲线
         if can_cross:
-            best_curve = min(curves, key=evaluate_curve)
-        else:
-            # 选择绕行时，优先选择与当前方向更一致的曲线
-            current_heading = self.state[2]
-            heading_diffs = []
+            valid_indices = [0, 1, 2]  # 对应的原始索引
+            valid_curves = [curves[0],curves[1], curves[2]]
+            # 可跨越时，评估所有曲线
+            scored_curves = [(evaluate_curve(curve, True), curve) for curve in curves]
+            scored_curves.sort(key=lambda x: x[0][0])  # 按得分排序
+            best_score, metrics = scored_curves[0][0]
+            best_curve = scored_curves[0][1]
+
+            # 检查是否满足安全约束
+            # if (metrics['max_lateral_acc'] > 2.5 or  # 超过最大允许横向加速度
+            #         metrics['max_jerk'] > 1.0 or  # 超过最大允许jerk
+            #         metrics['max_curvature'] > 1.5):  # 超过最大允许曲率
+            #     can_cross = False  # 即使物理上可以跨越，动力学上也不安全
+            # 记录当前选择的曲线索引
+            current_index = valid_indices[valid_curves.index(best_curve)]
+
+            # # 检查是否需要切换轨迹
+            # if hasattr(self, 'last_curve_index') and self.last_curve_index != None:
+            #     if current_index != self.last_curve_index:
+            #         # 如果切换轨迹，需要确保新轨迹明显更好
+            #         if best_score > scored_curves[1][0][0] * 0.8:  # 新轨迹优势不明显时保持原轨迹
+            #             best_curve = valid_curves[valid_indices.index(self.last_curve_index)]
+            #
+            # # 更新最后选择的曲线索引
+            # self.last_curve_index = current_index
+
+        if not can_cross:
+            # 绕行时，只考虑特定曲线（如你原始代码中的valid_curves）
             valid_indices = [0, 2]  # 对应的原始索引
             valid_curves = [curves[0], curves[2]]
-            for curve in valid_curves:
-                end_heading = np.arctan2(curve.p2[1] - curve.p1[1], curve.p2[0] - curve.p1[0])
-                heading_diffs.append(abs(angle_normalize(end_heading - current_heading)))
-            # 选择差异最小的曲线
-            best_sub_idx = np.argmin(heading_diffs)
-            best_curve = valid_curves[best_sub_idx]#
-            # 额外检查：如果选择的曲线与障碍物太近，选择另一条
-            # if self._is_too_close_to_obstacle(best_curve, obstacle):
-            #     # 选择另一条曲线
-            #     self.curve_index = valid_indices[1 - best_sub_idx]
-            #     best_curve = valid_curves[1 - best_sub_idx]
+
+            # 评估候选曲线
+            scored_curves = [(evaluate_curve(curve, False), curve) for curve in valid_curves]
+            scored_curves.sort(key=lambda x: x[0][0])
+
+            # 选择得分最低的曲线
+            best_score, metrics = scored_curves[0][0]
+            best_curve = scored_curves[0][1]
+
+            # 记录当前选择的曲线索引
+            current_index = valid_indices[valid_curves.index(best_curve)]
+
+            # # 检查是否需要切换轨迹
+            # if hasattr(self, 'last_curve_index') and self.last_curve_index != None:
+            #     if current_index != self.last_curve_index:
+            #         # 如果切换轨迹，需要确保新轨迹明显更好
+            #         if best_score > scored_curves[1][0][0] * 0.8:  # 新轨迹优势不明显时保持原轨迹
+            #             best_curve = valid_curves[valid_indices.index(self.last_curve_index)]
+            #
+            # # 更新最后选择的曲线索引
+            # self.last_curve_index = current_index
+
         return best_curve, can_cross
 
     def _is_too_close_to_obstacle(self, curve: BezierCurve, obstacle: StaticObstacle) -> bool:
@@ -831,6 +1002,235 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
     def update_loca_traj(self, local_traj):
         self.planned_traj = local_traj
+
+    def conduct_trajectory(self, trajectory):
+        traj = trajectory
+        # 控制+定位，假设完美控制到下一个轨迹点
+        print("[x, y]:",traj.x[1], traj.y[1])
+        self.ego_veh_state.transform.location.x, self.ego_veh_state.transform.location.y, self.ego_veh_state.transform.rotation.yaw \
+            = traj.x[1], traj.y[1], traj.heading[1]
+        self.ego_veh_state.kinematics.speed, self.ego_veh_state.kinematics.acceleration, self.ego_veh_state.kinematics.curvature \
+            = traj.v[1], traj.a[1], traj.curvature[1]
+        for tb in self.obstaclesBox:
+            tb.set_obb([tb.x + tb.vx * traj.dt, tb.y + tb.vy * traj.dt, tb.length, tb.width, tb.box_heading])
+    # todo 完善完美执行规划轨迹的step
+    def step_w_perfectaction(self, trajectory: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
+        traj = trajectory
+        # 控制+定位，假设完美控制到下一个轨迹点
+        print("[x, y]:", traj.x[1], traj.y[1])
+        self.ego_veh_state.transform.location.x, self.ego_veh_state.transform.location.y, self.ego_veh_state.transform.rotation.yaw \
+            = traj.x[1], traj.y[1], traj.heading[1]
+        self.ego_veh_state.kinematics.speed, self.ego_veh_state.kinematics.acceleration, self.ego_veh_state.kinematics.curvature \
+            = traj.v[1], traj.a[1], traj.curvature[1]
+        for tb in self.obstaclesBox:
+            tb.set_obb([tb.x + tb.vx * traj.dt, tb.y + tb.vy * traj.dt, tb.length, tb.width, tb.box_heading])
+        for dynamic_veh in self.dynamic_obss:
+            dynamic_veh.step()
+        self.update_dynamic_state()
+        for tb in self.obstaclesBox:
+            tb.set_obb([tb.x + tb.vx * self.dt, tb.y + tb.vy * self.dt, tb.length, tb.width, tb.box_heading])
+
+
+        if self.obstacle != None:
+            if self.generate_guide == 1 and self.best_curve == None:
+                new_ref_point = np.array([
+                    self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                    self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                    self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                    self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                ], dtype=np.float32
+                )
+
+            #     obstacle, generate_guide = self.is_generate_guide()
+            #     if generate_guide and self.best_curve != None:
+            #         self.generate_guide = generate_guide
+            #         self.obstacle = obstacle
+            #         # quintic_curves = self.generate_quintic_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
+            #         bezier_curves = self.generate_bezier_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
+            #         self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
+            #         self.t_start = self.t
+            #         self.t_end = self.t + (self.obstacle.x + self.forward_sample - self.state[0]) / self.state[3]
+            #         for i in range(1, self.pre_horizon + 1):
+            #             ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
+            #             guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start,
+            #                                                        t_end=self.t_end)
+            #             t = (ref_x - guide_point[0]) / self.state[3]
+            #             while guide_point[0] < ref_x and t < self.t_end and t > 0:
+            #                 # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
+            #                 guide_point = self.get_bezier_guide_points(self.best_curve, t, self.t_start, self.t_end)
+            #                 t += self.dt
+            #             # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
+            #             if guide_point[0] >= self.obstacle.x + self.forward_sample:
+            #                 self.generate_guide = 0
+            #                 guide_point = np.array([
+            #                     self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+            #                     self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
+            #                 ], dtype=np.float32
+            #                 )
+            #             self.ref_points[i] = guide_point
+            #         new_ref_point = guide_point
+
+            elif self.generate_guide == 1 and self.best_curve != None:
+                # ref_x = self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num)
+                # new_ref_point = self.get_quintic_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt, self.t_start)
+                new_ref_point = self.get_bezier_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt,
+                                                             self.t_start, self.t_end)
+                # t_gap = (ref_x - new_ref_point[0]) / new_ref_point[3]
+                # if t_gap > self.t_end and t_gap > 0:
+                #     new_ref_point = np.array([
+                #         self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #     ], dtype=np.float32
+                #     )
+                # else:
+                #     while new_ref_point[0] <= ref_x and t_gap <= self.t_end and t_gap > 0:
+                #         # new_ref_point = self.get_quintic_guide_points(self.best_curve, t + self.pre_horizon * self.dt, self.t_start)
+                #         new_ref_point = self.get_bezier_guide_points(self.best_curve, t_gap + self.pre_horizon * self.dt, self.t_start, self.t_end)
+                #         t_gap += self.dt
+                #     if new_ref_point[0] >= self.obstacle.x + self.forward_sample:
+                #         if self.state[0] > self.obstacle.x + self.obstacle.length / 2:  # 确保车辆完全通过
+                #             self.processed_obstacles.add(self.obstacle.obs_id)
+                #             self.generate_guide = 0
+                #             self.best_curve = None
+                #         new_ref_point = np.array([
+                #             self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #             self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
+                #         ], dtype=np.float32
+                #         )
+
+            if self.state[0] > self.obstacle.x:  # 确保车辆完全通过
+                self.processed_obstacles.add(self.obstacle.obs_id)
+                self.generate_guide = 0
+                self.obstacle = None
+        else:
+            # 判断下是否需要生成引导轨迹
+            obstacle, generate_guide = self.is_generate_guide()
+            if generate_guide and obstacle != None:
+                self.generate_guide = generate_guide
+                self.obstacle = obstacle
+                # quintic_curves = self.generate_quintic_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
+                bezier_curves = self.generate_bezier_curves(obstacle)  # 生成3条贝塞尔曲线
+                self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
+                self.t_start = self.t
+                self.t_end = self.t + (self.obstacle.x + self.forward_sample + obstacle.width / 2 - self.state[0]) / \
+                             self.state[3]
+                for i in range(1, self.pre_horizon + 1):
+                    ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
+                    # # Check if guide_traj is None before proceeding
+                    if self.best_curve is None:
+                        # Use reference trajectory directly if guide trajectory is not available
+                        guide_point = np.array([
+                            self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+                            self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
+                        ], dtype=np.float32)
+                    else:
+                        guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start,
+                                                                   self.t_end)
+                        t_gap = (ref_x - guide_point[0]) / self.state[3]
+                        while guide_point[0] < ref_x and t_gap < self.t_end and t_gap > 0:
+                            # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
+                            guide_point = self.get_bezier_guide_points(self.best_curve, self.t + t_gap, self.t_start,
+                                                                       self.t_end)
+                            t_gap += self.dt
+                        # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
+                        if guide_point[0] >= self.obstacle.x + self.forward_sample:
+                            if self.state[0] > obstacle.x:  # 确保车辆完全通过
+                                self.processed_obstacles.add(obstacle.obs_id)
+                                self.generate_guide = 0
+                                self.obstacle = None
+                            # self.processed_obstacles.add(self.obstacle.obs_id)
+                            self.best_curve = None
+                            guide_point = np.array([
+                                ref_x,
+                                self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
+                                self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
+                                self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
+                            ], dtype=np.float32
+                            )
+                    self.ref_points[i] = guide_point
+                new_ref_point = guide_point
+            else:
+                new_ref_point = np.array(
+                    [
+                        self.ref_traj.compute_x(
+                            self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                        ),
+                        self.ref_traj.compute_y(
+                            self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                        ),
+                        self.ref_traj.compute_phi(
+                            self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                        ),
+                        self.ref_traj.compute_u(
+                            self.t + self.pre_horizon * self.dt, self.path_num, self.u_num
+                        ),
+                    ],
+                    dtype=np.float32,
+                )
+
+        self.ref_points[-1] = new_ref_point
+        self.update_dynamic_state()
+        self.update_static_state()
+        done = self.judge_done()
+        self.ego_veh_state = VehicleState.from_kine_states(self.state[0], self.state[1], self.state[2],
+                                                           vx=self.state[3], vy=self.state[4],
+                                                           length=self.veh_length, width=self.veh_width)
+        reward = 0
+
+        return self.get_obs(), reward, done, self.info
+
+    def visualize(self,traj):
+        '''
+        qzl: 要修改，统一格式
+        '''
+        import gops.utils.planner_benchmark.visualize as vis
+        import matplotlib.pyplot as plt
+        # for lane in self.local_map.lanes:
+        #     plt.plot(lane.centerline[:, 0], lane.centerline[:, 1], color='gray', linestyle='--', lw=1.5)  # 画地图
+        # vis.draw_ego_vehicle(self.ego_veh_state, color='green', fill=True, alpha=0.2, linestyle='-', linewidth=1.5) # 画自车
+        legend_label = []
+        for tb in self.obstaclesBox:
+            can_cross = (tb.height < self.ground_clearance and
+                         tb.width < self.wheel_distance)
+            if tb.vx != 0:
+                vis.draw_boundingbox(tb, color='red', fill=True, alpha=0.1, linestyle='-', linewidth=1.5)  # 画他车
+                legend_label.append(f'Dynamic_{tb.id}')
+            else:
+                color = 'lime' if can_cross else 'darkviolet'
+                vis.draw_boundingbox(tb, color=color, fill=True, alpha=0.1, linestyle='-', linewidth=1.5)  # 画他车
+                legend_label.append(f'Static_{tb.id}({"Cross" if can_cross else "Avoid"})')
+        #     # 画他车预测轨迹
+        #     tb_pred_traj = np.column_stack((tb.x + np.asarray(traj.t) * tb.vx, tb.y + np.asarray(traj.t) * tb.vy))
+        #     vis.draw_polyline(tb_pred_traj, show_buffer=True, buffer_dist=tb.width * 0.5, buffer_alpha=0.1,
+        #                       color='C3')
+
+        # vis.draw_ego_history(self.ego_veh_state, '-', lw=1, color='gray')  # 画自车历史
+        vis.draw_trajectory(traj, '.-', show_footprint=True, color='pink')  # 画轨迹
+        if "control_points" in traj.debug_info:  # bezier planner
+            pts = traj.debug_info["control_points"]
+            plt.plot(pts[:, 0], pts[:, 1], 'or')
+        # if "corridor" in traj.debug_info: # optimizer planner
+        #     vis.draw_corridor(traj.debug_info["corridor"], color='green', linewidth=0.5)
+        if "initial_trajectory" in traj.debug_info:
+            vis.draw_trajectory(traj.debug_info["initial_trajectory"], '--', color="black", show_footprint=False)
+
+        vis.draw_ego_vehicle(self.ego_veh_state, color='magenta', fill=True, alpha=0.3, linestyle='-', linewidth=1.5)  # 画自车
+        legend_label.append('Planned traj')
+        # plt.axis('equal')
+        plt.tight_layout()
+        vis.ego_centric_view(self.ego_veh_state.x(), self.ego_veh_state.y(), [-20, 80], [-10, 10])
+        # plt.xlim([ego_veh_state.x() - 20, ego_veh_state.x() + 80])
+        # plt.ylim([ego_veh_state.y() - 5, ego_veh_state.y() + 5])
+        # plt.pause(0.001)
+        plt.legend(legend_label, ncol=6, loc='upper left', fontsize=6, bbox_to_anchor= (0, 1.2))
 
     @property
     def info(self):

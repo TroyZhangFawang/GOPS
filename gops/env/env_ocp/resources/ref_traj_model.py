@@ -13,8 +13,10 @@ from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
-
+from torch.nn.functional import interpolate
+from scipy.signal import savgol_filter
 import numpy as np
+import pandas as pd
 import torch
 
 from gops.env.env_ocp.resources.ref_traj_data import (
@@ -52,6 +54,7 @@ class MultiRefTrajModel:
             TriangleRefTrajModel(ref_speeds, **self.path_param["straight_lane"]),
             UTurnRefTrajModel(ref_speeds, **self.path_param["u_turn"]),
             FigureEightRefTrajModel(ref_speeds, **self.path_param["figure_eight"]),
+            RTKRefTrajModel(ref_speeds, **self.path_param["rtk_path"]),
         ]
 
     def compute_x(
@@ -225,8 +228,6 @@ class RefSlopeModel(metaclass=ABCMeta):
     def compute_latslope(self, t: torch.Tensor, slope_num: torch.Tensor) -> torch.Tensor:
         ...
 
-
-
 @dataclass
 class SineRefTrajModel(RefTrajModel):
     A: float
@@ -241,7 +242,6 @@ class SineRefTrajModel(RefTrajModel):
 
     def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
         return self.A * torch.sin(self.omega * t + self.phi)
-
 
 @dataclass
 class DoubleLaneRefTrajModel(RefTrajModel):
@@ -272,7 +272,6 @@ class DoubleLaneRefTrajModel(RefTrajModel):
         y = y1 * mask1 + y2 * mask2 + y3 * mask3 + y4 * mask4 + y5 * mask5
         return y
 
-
 @dataclass
 class TriangleRefTrajModel(RefTrajModel):
     A: float
@@ -293,7 +292,6 @@ class TriangleRefTrajModel(RefTrajModel):
         y = y1 * mask1 + y2 * mask2
         return y
 
-
 @dataclass
 class CircleRefTrajModel(RefTrajModel):
     r: float
@@ -309,7 +307,6 @@ class CircleRefTrajModel(RefTrajModel):
         for i, ref_speed in enumerate(self.ref_speeds):
             arc_len = arc_len + (speed_num == i) * ref_speed.compute_integrate_u(t)
         return self.r * (torch.cos(arc_len / self.r) - 1)
-
 
 @dataclass
 class UTurnRefTrajModel(RefTrajModel):
@@ -347,8 +344,6 @@ class UTurnRefTrajModel(RefTrajModel):
         y3 = 2 * self.r# 第二段直线
         return y1 * mask1 + y2 * mask2 + y3 * mask3
 
-
-
 @dataclass
 class FigureEightRefTrajModel(RefTrajModel):
     a: float  # 表示在水平方向（𝑥）的振幅。
@@ -370,3 +365,75 @@ class FigureEightRefTrajModel(RefTrajModel):
 
         return self.b * torch.sin(self.omega2*arc_len)
 
+@dataclass
+class RTKRefTrajModel(RefTrajModel):
+    root: str
+    def __post_init__(self):
+        data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
+        raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
+        raw_y = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
+
+        # 3. 应用Savitzky-Golay平滑滤波
+        window_size = 15  # 滑动窗口大小(奇数)
+        poly_order = 3  # 多项式阶数
+
+        # 确保窗口大小不超过数据长度
+        window_size = min(window_size, len(raw_x) - 1)
+        if window_size % 2 == 0:  # 确保是奇数
+            window_size -= 1
+
+        smooth_x = savgol_filter(raw_x, window_size, poly_order)
+        smooth_y = savgol_filter(raw_y, window_size, poly_order)
+        # # Process data (remove duplicates and sort)
+        unique_indices = np.unique(smooth_x, return_index=True)[1]
+        # # Convert to torch tensors
+        state_1 = torch.tensor(smooth_x[unique_indices], dtype=torch.float32)
+        state_2 = torch.tensor(smooth_y[unique_indices], dtype=torch.float32)
+        self.recorded_points = torch.zeros((len(state_1), 2))
+        self.recorded_points[:, 0] = state_1
+        self.recorded_points[:, 1] = state_2
+
+    def _interpolate(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Perform linear interpolation using PyTorch
+
+        Args:
+            x: Input coordinates (can be scalar or tensor)
+            values: Known values at self.x coordinates
+
+        Returns:
+            Interpolated values at x coordinates
+        """
+        # Ensure input is tensor
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x, dtype=torch.float32)
+
+        # Find indices for interpolation
+        idx_right = torch.searchsorted(self.recorded_points[:, 0], x)
+        idx_left = torch.clamp(idx_right - 1, 0, len(self.recorded_points[:, 0]) - 1)
+        idx_right = torch.clamp(idx_right, 0, len(self.recorded_points[:, 0]) - 1)
+
+        # Get neighboring values
+        x_left = self.recorded_points[:, 0][idx_left]
+        x_right = self.recorded_points[:, 0][idx_right]
+        y_left = self.recorded_points[:, 1][idx_left]
+        y_right = self.recorded_points[:, 1][idx_right]
+
+        # Avoid division by zero (when x_left == x_right)
+        dx = x_right - x_left
+        weights = torch.where(dx == 0,
+                              torch.zeros_like(dx),
+                              (x - x_left) / dx)
+        y = y_left + weights * (y_right - y_left)
+        return y
+
+    def compute_x(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        x = torch.zeros_like(t)
+        for i, ref_speed in enumerate(self.ref_speeds):
+            x = x + (speed_num == i) * ref_speed.compute_integrate_u(t)
+        return x
+
+    def compute_y(self, t: torch.Tensor, speed_num: torch.Tensor) -> torch.Tensor:
+        x = self.compute_x(t, speed_num)
+        nearest_y = self._interpolate(x)
+        return nearest_y
