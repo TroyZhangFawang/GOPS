@@ -18,6 +18,7 @@ __all__ = [
     "FiniteHorizonFullPolicy",
     "DiffusionPolicyeasy",
     "StochaPolicy",
+    "EncodingStochaPolicy",
     "ActionValue",
     "ActionValueDis",
     "ActionValueDistri",
@@ -39,7 +40,42 @@ from gops.utils.diffusion_helpers import (
     Losses,
     SinusoidalPosEmb,
 )
+import torch.nn.functional as F
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
+
+class ObstacleEncoder(nn.Module):
+    def __init__(self, obstacle_dim=4, hidden_dim=64, nhead=4):
+        super().__init__()
+        self.obstacle_proj = nn.Linear(obstacle_dim, hidden_dim)
+        encoder_layer = TransformerEncoderLayer(hidden_dim, nhead, hidden_dim * 4)
+        self.transformer = TransformerEncoder(encoder_layer, num_layers=2)
+
+        # 注意力池化层
+        self.attention_pool = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.Tanh(),
+            nn.Linear(hidden_dim // 2, 1)
+        )
+
+    def forward(self, obstacles):
+        """
+        obstacles: (batch_size, num_obstacles, obstacle_dim)
+        返回: (batch_size, hidden_dim)
+        """
+        # 投影到隐藏空间
+        x = self.obstacle_proj(obstacles)  # (B, N, D)
+
+        # Transformer处理
+        x = x.transpose(0, 1)  # (N, B, D)
+        x = self.transformer(x)
+        x = x.transpose(0, 1)  # (B, N, D)
+
+        # 注意力池化
+        attn_weights = F.softmax(self.attention_pool(x), dim=1)  # (B, N, 1)
+        pooled = torch.sum(attn_weights * x, dim=1)  # (B, D)
+
+        return pooled
 
 # Define MLP function
 def mlp(sizes, activation, output_activation=nn.Identity):
@@ -153,10 +189,6 @@ class FiniteHorizonFullPolicy(nn.Module, Action_Distribution):
                  + (self.act_high_lim + self.act_low_lim) / 2
         return action
 
-
-
-
-
 # Stochastic Policy
 class StochaPolicy(nn.Module, Action_Distribution):
     """
@@ -232,6 +264,120 @@ class StochaPolicy(nn.Module, Action_Distribution):
 
         return torch.cat((action_mean, action_std), dim=-1)
 
+# EncodingStochastic Policy
+class EncodingStochaPolicy(nn.Module, Action_Distribution):
+    """
+    Approximated function of stochastic policy.
+    Input: observation.
+    Output: parameters of action distribution.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        obs_dim = kwargs["obs_dim"]
+        act_dim = kwargs["act_dim"]
+        hidden_sizes = kwargs["hidden_sizes"]
+        self.std_type = kwargs["std_type"]
+        # 观测分解维度
+        self.ego_dim = 8
+        self.ref_dim = 180  # 30*6
+        self.obs_dim = 12  # 3*4
+
+        # 1. 参考轨迹编码器 (LSTM)
+        self.ref_encoder = nn.LSTM(
+            input_size=6,  # 每个参考点的维度
+            hidden_size=64,
+            num_layers=1,
+            batch_first=True
+        )
+
+        # 2. 障碍物编码器
+        self.obstacle_encoder = ObstacleEncoder(
+            obstacle_dim=4,
+            hidden_dim=64
+        )
+
+        # 3. 自车状态编码
+        self.ego_encoder = nn.Sequential(
+            nn.Linear(self.ego_dim, 64),
+            nn.ReLU()
+        )
+
+        # 4. 特征融合后的策略头
+        total_feat_dim = 64 * 3  # ego + ref + obstacle
+
+        # mean和std的网络构建
+        if self.std_type == "mlp_separated":
+            self.mean = mlp(
+                [total_feat_dim] + list(hidden_sizes) + [act_dim],
+                get_activation_func(kwargs["hidden_activation"]),
+                get_activation_func(kwargs["output_activation"])
+            )
+            self.log_std = mlp(
+                [total_feat_dim] + list(hidden_sizes) + [act_dim],
+                get_activation_func(kwargs["hidden_activation"]),
+                get_activation_func(kwargs["output_activation"])
+            )
+        elif self.std_type == "mlp_shared":
+            self.policy = mlp(
+                [total_feat_dim] + list(hidden_sizes) + [act_dim * 2],
+                get_activation_func(kwargs["hidden_activation"]),
+                get_activation_func(kwargs["output_activation"])
+            )
+        elif self.std_type == "parameter":
+            self.mean = mlp(
+                [total_feat_dim] + list(hidden_sizes) + [act_dim],
+                get_activation_func(kwargs["hidden_activation"]),
+                get_activation_func(kwargs["output_activation"])
+            )
+            self.log_std = nn.Parameter(-0.5 * torch.ones(1, act_dim))
+
+        self.min_log_std = kwargs["min_log_std"]
+        self.max_log_std = kwargs["max_log_std"]
+        self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]))
+        self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]))
+        self.action_distribution_cls = kwargs["action_distribution_cls"]
+
+    def forward(self, obs):
+        # 分解观测
+        ego_state = obs[:, :self.ego_dim]  # (B, 8)
+        ref_traj = obs[:, self.ego_dim:self.ego_dim + self.ref_dim]  # (B, 180)
+        obstacles = obs[:, -self.obs_dim:]  # (B, 12)
+
+        # 1. 编码参考轨迹
+        ref_traj = ref_traj.view(-1, 30, 6)  # (B, 30, 6)
+        ref_feat, _ = self.ref_encoder(ref_traj)  # (B, 30, 64)
+        ref_feat = ref_feat[:, -1, :]  # 取最后时刻的特征 (B, 64)
+
+        # 2. 编码障碍物
+        obstacles = obstacles.view(-1, 3, 4)  # (B, 3, 4)
+        obs_feat = self.obstacle_encoder(obstacles)  # (B, 64)
+
+        # 3. 编码自车状态
+        ego_feat = self.ego_encoder(ego_state)  # (B, 64)
+
+        # 4. 特征融合
+        combined = torch.cat([ego_feat, ref_feat, obs_feat], dim=-1)  # (B, 192)
+        # 5. 策略输出
+        if self.std_type == "mlp_separated":
+            action_mean = self.mean(combined)
+            action_std = torch.clamp(
+                self.log_std(combined), self.min_log_std, self.max_log_std
+            ).exp()
+        elif self.std_type == "mlp_shared":
+            logits = self.policy(combined)
+            action_mean, action_log_std = torch.chunk(logits, 2, dim=-1)
+            action_std = torch.clamp(
+                action_log_std, self.min_log_std, self.max_log_std
+            ).exp()
+        elif self.std_type == "parameter":
+            action_mean = self.mean(combined)
+            action_log_std = self.log_std + torch.zeros_like(action_mean)
+            action_std = torch.clamp(
+                action_log_std, self.min_log_std, self.max_log_std
+            ).exp()
+
+        return torch.cat((action_mean, action_std), dim=-1)
 
 class ActionValue(nn.Module, Action_Distribution):
     """

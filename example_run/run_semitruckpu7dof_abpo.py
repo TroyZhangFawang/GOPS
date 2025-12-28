@@ -21,7 +21,7 @@ runner = PolicyRunner_Multiopt(
     trained_policy_iteration_list=["100000", "50000"],
     is_init_info=True,
     init_info={"init_state": [0, 0, 0,  0, 0,  0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 0], "ref_time":0.0,"ref_num": 6},
+                                  0, 0, 0], "ref_time":0.0,"ref_num": 0},
     save_render=False,
     legend_list=["FHADP", "Bi-level"],
 

@@ -145,7 +145,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
             # initial range of [delta_x, delta_y, delta_phi, delta_u, v, w, psi, psi_dot]
-            init_high = np.array([2, 1, np.pi / 6, 2, 0.1, 0.1, np.pi / 6, 0.1], dtype=np.float32)
+            init_high = np.array([2, 1, np.pi / 6, 2, 0.1, 0.1, np.pi / 36, 0.1], dtype=np.float32)
             init_low = -init_high
             work_space = np.stack((init_low, init_high))
         super(PythEnergybimodalplanning2a, self).__init__(work_space=work_space, **kwargs)
@@ -377,6 +377,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         for i in range(1, self.pre_horizon):
                 state = self.vehicle_dynamics.f_xu(state, action[i, :], self.ref_points[i+1, 4:], self.dt)
                 self.state_full[i, :] = state
+
 
         self.t = self.t + self.dt
 

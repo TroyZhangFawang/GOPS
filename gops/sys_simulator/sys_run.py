@@ -158,6 +158,7 @@ class PolicyRunner:
             algs_name = algs_name + item + "-"
         self.save_path = os.path.join(
             path,
+            self.env_id,
             algs_name + self.env_id,
             datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
         )
@@ -1118,6 +1119,7 @@ class PolicyRunner_Multiopt:
             algs_name = algs_name + item + "-"
         self.save_path = os.path.join(
             path,
+            self.env_id,
             algs_name + self.env_id,
             datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
         )
@@ -2105,6 +2107,7 @@ class OptRunner:
         algs_name = "MPC-"
         self.save_path = os.path.join(
             path,
+            self.env_id,
             algs_name + self.env_id,
             datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
         )
@@ -3171,6 +3174,7 @@ class CostLearningRunner:
         algs_name = "MPC-"
         self.save_path = os.path.join(
             path,
+            self.env_id,
             algs_name + self.env_id,
             datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
         )

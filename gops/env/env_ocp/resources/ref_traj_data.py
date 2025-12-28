@@ -57,7 +57,7 @@ DEFAULT_PATH_PARAM = {
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100}, #李萨如曲线
-    "rtk_path": {"root": "../gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
+    "rtk_path": {"root": "D:/1_Troy.Z/GOPS/gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
 }
 
 DEFAULT_SPEED_PARAM = {

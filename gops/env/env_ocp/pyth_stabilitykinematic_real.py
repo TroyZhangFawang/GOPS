@@ -24,7 +24,7 @@ class VehicleDynamicsData:
     def __init__(self):
         self.vehicle_params = dict(
             state_dim=10,
-            m=2204,  # Total mass[kg]
+            m=2060,  # Total mass[kg]
             mu=367.8,
             ms=1836.2,  # Sprung mass[kg]
             A=3.3,  # Front area
@@ -41,8 +41,8 @@ class VehicleDynamicsData:
             hs=0.75,  # Height of the CG of the sprung mass for to the ground [m]
             hr=0.5,  # Height of the CG of the roll center to the ground
             hu=0.25,  # Height of the CG of the un-sprung mass to the ground
-            Izz=10550,  # Yaw moment of inertia of the whole mass[kg m^2]
-            Ixx=10.7,  # Roll moment of inertia of the sprung mass[kg m^2]
+            Izz=3524.9,  # Yaw moment of inertia of the whole mass[kg m^2]
+            Ixx=846.6,  # Roll moment of inertia of the sprung mass[kg m^2]
             Ixz=0,  # Roll–yaw product of inertia of the sprung mass[kg m^2]
             k_alpha1=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the 1st wheel[N/rad]
             k_alpha2=0.1744 * 1.416 * 1.026e+04 / 3.14 * 180/4,  # Tire cornering stiffness of the 1st wheel[N/rad]
@@ -53,7 +53,7 @@ class VehicleDynamicsData:
             C_slip3=8.885 * 1.525 * 1.062e+04,  # N
             C_slip4=8.885 * 1.525 * 1.062e+04,  # N
             K_varphi=28000,#(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
-            C_varphi=5000,  # Roll damping of the suspension [N-m-s/rad]
+            C_varphi=9000,  # Roll damping of the suspension [N-m-s/rad]
             tau_Q=0.1, # time-delay coefficient for driving torque
             tau_deltaf=0.3,  # time-delay coefficient for front wheel steering angle
         )
@@ -95,16 +95,18 @@ class VehicleDynamicsData:
     def f_xu(self, states, actions, delta_t, road_info):
         theta_road, varphi_road = road_info
         R = np.array([theta_road, varphi_road]).reshape(2, 1)
-        x, y, phi, v_x, ax = states[:5]
+        x, y, phi, v_x, ax, varphi, varphi_dot = states[:7]
         U = actions.reshape(5, 1)
         state_next = np.zeros_like(states)
         state_next[0] = x + delta_t*np.cos(phi)*v_x
         state_next[1] = y - delta_t*np.sin(phi)*v_x
         state_next[2] = phi + delta_t * (v_x*np.tan(U[4])/(self.lf+self.lr))
-        state_next[3] = v_x + ax*delta_t
-        state_next[4] = (np.sum(U[:4])/self.Rw-1/2*self.Cd*self.A*self.rho*v_x**2-self.m*self.g*self.f_rolling)/self.m
-        state_next[5:9] = states[5:9] + (actions[0:4] - states[5:9]) / self.tau_Q * delta_t
-        state_next[9] = states[9] + (actions[4] - states[9]) / self.tau_deltaf * delta_t
+        state_next[3] = v_x + ax*delta_t*3.5
+        state_next[4] = (np.sum(U[:4])/self.Rw-1/2*self.Cd*self.A*self.rho*v_x**2-self.m*self.g*self.f_rolling)/self.m #
+        state_next[5] = self.m*v_x**2*np.tan(U[4])*self.hs/(self.lw*self.K_varphi)#varphi + varphi_dot*delta_t
+        state_next[6] = ((self.m * v_x**2 * self.hs * np.tan(U[4]) / (self.lw*self.Ixx))- (self.C_varphi / self.Ixx) * varphi_dot)/500 #- (self.K_varphi / self.Ixx) * varphi
+        state_next[7:11] = states[7:11] + (actions[0:4] - states[7:11]) / self.tau_Q * delta_t
+        state_next[11] = states[11] + (actions[4] - states[11]) / self.tau_deltaf * delta_t
         return state_next
 
 class Fourwdstabilitycontrol(PythBaseEnv):

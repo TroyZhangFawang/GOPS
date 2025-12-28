@@ -114,8 +114,8 @@ class SimuVeh3dofconti(PythBaseEnv):
             high=np.array([max_steer, 3]),
             dtype=np.float32,
         )
-        self.dt = 0.05
-        self.max_episode_steps = 500
+        self.dt = 0.1
+        self.max_episode_steps = 200
 
         self.state = None
         self.path_num = None

@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodal_planning", help="id of environment")
+    parser.add_argument("--env_id", type=str, default="pyth_energybimodalplanning2a0602", help="id of environment")
     # parser.add_argument("--task", type=str, default="planning", help="planning/control")
     # parser.add_argument("--vdes", type=float, default=10, help="target speed of longitudinal")
     parser.add_argument("--algorithm", type=str, default="DSACT", help="RL algorithm")
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy_func_name",
         type=str,
-        default="StochaPolicy",
+        default="EncodingStochaPolicy",
         help="Options: None/DetermPolicy/FiniteHorizonPolicy/StochaPolicy",
     )
     parser.add_argument(

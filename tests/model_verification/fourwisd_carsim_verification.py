@@ -26,53 +26,16 @@ def read_path(root_path):
     # state_t[:, 1] = state_2
     return state_traj
 
-def unit_transform_4wisd(state):
-    state[0] = state[0]  # x
-    state[1] = state[1]  # y
-    state[2] = state[2] / 180 * np.pi  # yaw
-
-    state[3] = state[3] / 3.6  # vx
-    state[4] = state[4] / 3.6  # vy
-    state[5] = state[5] / 180 * np.pi  # yaw_rate
-    state[6] = state[6] / 180 * np.pi  # roll angle
-    state[7] = state[7] / 180 * np.pi  # roll rate
-
-    state[8] = state[8]  # kappa_1
-    state[9] = state[9]  # kappa_2 rpm to rad/s
-    state[10] = state[10] # kappa_3
-    state[11] = state[11] # kappa_4
-    # control feedback
-    state[12] = state[12]  # drive torque on wheel 1
-    state[13] = state[13]
-    state[14] = state[14]
-    state[15] = state[15]
-    state[16] = state[16] / 180 * np.pi  # steering angle on wheel 1
-    state[17] = state[17] / 180 * np.pi  # steering angle on wheel 2
-    state[18] = state[18] / 180 * np.pi  # steering angle on wheel 3
-    state[19] = state[19] / 180 * np.pi  # steering angle on wheel 4
-    state[20] = state[20] / 180 * np.pi # beta
-    state[21] = state[21] * 9.8 # acceleration
-    state[30] = state[30] / 3.6  # vw L1
-    state[31] = -state[31] / 180 * np.pi  # longitudinal slope of road
-    state[32] = state[32] / 180 * np.pi  # lateral slope of road
-    state[33] = -state[33] / 180 * np.pi  # longitudinal slope of road
-    state[34] = state[34] / 180 * np.pi  # lateral slope of road
-    state[35] = -state[35]/180*np.pi   # longitudinal slope of road
-    state[36] = state[36]/180*np.pi   # lateral slope of road
-    return state
-
 def model_compare_4wisd(env_id):
-    run_step = 200
+    run_step = 2000
     delta_t = 0.01
     model_mechnical = gym.make(env_id, disable_env_checker=True)
     state, _ = model_mechnical.reset()
 
     # state
-    state = unit_transform_4wisd(state)
     model_self = create_env(env_id)
     # 4dof
-    state_python = state[:17]
-
+    state_python = state[:8]
     print(state[22:])
     step_sim = 0
     vx_self = []
@@ -127,7 +90,8 @@ def model_compare_4wisd(env_id):
 
     for i in range(run_step):
         road_info = state[31:33]
-        drive_torque = 183.475 * np.sin(np.pi * 2 / 100 * i) + 114.525
+
+        drive_torque = 183.475 * np.sin(np.pi * 2 / 500 * i) + 114.525
         # if i< 4000 :
         #     steering_angle_degree = 0
         # # elif i>500and i<1000 :
@@ -136,7 +100,7 @@ def model_compare_4wisd(env_id):
         # #     steering_angle_degree = -3
         # else:
         #     steering_angle_degree = 3
-        steering_angle_degree = 0#3 * np.sin(np.pi * 2 / 1000 * i)
+        steering_angle_degree = 3 * np.sin(np.pi * 2 / 500 * i)
         steering_angle_rad = steering_angle_degree / 180 * 3.14
         control_carsim = np.array([drive_torque,drive_torque,
                                    drive_torque, drive_torque,
@@ -151,7 +115,6 @@ def model_compare_4wisd(env_id):
 
         # print(state_python)
         state, _, _, _ = model_mechnical.step(control_carsim)  # carsim
-        state = unit_transform_4wisd(state)
         # 4dof
         x_self.append(state_python[0])
         y_self.append(state_python[1])
@@ -162,11 +125,13 @@ def model_compare_4wisd(env_id):
         roll_self.append(state_python[6])
         rollrate_self.append(state_python[7])
 
-        kappa_1_self.append(state_python[8])
-        kappa_2_self.append(state_python[9])
-        kappa_3_self.append(state_python[10])
-        kappa_4_self.append(state_python[11])
+
+        # kappa_1_self.append(state_python[8])
+        # kappa_2_self.append(state_python[9])
+        # kappa_3_self.append(state_python[10])
+        # kappa_4_self.append(state_python[11])
         Qw1_self.append(control[0])
+        Qw2_self.append(control[1])
         Qw3_self.append(control[2])
         Qw4_self.append(control[3])
         delta_w1_self.append(control[4])
@@ -186,60 +151,75 @@ def model_compare_4wisd(env_id):
         yawrate_carsim.append(state[5])
         roll_carsim.append(state[6])
         rollrate_carsim.append(state[7])
-        kappa1_carsim = (state[3] - state[30])/max(state[3], state[30])
-        kappa_1_carsim.append(state[8])
-        kappa_2_carsim.append(state[9])
-        kappa_3_carsim.append(state[10])
-        kappa_4_carsim.append(state[11])
-        
-        
-        Qw1_carsim.append(state[12])
-        Qw3_carsim.append(state[14])
-        Qw4_carsim.append(state[15])
-        delta_w1_carsim.append(state[16])
-        delta_w2_carsim.append(state[17])
-        delta_w3_carsim.append(state[18])
-        delta_w4_carsim.append(state[19])
+        Qw1_carsim.append(state[8])
+        Qw2_carsim.append(state[9])
+        Qw3_carsim.append(state[10])
+        Qw4_carsim.append(state[11])
+        delta_w1_carsim.append(state[12])
+        delta_w2_carsim.append(state[13])
+        delta_w3_carsim.append(state[14])
+        delta_w4_carsim.append(state[15])
+        # kappa1_carsim = (state[3] - state[30]) / max(state[3], state[30])
+        # kappa_1_carsim.append(state[16])
+        # kappa_2_carsim.append(state[17])
+        # kappa_3_carsim.append(state[18])
+        # kappa_4_carsim.append(state[19])
         ax_carsim.append(state[21])
         longi_slope.append(road_info[0])
         lateral_slope.append(road_info[1])
         step_sim += 1
     print("run finished")
     data_result = pd.DataFrame(
-        {'yaw_self': yaw_self, 'yaw_carsim': yaw_carsim,
-         'yawrate_self': yawrate_self, 'yawrate_carsim': yawrate_carsim,
-         'x_self': x_self, 'x_carsim': x_carsim,
-         'Qw1_self': Qw1_self, 'Qw1_carsim': Qw1_carsim,
-         'delta_w1_self': delta_w1_self, 'delta_w1_carsim': delta_w1_carsim,
-         'roll_self': roll_self, 'roll_carsim': roll_carsim,
-         'rollrate_self': rollrate_self, 'rollrate_carsim': rollrate_carsim,
-         # 'delta_w2_self': delta_w2_self, 'delta_w2_carsim': delta_w2_carsim,
-         # 'delta_w3_self': delta_w3_self, 'delta_w3_carsim': delta_w3_carsim,
-         # 'delta_w4_self': delta_w4_self, 'delta_w4_carsim': delta_w4_carsim,
-         'y_self': y_self, 'y_carsim': y_carsim,
-         'vx_self': vx_self, 'vx_carsim': vx_carsim,
-         'vy_self': vy_self, 'vy_carsim': vy_carsim,
-         'Qw3_self': Qw3_self, 'Qw3_carsim': Qw3_carsim,
-         'longi_slope': longi_slope, 'lateral_slope': lateral_slope})
+        {'x_carsim': x_carsim,
+         'y_carsim': y_carsim,
+         'yaw_carsim': yaw_carsim,
+         'vx_carsim': vx_carsim,
+         'vy_carsim': vy_carsim,
+         'yawrate_carsim': yawrate_carsim,
+         'roll_carsim': roll_carsim,
+         'rollrate_carsim': rollrate_carsim,
+         'Qw1_carsim': Qw1_carsim,
+         'Qw2_carsim': Qw2_carsim,
+         'Qw3_carsim': Qw3_carsim,
+         'Qw4_carsim': Qw4_carsim,
+         'delta_w1_carsim': delta_w1_carsim,
+         'longi_slope': longi_slope,
+         'lateral_slope': lateral_slope,
+
+         'x_self': x_self,
+         'y_self': y_self,
+         'yaw_self': yaw_self,
+         'vx_self': vx_self,
+         'vy_self': vy_self,
+         'yawrate_self': yawrate_self,
+         'roll_self': roll_self,
+         'rollrate_self': rollrate_self,
+         'Qw1_self': Qw1_self,
+         'Qw2_self': Qw2_self,
+         'Qw3_self': Qw3_self,
+         'Qw4_self': Qw4_self,
+         'delta_w1_self': delta_w1_self,
+
+         })
     picture_dir = "plot_4wisd_test/"
     os.makedirs(picture_dir, exist_ok=True)
     data_result.to_csv('./plot_4wisd_test/result_4wisd_test.csv', encoding='gbk')
     # '--------------------出图-----------------------'
     picture_dir = "plot_4wisd_test/"
     os.makedirs(picture_dir, exist_ok=True)
-    f9 = plt.figure("-kappa1", figsize=(8, 5))
-    ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_1_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_1_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\kappa_1$ [-]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-kappa1.png"))
+    # f9 = plt.figure("-kappa1", figsize=(8, 5))
+    # ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_1_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_1_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\kappa_1$ [-]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-kappa1.png"))
 
     f21 = plt.figure("-accel", figsize=(8, 5))
     ax = f21.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
@@ -255,47 +235,47 @@ def model_compare_4wisd(env_id):
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.savefig(os.path.join(picture_dir, "-ax.png"))
 
-    f12 = plt.figure("-kappa4", figsize=(8, 5))
-    ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_4_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_4_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\kappa_4$ [-]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-kappa4.png"))
+    # f12 = plt.figure("-kappa4", figsize=(8, 5))
+    # ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_4_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_4_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\kappa_4$ [-]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-kappa4.png"))
 
-    f12 = plt.figure("-kappa3", figsize=(8, 5))
-    ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\kappa_3$ [-]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-kappa3.png"))
-
-    f12 = plt.figure("-kappa2", figsize=(8, 5))
-    ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_self, lw=2, color="darkviolet")
-    l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_carsim, lw=2, linestyle='--', color="deepskyblue")
-    plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
-               ncol=2)
-    plt.ylabel(r"$\kappa_2$ [-]", fontsize=14)
-    plt.xlabel("Times [s]", fontsize=14)
-    plt.tick_params(labelsize=12)
-    plt.subplots_adjust(bottom=0.31)
-    plt.grid(axis='both', ls='-.')
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    plt.savefig(os.path.join(picture_dir, "-kappa2.png"))
+    # f12 = plt.figure("-kappa3", figsize=(8, 5))
+    # ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_3_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\kappa_3$ [-]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-kappa3.png"))
+    #
+    # f12 = plt.figure("-kappa2", figsize=(8, 5))
+    # ax = f12.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    # l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_self, lw=2, color="darkviolet")
+    # l2, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_2_carsim, lw=2, linestyle='--', color="deepskyblue")
+    # plt.legend(handles=[l1, l2], labels=['4wisd', 'carsim'], prop={'size': 10}, loc=2,
+    #            ncol=2)
+    # plt.ylabel(r"$\kappa_2$ [-]", fontsize=14)
+    # plt.xlabel("Times [s]", fontsize=14)
+    # plt.tick_params(labelsize=12)
+    # plt.subplots_adjust(bottom=0.31)
+    # plt.grid(axis='both', ls='-.')
+    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    # plt.savefig(os.path.join(picture_dir, "-kappa2.png"))
     
     
     f0 = plt.figure("-vx", figsize=(8, 5))
