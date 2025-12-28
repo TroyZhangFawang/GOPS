@@ -74,7 +74,7 @@ class BaseSampler(metaclass=ABCMeta):
         self.obs, self.info = self.env.reset()
         if self._is_vector:
             # convert a dict of batched data to a list of dict of unbatched data
-            # e.g. next_info = {"a": [1, 2, 3], "b": [4, 5, 6]} ->
+        # e.g. next_info = {"a": [1, 2, 3], "b": [4, 5, 6]} ->
             #      unbatched_infos = [{"a": 1, "b": 4}, {"a": 2, "b": 5}, {"a": 3, "b": 6}]
             # ref: https://stackoverflow.com/questions/5558418/list-of-dicts-to-from-dict-of-lists
             self.info = [dict(zip(self.info, t)) for t in zip(*self.info.values())] if self.info else [
@@ -135,13 +135,13 @@ class BaseSampler(metaclass=ABCMeta):
         #  above action means the trajectory in planning task, unput the traj to the controller to get the control command
         if "task" in self.kwargs.keys():
             # for gym_offroadcarla env
-            # self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
-            # action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
+            self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["location"])
+            action_control = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["location"], self.kwargs["vdes"], [self.info["location"][0], self.info["location"][1],self.info["current_heading"]], self.info["speed"])
             # add 0 to match the dimension of the env
-            # action_clip = np.hstack((action_control, np.array([0] * 18)))
+            action_clip = np.hstack((action_control, np.array([0] * 18)))
 
-            self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["state"][:2])
-            action_clip = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["state"], self.kwargs["vdes"], self.info["state"][:3], self.info["state"][3])
+            # self.env.update_loca_traj(action_clip.reshape((10, 2))+self.info["state"][:2])
+            # action_clip = self.controller.get_control_(action_clip.reshape((10, 2))+self.info["state"], self.kwargs["vdes"], self.info["state"][:3], self.info["state"][3])
         # interact with environment
         if self._is_vector:
             curr_obs = self.obs.copy()
