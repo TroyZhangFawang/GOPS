@@ -1,4 +1,4 @@
-from spider.constraints.constraint_checker.BaseConstraintChecker import BaseConstraintChecker
-from spider.constraints.constraint_checker.CartConstraintChecker import CartConstriantChecker
+from gops.utils.planner_benchmark.constraints.constraint_checker.BaseConstraintChecker import BaseConstraintChecker
+from gops.utils.planner_benchmark.constraints.constraint_checker.CartConstraintChecker import CartConstriantChecker
 
 

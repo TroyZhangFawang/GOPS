@@ -2,11 +2,11 @@
 笛卡尔坐标下的约束检查，利用的是笛卡尔坐标下的参数
 '''
 
-from spider.param import *
-from spider.constraints.constraint_checker import BaseConstraintChecker
-from spider.constraints.ConstraintCollection import ConstraintCollection
+from gops.utils.planner_benchmark.param import *
+from gops.utils.planner_benchmark.constraints.constraint_checker import BaseConstraintChecker
+from gops.utils.planner_benchmark.constraints.ConstraintCollection import ConstraintCollection
 
-from spider.elements.trajectory import Trajectory
+from gops.utils.planner_benchmark.elements.trajectory import Trajectory
 
 
 class CartConstriantChecker(BaseConstraintChecker):

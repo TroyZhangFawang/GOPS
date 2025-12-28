@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from gops.utils.ttt import TTTModel, TTTConfig
+# from gops.utils.ttt import TTTModel, TTTConfig
 def generate_square_subsequent_mask(sz):
     """
     Generate a square mask for the sequence. The masked positions are filled with float('-inf').

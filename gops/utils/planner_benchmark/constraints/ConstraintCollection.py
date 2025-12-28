@@ -1,5 +1,5 @@
-from spider.param import *
-from spider.elements.trajectory import Trajectory
+from gops.utils.planner_benchmark.param import *
+from gops.utils.planner_benchmark.elements.trajectory import Trajectory
 import numpy as np
 
 
@@ -17,6 +17,7 @@ class ConstraintCollection:
         CONSTRIANT_CURVATURE: lambda traj, config: np.all(np.array(traj.curvature) <= config["max_curvature"]),
         CONSTRIANT_LATERAL_JERK: lambda traj, config: np.all(np.abs(np.array(traj.l_3dot)) <= config["max_lateral_jerk"]),
         CONSTRIANT_LONGITUDINAL_JERK: lambda traj, config: np.all(np.abs(np.array(traj.s_3dot)) <= config["max_longitudinal_jerk"]),
+        CONSTRIANT_ROAD_BOUNDARY: lambda traj, config: np.all(np.abs(np.array(traj.l)) <= config["road_boundary_width"]),
     }
 
     control_constraint_functions = {
@@ -28,7 +29,8 @@ class ConstraintCollection:
 
         assert "constraint_flags" in config
         self.constraint_flags: set = config["constraint_flags"]
-
+        # 添加道路边界宽度默认值
+        self.config.setdefault("road_boundary_width", 3.6)  # 默认±5米
         # if "constraint_flags" in config:
         #     self.constraint_flags:set = config["constraint_flags"]
         # else:

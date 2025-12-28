@@ -6480,7 +6480,7 @@ class PlanningRunner(PlanningBaseBenchmark):
                 print("SimpleController for control")
             elif self.controller_name == "MPCController":
                 if self.main_planner == "MPCPlanner":
-                    controller = main_planner
+                    controller = base_planner1
                     print("MPC for plannning and control")
                 else:
                     if self.load_opt_path is not None:
@@ -6573,17 +6573,16 @@ class PlanningRunner(PlanningBaseBenchmark):
         # if not is_opt:
         planner.set_local_map(env.local_map)
         import matplotlib.pyplot as plt
-
         import gops.utils.planner_benchmark.visualize as vis
         if self.save_render:
-            vis.figure(figsize=(14, 4))
+            vis.figure(figsize=(15, 6), dpi=300)
             if is_opt == False and self.render_args["snapshot"] :
                 video_name = type(planner).__name__ + '.mp4' if self.render_args["video_name"] is None else self.render_args[
                     "video_name"]
             else:
                 video_name = type(planner).__name__ + '.mp4'
             videos_path = os.path.join(self.save_path, "videos")
-            snapshot = vis.SnapShot(True, 15, record_video=self.render_args["save_video"],
+            snapshot = vis.SnapShot(True, 20, record_video=self.render_args["save_video"],
                                     video_path=videos_path + '/' + video_name)
         while not (done or info["TimeLimit.truncated"]):
             # 地图信息更新
@@ -6718,7 +6717,7 @@ class PlanningRunner(PlanningBaseBenchmark):
             if self.save_render:
                 plt.cla()
                 env.visualize(traj)
-                plt.pause(0.05)
+                plt.pause(0.001)
                 if self.render_args["snapshot"]:
                     snapshot.snap(plt.gca())
 
@@ -6746,6 +6745,14 @@ class PlanningRunner(PlanningBaseBenchmark):
         #         snapshot.print(3, 2, figsize=(15, 6))
         #         snapshot.save()
         #         plt.show()
+
+        if self.save_render and self.render_args["snapshot"]:
+            plt.close()
+            snapshot.print(3, 2, figsize=(12, 9))
+            path_snapshot = os.path.join(
+                self.save_path, type(planner).__name__ + 'Shot.png'
+            )
+            plt.savefig(path_snapshot)
         eval_dict = {
             "reward_list": reward_list,
             "action_list": action_list,
@@ -6793,7 +6800,7 @@ class PlanningRunner(PlanningBaseBenchmark):
         if self.constrained_env:
             constrain_dim = self.eval_list[0]["constrain_list"][0].shape[0]
         policy_num = 2
-        if self.main_planner == "MPCPlanner":
+        if self.base_planner1 == "MPCPlanner":
             if self.opt_args["opt_controller_type"] == "OPT":
                 legend = "OPT"
             elif self.opt_args["opt_controller_type"] == "MPC":
@@ -6806,8 +6813,8 @@ class PlanningRunner(PlanningBaseBenchmark):
                 else:
                     legend += " (w/ TC)"
 
-        if self.base_planner == "LatticePlanner":
-            legend = self.base_planner
+        if self.base_planner2 == "LatticePlanner":
+            legend = self.base_planner2
         self.algorithm_list.append(legend)
         # Create initial list
         reward_list = []
@@ -7533,7 +7540,6 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
 
 
     def __run_data(self):
-
         if self.main_planner == "MPCPlanner":
             # load main planner--MPCplanner
             if self.load_opt_path is not None:
@@ -7585,6 +7591,7 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
                 self.tracking_list.append(tracking_dict_opt)
         if self.base_planner == "LatticePlanner" or self.base_planner == "BezierPlanner":
             base_planner_list = []
+            self.args = self.args_list[0]
             env = self.__load_env()
 
             # initialize the baseline planner
@@ -7721,17 +7728,16 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
         # if not is_opt:
         planner.set_local_map(env.local_map)
         import matplotlib.pyplot as plt
-
         import gops.utils.planner_benchmark.visualize as vis
         if self.save_render:
-            vis.figure(figsize=(14, 4))
+            vis.figure(figsize=(15, 6), dpi=300)
             if is_opt == False and self.render_args["snapshot"] :
                 video_name = type(planner).__name__ + '.mp4' if self.render_args["video_name"] is None else self.render_args[
                     "video_name"]
             else:
                 video_name = type(planner).__name__ + '.mp4'
             videos_path = os.path.join(self.save_path, "videos")
-            snapshot = vis.SnapShot(True, 15, record_video=self.render_args["save_video"],
+            snapshot = vis.SnapShot(True, 20, record_video=self.render_args["save_video"],
                                     video_path=videos_path + '/' + video_name)
         while not (done or info["TimeLimit.truncated"]):
             # 地图信息更新
@@ -7861,7 +7867,7 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
             if self.save_render:
                 plt.cla()
                 env.visualize(traj)
-                plt.pause(0.05)
+                plt.pause(0.001)
                 if self.render_args["snapshot"]:
                     snapshot.snap(plt.gca())
 
@@ -7889,6 +7895,13 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
         #         snapshot.print(3, 2, figsize=(15, 6))
         #         snapshot.save()
         #         plt.show()
+        if self.save_render and self.render_args["snapshot"]:
+            plt.close()
+            snapshot.print(3, 2, figsize=(12, 9))
+            path_snapshot = os.path.join(
+                self.save_path, type(planner).__name__ + 'Shot.png'
+            )
+            plt.savefig(path_snapshot)
         eval_dict = {
             "reward_list": reward_list,
             "action_list": action_list,

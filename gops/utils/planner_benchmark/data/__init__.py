@@ -1,3 +1,3 @@
-from spider.data.DataBuffer import BaseBuffer, LogBuffer, ExperienceBuffer
-from spider.data.Dataset import OfflineLogDataset, OfflineExpDataset
+from gops.utils.planner_benchmark.data.DataBuffer import BaseBuffer, LogBuffer, ExperienceBuffer
+from gops.utils.planner_benchmark.data.Dataset import OfflineLogDataset, OfflineExpDataset
 

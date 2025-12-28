@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Type, Union, Sequence
-import spider.elements as elm
+import gops.utils.planner_benchmark.elements as elm
 
 _target_theta = 45 / 180 * np.pi
 _tan_target_theta = np.tan(_target_theta)

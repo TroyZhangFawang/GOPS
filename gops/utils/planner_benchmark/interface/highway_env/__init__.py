@@ -1,2 +1,2 @@
-from spider.interface.highway_env.HighwayEnvInterface import HighwayEnvInterface
-from spider.interface.highway_env.HighwayEnvBenchmark import HighwayEnvBenchmark, HighwayEnvBenchmarkGUI
+from gops.utils.planner_benchmark.interface.highway_env.HighwayEnvInterface import HighwayEnvInterface
+from gops.utils.planner_benchmark.interface.highway_env.HighwayEnvBenchmark import HighwayEnvBenchmark, HighwayEnvBenchmarkGUI

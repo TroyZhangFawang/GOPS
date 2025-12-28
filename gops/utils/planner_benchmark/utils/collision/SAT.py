@@ -1,6 +1,6 @@
-from spider.utils.vector import *
+from gops.utils.planner_benchmark.utils.vector import *
 import numpy as np
-from spider.utils.collision.AABB import AABB_check
+from gops.utils.planner_benchmark.utils.collision.AABB import AABB_check
 
 
 def SAT_check(vertices1:np.ndarray ,vertices2:np.ndarray):

@@ -49,6 +49,7 @@ CONSTRIANT_LONGITUDINAL_PROGRESS = _assignment()
 CONSTRIANT_LONGITUDINAL_VELOCITY = _assignment()
 CONSTRIANT_LONGITUDINAL_ACCELERATION = _assignment()
 CONSTRIANT_LONGITUDINAL_JERK = _assignment()
+CONSTRIANT_ROAD_BOUNDARY = _assignment()
 
 ####################### collision ######################
 # for collision_checker

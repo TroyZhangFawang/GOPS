@@ -1,2 +1,2 @@
-from spider.utils.predict.linear import vertices_linear_predict
-from spider.utils.predict.common import BasePrediction, BasePredictor
+from gops.utils.planner_benchmark.utils.predict.linear import vertices_linear_predict
+from gops.utils.planner_benchmark.utils.predict.common import BasePrediction, BasePredictor

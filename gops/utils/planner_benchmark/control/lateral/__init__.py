@@ -1,2 +1,2 @@
-from spider.control.lateral.PurePursuitController import PurePursuitController
+from gops.utils.planner_benchmark.control.lateral.PurePursuitController import PurePursuitController
 

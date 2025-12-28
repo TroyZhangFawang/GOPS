@@ -34,7 +34,7 @@ def aabb2vertices(AABB):
     return vertices
 
 def obb2vertices(obb):
-    xc, yc, length, width, heading = obb
+    xc, yc, length, width, heading, height = obb
     vertices = np.array([
         [xc + length / 2, yc + width / 2],
         [xc + length / 2, yc - width / 2],
@@ -138,7 +138,8 @@ class BoundingBox:
 
     @property
     def length(self): return self.obb[2]
-
+    @property
+    def height(self): return self.obb[5]
     @property
     def width(self): return self.obb[3]
 
@@ -226,7 +227,7 @@ class TrackingBox(BoundingBox):
             return path_sequence
         vertice_seq = []
         for x, y, yaw in path_sequence:
-            vertices = obb2vertices((x, y, self.length, self.width, yaw))
+            vertices = obb2vertices((x, y, self.length, self.width, yaw, self.height))
             vertice_seq.append(vertices)
         return vertice_seq
 

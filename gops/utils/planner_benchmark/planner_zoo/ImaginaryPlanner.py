@@ -2,15 +2,15 @@ import time
 
 import warnings
 import spider
-from spider.planner_zoo.BasePlanner import BasePlanner
+from gops.utils.planner_benchmark.planner_zoo.BasePlanner import BasePlanner
 
-from spider.elements.map import RoutedLocalMap
-from spider.elements.trajectory import FrenetTrajectory
-from spider.elements.vehicle import VehicleState
-from spider.elements.box import TrackingBoxList, TrackingBox
+from gops.utils.planner_benchmark.elements.map import RoutedLocalMap
+from gops.utils.planner_benchmark.elements.trajectory import FrenetTrajectory
+from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
 
-from spider.utils.ImaginaryEngine import ImaginaryEngine
-from spider.planner_zoo.LatticePlanner import LatticePlanner
+from gops.utils.planner_benchmark.utils.ImaginaryEngine import ImaginaryEngine
+from gops.utils.planner_benchmark.planner_zoo.LatticePlanner import LatticePlanner
 
 
 class ImaginaryPlanner(BasePlanner):

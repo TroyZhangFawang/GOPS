@@ -1,6 +1,6 @@
-from spider.sampler.PolynomialSampler import \
+from gops.utils.planner_benchmark.sampler.PolynomialSampler import \
     (QuinticPolyminalSampler, QuarticPolyminalSampler, PiecewiseQuinticPolyminalSampler)
-from spider.sampler.Combiner import PVDCombiner, LatLonCombiner
-from spider.sampler.PathSampler import BezierCurveSampler
+from gops.utils.planner_benchmark.sampler.Combiner import PVDCombiner, LatLonCombiner
+from gops.utils.planner_benchmark.sampler.PathSampler import BezierCurveSampler
 
 

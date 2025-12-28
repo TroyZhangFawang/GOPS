@@ -1,9 +1,9 @@
 from typing import Callable
 
-from spider.sampler.BaseSampler import BaseSampler
-from spider.sampler.PolynomialSampler import QuinticPolyminalSampler, QuarticPolyminalSampler
-from spider.sampler.Combiner import LatLonCombiner
-from spider.utils.lane_decision import *
+from gops.utils.planner_benchmark.sampler.BaseSampler import BaseSampler
+from gops.utils.planner_benchmark.sampler.PolynomialSampler import QuinticPolyminalSampler, QuarticPolyminalSampler
+from gops.utils.planner_benchmark.sampler.Combiner import LatLonCombiner
+from gops.utils.planner_benchmark.utils.lane_decision import *
 
 class LatticeSampler(BaseSampler):
     def __init__(self,

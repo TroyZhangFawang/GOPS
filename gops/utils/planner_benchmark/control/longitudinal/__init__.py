@@ -1,2 +1,2 @@
-from spider.control.longitudinal.PIDLonController import PIDLonController
-from spider.control.longitudinal.IDMLonController import IDMLonController
+from gops.utils.planner_benchmark.control.longitudinal.PIDLonController import PIDLonController
+from gops.utils.planner_benchmark.control.longitudinal.IDMLonController import IDMLonController

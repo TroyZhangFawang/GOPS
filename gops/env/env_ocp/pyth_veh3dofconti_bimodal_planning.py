@@ -30,7 +30,7 @@ class DynamicObstacleData:
     # distance from front axle to rear axle
     l: float = 3.0
     dt: float = 0.1
-    veh_length: float = 4.8,
+    veh_length: float = 4.8
     veh_width: float = 2.0
 
     def step(self):
@@ -343,67 +343,9 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                                 ], dtype=np.float32
                                 )
 
-            #     obstacle, generate_guide = self.is_generate_guide()
-            #     if generate_guide and self.best_curve != None:
-            #         self.generate_guide = generate_guide
-            #         self.obstacle = obstacle
-            #         # quintic_curves = self.generate_quintic_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
-            #         bezier_curves = self.generate_bezier_curves(self.obstacle)  # 生成3条五次多项式，每条包含2个元素，为横向、纵向位置多项式
-            #         self.best_curve, can_cross = self.can_cross_decision(self.obstacle, bezier_curves)
-            #         self.t_start = self.t
-            #         self.t_end = self.t + (self.obstacle.x + self.forward_sample - self.state[0]) / self.state[3]
-            #         for i in range(1, self.pre_horizon + 1):
-            #             ref_x = self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num)
-            #             guide_point = self.get_bezier_guide_points(self.best_curve, self.t + i * self.dt, self.t_start,
-            #                                                        t_end=self.t_end)
-            #             t = (ref_x - guide_point[0]) / self.state[3]
-            #             while guide_point[0] < ref_x and t < self.t_end and t > 0:
-            #                 # guide_point = self.get_guide_points(self.best_curve, t, self.t_start)
-            #                 guide_point = self.get_bezier_guide_points(self.best_curve, t, self.t_start, self.t_end)
-            #                 t += self.dt
-            #             # 超出范围，使用全局轨迹点, 若bezier 曲线，范围调到障碍物前方采样点
-            #             if guide_point[0] >= self.obstacle.x + self.forward_sample:
-            #                 self.generate_guide = 0
-            #                 guide_point = np.array([
-            #                     self.ref_traj.compute_x(self.t + i * self.dt, self.path_num, self.u_num),
-            #                     self.ref_traj.compute_y(self.t + i * self.dt, self.path_num, self.u_num),
-            #                     self.ref_traj.compute_phi(self.t + i * self.dt, self.path_num, self.u_num),
-            #                     self.ref_traj.compute_u(self.t + i * self.dt, self.path_num, self.u_num),
-            #                 ], dtype=np.float32
-            #                 )
-            #             self.ref_points[i] = guide_point
-            #         new_ref_point = guide_point
-
             elif self.generate_guide == 1 and self.best_curve != None:
-                # ref_x = self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num)
-                # new_ref_point = self.get_quintic_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt, self.t_start)
+
                 new_ref_point = self.get_bezier_guide_points(self.best_curve, self.t + self.pre_horizon * self.dt, self.t_start, self.t_end)
-                # t_gap = (ref_x - new_ref_point[0]) / new_ref_point[3]
-                # if t_gap > self.t_end and t_gap > 0:
-                #     new_ref_point = np.array([
-                #         self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #         self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #         self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #         self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #     ], dtype=np.float32
-                #     )
-                # else:
-                #     while new_ref_point[0] <= ref_x and t_gap <= self.t_end and t_gap > 0:
-                #         # new_ref_point = self.get_quintic_guide_points(self.best_curve, t + self.pre_horizon * self.dt, self.t_start)
-                #         new_ref_point = self.get_bezier_guide_points(self.best_curve, t_gap + self.pre_horizon * self.dt, self.t_start, self.t_end)
-                #         t_gap += self.dt
-                #     if new_ref_point[0] >= self.obstacle.x + self.forward_sample:
-                #         if self.state[0] > self.obstacle.x + self.obstacle.length / 2:  # 确保车辆完全通过
-                #             self.processed_obstacles.add(self.obstacle.obs_id)
-                #             self.generate_guide = 0
-                #             self.best_curve = None
-                #         new_ref_point = np.array([
-                #             self.ref_traj.compute_x(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #             self.ref_traj.compute_y(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #             self.ref_traj.compute_phi(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #             self.ref_traj.compute_u(self.t + self.pre_horizon * self.dt, self.path_num, self.u_num),
-                #         ], dtype=np.float32
-                #         )
 
             if self.state[0] > self.obstacle.x:  # 确保车辆完全通过
                 self.processed_obstacles.add(self.obstacle.obs_id)
@@ -650,69 +592,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
         return nearest_obstacle, 1
 
-    # def can_cross_decision(self, obstacle: StaticObstacle, curves: List) -> Tuple[Optional[BezierCurve], bool]:
-    #     """跨/绕决策
-    #     Args:
-    #         obstacle: 障碍物信息
-    #     Returns:
-    #         can_cross: 是否可以跨越
-    #     """
-    #
-    #     # 判断是否满足跨越条件
-    #     can_cross = (obstacle.height < self.ground_clearance and
-    #                  obstacle.width < self.wheel_distance)
-    #     # todo 待增加一个规则的决策，如果绕过一个动/静态，再跨过一个静态，再绕过一个动/静态的场景，
-    #     #  那么静态障碍物可以直接忽略，保证轨迹的平顺性,问题是如何判断未来行为是不是绕行
-    #     self.curve_index = None
-    #     if can_cross:
-    #         best_curve = curves[1]  # 中间曲线用于跨越
-    #         self.curve_index = 1
-    #     else:
-    #         # 不可跨越时选择绕行曲线
-    #         best_curve = curves[2]  # 默认选择右绕
-    #         self.curve_index = 2
-    #     return best_curve, can_cross
-
-    # def can_cross_decision(self, obstacle: StaticObstacle, curves: List) -> Tuple[Optional[BezierCurve], bool]:
-    #     can_cross = (obstacle.height < self.ground_clearance and
-    #                  obstacle.width < self.wheel_distance)
-    #
-    #     # 评估曲线平滑性
-    #     def evaluate_curve(curve):
-    #         # 采样曲线上的点
-    #         ts = np.linspace(0, 1, 10)
-    #         points = np.array([curve.compute_point(t) for t in ts])
-    #
-    #         # 计算曲率变化
-    #         dx = np.gradient(points[:, 0])
-    #         dy = np.gradient(points[:, 1])
-    #         ddx = np.gradient(dx)
-    #         ddy = np.gradient(dy)
-    #         curvature = np.abs(dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2) ** 1.5
-    #
-    #         return np.mean(curvature)  # 返回平均曲率
-    #
-    #     # 选择最平滑的曲线
-    #     if can_cross:
-    #         best_curve = min(curves, key=evaluate_curve)
-    #     else:
-    #         # 选择绕行时，优先选择与当前方向更一致的曲线
-    #         current_heading = self.state[2]
-    #         heading_diffs = []
-    #         valid_indices = [0, 2]  # 对应的原始索引
-    #         valid_curves = [curves[0], curves[2]]
-    #         for curve in valid_curves:
-    #             end_heading = np.arctan2(curve.p2[1] - curve.p1[1], curve.p2[0] - curve.p1[0])
-    #             heading_diffs.append(abs(angle_normalize(end_heading - current_heading)))
-    #         # 选择差异最小的曲线
-    #         best_sub_idx = np.argmin(heading_diffs)
-    #         best_curve = valid_curves[best_sub_idx]#
-    #         # 额外检查：如果选择的曲线与障碍物太近，选择另一条
-    #         # if self._is_too_close_to_obstacle(best_curve, obstacle):
-    #         #     # 选择另一条曲线
-    #         #     self.curve_index = valid_indices[1 - best_sub_idx]
-    #         #     best_curve = valid_curves[1 - best_sub_idx]
-    #     return best_curve, can_cross
     def can_cross_decision(self, obstacle: StaticObstacle, curves: List) -> Tuple[Optional[BezierCurve], bool]:
         can_cross = (obstacle.height < self.ground_clearance and
                      obstacle.width < self.wheel_distance)
@@ -894,82 +773,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             curves.append(curve)
         return curves
 
-    # def generate_quintic_curves(self,
-    #                            obstacle: StaticObstacle) -> List:
-    #     """生成五次多项式曲线
-    #             Args:
-    #                 current_pos: 当前位置[x, y]
-    #                 obstacle: 障碍物信息
-    #             Returns:
-    #                 curves: 生成的五次多项式曲线列表
-    #             """
-    #     def _create_single_trajectory(start_point, end_point, T) -> Tuple[QuinticPolynomial, QuinticPolynomial]:
-    #         """创建单条轨迹的x和y方向多项式"""
-    #         # x方向多项式
-    #         poly_x = QuinticPolynomial(
-    #             [start_point[0], start_point[3] * np.cos(start_point[2]), 0], # 位置、速度、加速度
-    #             [end_point[0], end_point[3] * np.cos(end_point[2]), 0],# 位置、速度、加速度
-    #             T
-    #         )
-    #         # y方向多项式
-    #         poly_y = QuinticPolynomial(
-    #             [start_point[1], start_point[3] * np.sin(start_point[2]), 0],
-    #             [end_point[1], end_point[3] * np.sin(end_point[2]), 0],
-    #             T
-    #         )
-    #         return (poly_x, poly_y)
-    #
-    #     curves = []
-    #     # 横向采样点
-    #     lateral_points = [
-    #         np.array([obstacle.x, obstacle.y - self.lateral_sample, obstacle.phi, self.state[3]]),  # 左侧
-    #         np.array([obstacle.x, obstacle.y, obstacle.phi, self.state[3]]),  # 中心
-    #         np.array([obstacle.x, obstacle.y + self.lateral_sample, obstacle.phi, self.state[3]])  # 右侧
-    #     ]
-    #     # 生成五次多项式曲线
-    #     for i in range(len(lateral_points)):
-    #         curve = _create_single_trajectory(self.state, lateral_points[i], abs((obstacle.x-self.state[0])/self.state[3]))
-    #         # 使用当前位置作为起点，障碍物位置作为控制点
-    #         curves.append(curve)
-    #     self.guide_end = lateral_points
-    #     self.guide_time_interval = abs((obstacle.x-self.state[0])/self.state[3])
-    #     return curves
-    #
-    # def get_quintic_guide_points(self, guide_traj, current_t: float,
-    #                           t_start: float) -> np.array:
-    #     """
-    #     获取指定轨迹的预测点
-    #
-    #     Args:
-    #         current_t: 当前时间
-    #         t_start: 当前曲线的起点时间
-    #
-    #     Returns:
-    #         np.ndarray: 预测轨迹点 shape=(1, 4) [x, y, phi, v]
-    #     """
-    #     poly_x, poly_y = guide_traj
-    #     local_t = current_t - t_start
-    #     x_state = poly_x.compute_point(local_t)
-    #     y_state = poly_y.compute_point(local_t)
-    #     x, y = x_state[0], y_state[0]
-    #     vx, vy = x_state[1], y_state[1]
-    #     phi = np.arctan2(vy, vx)
-    #     return np.array([x, y, phi, vx], dtype=np.float32)
-
-    # def get_bezier_guide_points(self, guide_traj, t_interpolate: float, t_start: float, t_end:float):
-    #     if t_end <= t_start:
-    #         # print("please check the time end and time start data")
-    #         t_end = t_start + self.dt
-    #     # 计算归一化时间参数
-    #     t = np.clip((t_interpolate - t_start) / (t_end - t_start), 0, 1)
-    #     # 计算位置和导数
-    #     point = guide_traj.compute_point(t)
-    #     derivative = guide_traj.compute_derivative(t)
-    #     # 计算航向角和速度
-    #     phi = np.arctan2(derivative[1], derivative[0])
-    #     u = self.ref_traj.compute_u(t_interpolate, self.path_num, self.u_num)
-    #     traj_point = np.array([point[0], point[1], phi, u], dtype=np.float32)
-    #     return traj_point
     def get_bezier_guide_points(self, guide_traj, t_interpolate: float, t_start: float, t_end: float):
         if t_end <= t_start:
             t_end = t_start + self.dt
@@ -1013,7 +816,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             = traj.v[1], traj.a[1], traj.curvature[1]
         for tb in self.obstaclesBox:
             tb.set_obb([tb.x + tb.vx * traj.dt, tb.y + tb.vy * traj.dt, tb.length, tb.width, tb.box_heading])
-    # todo 完善完美执行规划轨迹的step
+
     def step_w_perfectaction(self, trajectory: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
         traj = trajectory
         # 控制+定位，假设完美控制到下一个轨迹点
@@ -1250,60 +1053,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         })
         return info
 
-    # def _render(self, ax):
-    #     super()._render(ax, self.veh_length, self.veh_width)
-    #     import matplotlib.patches as pc
-    #     legend_label = ['Ego', 'Global', 'Local']
-    #     # draw reference paths
-    #     # ref_x = []
-    #     # ref_y = []
-    #
-    #     # for i in np.arange(1, 60):
-    #     #     ref_x.append(self.ref_traj.compute_x(
-    #     #         self.t + i * self.dt, self.path_num, self.u_num
-    #     #     ))
-    #     #     ref_y.append(self.ref_traj.compute_y(
-    #     #         self.t + i * self.dt, self.path_num, self.u_num
-    #     #     ))
-    #     # ref_x = self.ref_points[1:, 0]
-    #     # ref_y = self.ref_points[1:, 1]
-    #     # ax.plot(ref_x, ref_y, 'b--', lw=1, zorder=2)
-    #     # # draw planning paths
-    #     # plan_x = []
-    #     # plan_y = []
-    #     #
-    #     # for i in range(self.pre_horizon):
-    #     #     plan_x.append(self.state_full[i, 0])
-    #     #     plan_y.append(self.state_full[i, 1])
-    #     # ax.plot(plan_x, plan_y, 'g', lw=1, zorder=2)
-    #     # draw surrounding vehicles
-    #     for i in range(self.dynamic_obstacle_num):
-    #         dynamicx, dynamicy, dynamicphi = self.dynamic_state[i, :3]
-    #         ax.add_patch(pc.Rectangle(
-    #             (dynamicx - self.veh_length / 2, dynamicy - self.veh_width / 2),
-    #             self.veh_length,
-    #             self.veh_width,
-    #             angle=dynamicphi * 180 / np.pi,
-    #             facecolor='w',
-    #             edgecolor='k',
-    #             zorder=1
-    #         ))
-    #         legend_label.append('Dynamic_{}'.format(i))
-    #
-    #     # draw static obstacles
-    #     for i_static in range(self.static_obstacle_num):
-    #         static_x, static_y, static_phi = self.static_state[i_static, 1:4]
-    #         ax.add_patch(pc.Rectangle(
-    #             (static_x - self.static_length[i_static] / 2, static_y - self.static_width[i_static] / 2),
-    #             self.static_length[i_static],
-    #             self.static_width[i_static],
-    #             angle=static_phi * 180 / np.pi,
-    #             facecolor='gray',
-    #             edgecolor='gray',
-    #             zorder=1
-    #         ))
-    #         legend_label.append('Static Obstacle_{}'.format(i_static))
-    #     ax.legend(legend_label, ncol=2, loc=2)
     def _render(self, ax):
         super()._render(ax, self.veh_length, self.veh_width)
         import matplotlib.patches as pc
@@ -1349,7 +1098,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             ))
 
             # 在图例中标注是否可跨越
-            legend_label.append(f'Static_{i_static}({"Cross" if can_cross else "Avoid"})')
+            legend_label.append(f'Static_{i_static}({"可跨" if can_cross else "避让"})')
 
 
         # 新增绘制逻辑 -------------------------------------------------
@@ -1388,12 +1137,3 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
 def env_creator(**kwargs):
     return SimuVeh3dofBimodalPlanning(**kwargs)
-
-# if __name__ == "__main__":
-#     env = env_creator()
-#     env.reset()
-#     for i in range(100):
-#         a = env.action_space.sample()
-#         obs, reward, done, info = env.step(a)
-#         print(reward)
-#         # env.render()
