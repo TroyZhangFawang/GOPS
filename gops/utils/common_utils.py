@@ -70,7 +70,18 @@ def get_apprfunc_dict(key: str, **kwargs):
     apprfunc_type = kwargs[key + "_func_type"]
     if key + "_output_activation" not in kwargs.keys():
         kwargs[key + "_output_activation"] = "linear"
-    if apprfunc_type == "MLP" or apprfunc_type == "RNN":
+
+    # ================= 核心修改开始 =================
+    if apprfunc_type == "diffusion":
+        # 处理 Diffusion 类型的参数
+        var["hidden_sizes"] = kwargs[key + "_hidden_sizes"]
+        var["hidden_activation"] = kwargs[key + "_hidden_activation"]
+        var["output_activation"] = kwargs[key + "_output_activation"]
+        var["act_high_lim"] = np.array(kwargs["action_high_limit"])
+        var["act_low_lim"] = np.array(kwargs["action_low_limit"])
+        var["act_dim"] = kwargs["action_dim"]
+
+    elif apprfunc_type == "MLP" or apprfunc_type == "RNN":
         var["hidden_sizes"] = kwargs[key + "_hidden_sizes"]
         var["hidden_activation"] = kwargs[key + "_hidden_activation"]
         var["output_activation"] = kwargs[key + "_output_activation"]

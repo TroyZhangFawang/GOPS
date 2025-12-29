@@ -18,6 +18,13 @@ from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
 from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
 from gops.utils.planner_benchmark.elements.vehicle import VehicleState
 import numpy as np
+import matplotlib.font_manager as fm
+try:
+    # 假设字体文件在 ../gops/utils/ 下，根据你的目录结构调整
+    # 如果找不到文件，会自动回退到 SimHei
+    zhfont = fm.FontProperties(fname='./../gops/utils/SIMSUN.ttf', size=20)
+except:
+    zhfont = fm.FontProperties(family='SimHei', size=20)
 
 @dataclass
 class DynamicObstacleData:
@@ -1005,11 +1012,12 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
                          tb.width < self.wheel_distance)
             if tb.vx != 0:
                 vis.draw_boundingbox(tb, color='red', fill=True, alpha=0.1, linestyle='-', linewidth=1.5)  # 画他车
-                legend_label.append(f'Dynamic_{tb.id}')
+                legend_label.append(f'动态')
             else:
-                color = 'lime' if can_cross else 'darkviolet'
+                color = 'lime'
                 vis.draw_boundingbox(tb, color=color, fill=True, alpha=0.1, linestyle='-', linewidth=1.5)  # 画他车
-                legend_label.append(f'Static_{tb.id}({"Cross" if can_cross else "Avoid"})')
+                legend_label.append(f'静态({"可跨" if can_cross else "不可跨"})')
+
         #     # 画他车预测轨迹
         #     tb_pred_traj = np.column_stack((tb.x + np.asarray(traj.t) * tb.vx, tb.y + np.asarray(traj.t) * tb.vy))
         #     vis.draw_polyline(tb_pred_traj, show_buffer=True, buffer_dist=tb.width * 0.5, buffer_alpha=0.1,
@@ -1025,15 +1033,15 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         if "initial_trajectory" in traj.debug_info:
             vis.draw_trajectory(traj.debug_info["initial_trajectory"], '--', color="black", show_footprint=False)
 
-        vis.draw_ego_vehicle(self.ego_veh_state, color='magenta', fill=True, alpha=0.3, linestyle='-', linewidth=1.5)  # 画自车
-        legend_label.append('Planned traj')
+        vis.draw_ego_vehicle(self.ego_veh_state, color='magenta', fill=True, alpha=0.3, linestyle='-', linewidth=1.5,label='轨迹')  # 画自车
+        legend_label.append()
         # plt.axis('equal')
         plt.tight_layout()
         vis.ego_centric_view(self.ego_veh_state.x(), self.ego_veh_state.y(), [-20, 80], [-10, 10])
         # plt.xlim([ego_veh_state.x() - 20, ego_veh_state.x() + 80])
         # plt.ylim([ego_veh_state.y() - 5, ego_veh_state.y() + 5])
         # plt.pause(0.001)
-        plt.legend(legend_label, ncol=6, loc='upper left', fontsize=6, bbox_to_anchor= (0, 1.2))
+        plt.legend(legend_label, ncol=3, loc='upper left', fontsize=2, bbox_to_anchor= (0, 1.2) , prop=zhfont)
 
     @property
     def info(self):
@@ -1056,7 +1064,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
     def _render(self, ax):
         super()._render(ax, self.veh_length, self.veh_width)
         import matplotlib.patches as pc
-        legend_label = ['Ego', 'Global', 'Local']
+        legend_label = ['自车', '全局', '局部']
 
         # 原有障碍物绘制逻辑
         for i in range(self.dynamic_obstacle_num):

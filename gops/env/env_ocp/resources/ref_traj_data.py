@@ -100,7 +100,7 @@ class MultiRefTrajData:
             TriangleRefTrajData(ref_speeds, **self.path_param["straight_lane"]),
             UTurnRefTrajData(ref_speeds, **self.path_param["u_turn"]),
             FigureEightRefTrajData(ref_speeds, **self.path_param["figure_eight"]),
-            RTKRefTrajData(ref_speeds, **self.path_param["rtk_path"])
+            # RTKRefTrajData(ref_speeds, **self.path_param["rtk_path"])
         ]
 
     def compute_x(self, t: float, path_num: int, speed_num: int) -> float:
