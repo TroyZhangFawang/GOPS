@@ -176,11 +176,42 @@ class DSACT_Diffusion(AlgorithmBase):
         }
 
     def __compute_loss_policy(self, data: DataDict):
-        """Diffusion Policy Training Loss (Behavior Cloning)"""
+        """
+        Online RL 核心修改：Q-Weighted Diffusion Loss
+        """
         obs = data["obs"]
-        act_real = data["act"]
+        act_real = data["act"]  # 来自 ReplayBuffer 的实际动作
 
-        # 1. 采样 t
+        # ====================================================
+        # Part 1: 计算 Q-Guidance 权重 (Weighting)
+        # ====================================================
+        with torch.no_grad():
+            # 1. 计算当前动作的 Q 值
+            q1 = self.networks.q1(obs, act_real)
+            q2 = self.networks.q2(obs, act_real)
+            q_current = torch.min(q1, q2)  # 保守估计
+
+            # 2. 计算基线 V(s) (Baseline)
+            # 为了数值稳定，通常用 batch 内的均值或分位数作为 V(s) 的近似
+            v_baseline = q_current.mean()
+
+            # 3. 计算优势 Advantage
+            adv = q_current - v_baseline
+
+            # 4. 计算权重 w = exp(adv / temperature)
+            # temperature 越小，对高分动作的筛选越严格（只学最好的）
+            # 建议 temperature 设为 3.0 ~ 10.0 之间
+            temperature = 3.0
+            weights = torch.exp(adv / temperature)
+
+            # 截断权重防止数值爆炸 (Max Clip)
+            weights = torch.clamp(weights, max=20.0)
+
+        # ====================================================
+        # Part 2: Diffusion Training (Weighted MSE)
+        # ====================================================
+
+        # 1. 采样时间步 t
         t = self.networks.scheduler.sample_timesteps(obs.shape[0])
 
         # 2. 采样噪声
@@ -192,11 +223,18 @@ class DSACT_Diffusion(AlgorithmBase):
         # 4. 网络预测
         noise_pred = self.networks.policy(obs, act_noisy, t)
 
-        # 5. MSE Loss
-        loss_diff = nn.MSELoss()(noise_pred, noise)
+        # 5. 计算加权 MSE Loss
+        # loss shape: [Batch, Action_Dim] -> [Batch]
+        mse_loss = nn.MSELoss(reduction='none')(noise_pred, noise).mean(dim=1)
+
+        # 应用 Q 权重
+        loss_diff = (mse_loss * weights).mean()
 
         return loss_diff, {
-            tb_tags["loss_actor"]: loss_diff.item()
+            tb_tags["loss_actor"]: loss_diff.item(),
+            "train/weight_mean": weights.mean().item(),
+            "train/weight_max": weights.max().item(),
+            "train/adv_mean": adv.mean().item()
         }
 
     def _sample_action(self, obs):
