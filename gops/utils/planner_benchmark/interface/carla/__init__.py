@@ -1,7 +1,7 @@
 # __all__ = ['CarlaInterface', 'presets', 'common', 'visualize']
-from spider.interface.carla.common import *
-from spider.interface.carla.visualize import *
-import spider.interface.carla.presets as presets
+from gops.utils.planner_benchmark.interface.carla.common import *
+from gops.utils.planner_benchmark.interface.carla.visualize import *
+import gops.utils.planner_benchmark.interface.carla.presets as presets
 
-from spider.interface.carla.CarlaInterface import CarlaInterface
+from gops.utils.planner_benchmark.interface.carla.CarlaInterface import CarlaInterface
 

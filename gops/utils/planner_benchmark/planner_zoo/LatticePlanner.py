@@ -14,7 +14,7 @@ from gops.utils.planner_benchmark.utils.transform.frenet import FrenetTransforme
 from gops.utils.planner_benchmark.utils.collision import BoxCollisionChecker
 
 from gops.utils.planner_benchmark.constraints import CartConstriantChecker
-import spider
+import gops.utils.planner_benchmark as spider
 import numpy as np
 class LatticePlanner(BasePlanner):
     def __init__(self, config=None):
@@ -56,8 +56,8 @@ class LatticePlanner(BasePlanner):
             "ego_veh_width": 2.0,
             "max_speed": 120/3.6,
             "min_speed": 0,
-            "max_acceleration": 10,
-            "max_deceleration": 10,
+            "max_acceleration": 1.5,
+            "max_deceleration": -3,
             # "max_centripetal_acceleration" : 100,
             "max_curvature": 100,
             "safe_distance": (1.0, 0.2),  # 目前好像还没用
@@ -140,7 +140,7 @@ class LatticePlanner(BasePlanner):
         # 评估+筛选
         sorted_candidates, sorted_cost = self.trajectory_evaluator.evaluate_candidates(candidate_trajectories)
 
-        sorted_candidates = (self.coordinate_transformer.frenet2cart4traj(t, order=2) for t in sorted_candidates)
+        sorted_candidates = (self.coordinate_transformer.frenet2cart4traj(t, order=1) for t in sorted_candidates)
         # 由于frenet2cart4traj,order=2计算量很大，所以使用了生成器表达式，提高初始化时候的效率
         optimal_trajectory, min_cost = self.constraint_check(sorted_candidates, sorted_cost, predicted_obstacles)
 

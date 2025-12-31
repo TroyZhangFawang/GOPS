@@ -3,6 +3,9 @@ import matplotlib
 import seaborn as sns
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 import Auxiliary_System as AuxiSys
+from gops.utils.math_utils import angle_normalize
+from scipy.ndimage import median_filter, gaussian_filter1d
+from scipy.signal import savgol_filter, butter, filtfilt
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
@@ -15,6 +18,7 @@ import matplotlib.animation as animation
 import matplotlib.font_manager as fm
 from tkinter import *
 from matplotlib.legend_handler import HandlerPathCollection, HandlerLine2D
+from scipy.interpolate import interp1d
 zhfont1 = fm.FontProperties(fname='./SIMSUN.ttf')
 y_formatter = FormatStrFormatter('%1')
 # font = FontProperties(fname="SimHei.ttf", size=15)
@@ -35,9 +39,29 @@ default_cfg["label_font"] = {
     "weight": "normal",
 "family": "Times New Roman",
 }
-default_cfg["img_fmt"] = "svg"
+default_cfg["img_fmt"] = "png"
 mpl.rcParams['font.sans-serif'] = ['SimSun']  # 指定宋体
 mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+# 多种滤波方法实现
+def median_filtering(data, window_size=5):
+    """中值滤波（有效去除离群点）"""
+    return median_filter(data, size=window_size)
+
+def gaussian_filtering(data, sigma=4):
+    """高斯滤波（平滑效果好）"""
+    return gaussian_filter1d(data, sigma=sigma)
+
+def savgol_filtering(data, window_length=5, polyorder=2):
+    """Savitzky-Golay滤波（保留特征峰值）"""
+    return savgol_filter(data, window_length=window_length, polyorder=polyorder)
+
+def butterworth_filter(data, cutoff=0.1, fs=10, order=3):
+    """巴特沃斯低通滤波（适合去除高频噪声）"""
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return filtfilt(b, a, data)
+
 def cm2inch(*tupl):
     inch = 2.54
     if isinstance(tupl[0], tuple):
@@ -78,24 +102,24 @@ def read_csv_line5(root_path, line_num):
 def read_csv_line4(root_path, line_num):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     start_index = 1
-    end_index = 1199
+    end_index = 1499
     interval = 1
     step_list = np.array(data_result.iloc[0, start_index:end_index:interval], dtype='float32')
 
     data_pool = np.zeros((line_num+1, len(step_list)))
     data_pool[0, :] = step_list
 
-    data_pool[1, :] = np.array(data_result.iloc[4, start_index:end_index:interval], dtype='float32')  # Ref
-    data_pool[2, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')  # MPC
-    data_pool[3, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')  # FHADP
-    data_pool[4, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')  # Bilevel
+    data_pool[1, :] = np.array(data_result.iloc[3, start_index:end_index:interval], dtype='float32')  # Ref
+    data_pool[2, :] = np.array(data_result.iloc[4, start_index:end_index:interval], dtype='float32')  # MPC
+    data_pool[3, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')  # FHADP
+    data_pool[4, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')  # Bilevel
     # print(np.average(data_pool[1, :]),np.average(data_pool[2, :]), np.average(data_pool[3, :]), np.average(data_pool[4, :]))
     # for num in range(line_num):
     #     data_numi = np.array(data_result.iloc[num+1, 1:], dtype='float32')
     #     data_pool[num+1, :] = data_numi
     return data_pool
 
-def read_csv_line3(root_path, line_num):
+def read_csv_line3_old(root_path, line_num):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     start_index = 1
     end_index = 1199
@@ -114,13 +138,65 @@ def read_csv_line3(root_path, line_num):
     #     data_pool[num+1, :] = data_numi
     return data_pool
 
+def read_csv_line3(root_path, line_num):
+    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
+    start_index = 1
+    end_index = -1
+    interval = 2
+    step_list = np.array(data_result.iloc[start_index:end_index:interval, 0], dtype='float32')
+    data_pool = np.zeros((line_num+1, len(step_list)))
+    data_pool[0, :] = step_list
+    data_pool[1, :] = np.array(data_result.iloc[start_index:end_index:interval, 1], dtype='float32')#-data_result.iloc[start_index, 1]/3.14*180  # Ref
+    data_pool[2, :] = np.array(data_result.iloc[start_index:end_index:interval, 2], dtype='float32')#-data_result.iloc[start_index, 2]/3.14*180 # FHADP
+    data_pool[3, :] = np.array(data_result.iloc[start_index:end_index:interval, 3], dtype='float32') #-data_result.iloc[start_index, 3]/3.14*180 # ABPO
+    # 处理各列数据，小于0的值加2π
+    # for i, col in enumerate([1, 2, 3], start=1):
+    #     column_data = np.array(data_result.iloc[start_index:end_index:interval, col], dtype='float32')
+    #     # 对小于0的值加2π
+    #     column_data[column_data < 0] += 2 * np.pi
+    #     data_pool[i, :] = column_data
+    return data_pool
+
+def read_csv_line2(root_path, line_num):
+    data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
+    start_index = 1
+    end_index = -1
+    interval = 1
+    step_list = np.array(data_result.iloc[start_index:end_index:interval, 0], dtype='float32')
+    data_pool = np.zeros((line_num+1, len(step_list)))
+    data_pool[0, :] = step_list
+
+    data_pool[1, :] = np.array(data_result.iloc[start_index:end_index:interval, 1], dtype='float32')/180*3.14/20# # MPC[::-1]
+    data_pool[2, :] = np.array(data_result.iloc[start_index:end_index:interval, 2], dtype='float32')/180*3.14/20 # FHADP[::-1]
+    data_pool[1, :] = gaussian_filtering(data_pool[1, :], sigma=3)
+    data_pool[2, :] = gaussian_filtering(data_pool[2, :], sigma=7)
+    return data_pool
+
+# def read_csv_line2(root_path, line_num):
+#     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
+#     start_index = 1
+#     end_index = 299
+#     interval = 1
+#     step_list = np.array(data_result.iloc[0, start_index:end_index:interval], dtype='float32')
+#
+#     data_pool = np.zeros((line_num+1, len(step_list)))
+#     data_pool[0, :] = step_list
+#
+#     data_pool[1, :] = np.array(data_result.iloc[1, start_index:end_index:interval], dtype='float32')#/3.14*180  # MPC
+#     data_pool[2, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')#/3.14*180 # FHADP
+#     # data_pool[4, :] = np.array(data_result.iloc[2, start_index:end_index:interval], dtype='float32')  # Bilevel
+#     # for num in range(line_num):
+#     #     data_numi = np.array(data_result.iloc[num+1, 1:], dtype='float32')
+#     #     data_pool[num+1, :] = data_numi
+#     return data_pool
+
 def plot_Timevs_(data_read, args):
     dt = args["time_step"]
     legend_list = args["legend_list"]
     color_list = args["color_list"]
     line_num = args["line_num"]
     language = args["language"]
-    save_dir = args["figures_root"]+'/run_plot_'+language+"sec/"
+    save_dir = args["figures_root"]+'/run_plot_'+language+"fourth/"
     os.makedirs(save_dir, exist_ok=True)
     path_state_fmt = os.path.join(
         save_dir, "Times-"+args["csv_file_name"]+".{}".format(default_cfg["img_fmt"])
@@ -148,9 +224,10 @@ def plot_Timevs_(data_read, args):
 
         sns.lineplot(x=data_read[0, :]*dt, y=data_read[i+1, :], linewidth=2, color="{}".format(color), label="{}".format(legend)) #
         # plt.scatter(x=data_x[i + 1, :], y=data_[i + 1, :], label="{}".format(legend), s=2)
-    plt.xticks([0, 4,  8,  12])
-    plt.xlim(0, 12)
-    plt.yticks([25.6, 25.4, 25.2, 25.0])
+    plt.xticks([0, 5,  10,  15])
+    # plt.xticks([0, 5,  10, 15, 20, 25])
+    # plt.xlim(0, 12)
+    # plt.yticks([-0.01, -0.005, 0, 0.005, 0.01])
     # plt.ylim(-40, 0)
 
     # plt.yticks(range(0,50000,10000))
@@ -176,9 +253,9 @@ def plot_Timevs_(data_read, args):
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
     )
-    # plt.savefig(
-    #     path_state_fmtpdf, format="pdf", bbox_inches="tight"
-    # )
+    plt.savefig(
+        path_state_fmtpdf, format="pdf", bbox_inches="tight"
+    )
 
     plt.close()
 
@@ -187,7 +264,7 @@ def plot_stateXvs_(data_x, data_, args):
     color_list = args["color_list"]
     line_num = args["line_num"]
     language = args["language"]
-    save_dir = args["figures_root"]+'/run_plot_'+language+"sec/"
+    save_dir = args["figures_root"]+'/run_plot_'+language+"fourth/"
     os.makedirs(save_dir, exist_ok=True)
     path_state_fmt = os.path.join(
         save_dir, "stateX-"+args["csv_file_name"]+".{}".format(default_cfg["img_fmt"])
@@ -200,7 +277,7 @@ def plot_stateXvs_(data_x, data_, args):
         default_cfg["fig_size"],
     )
     fig, ax = plt.subplots(figsize=cm2inch(*fig_size), dpi=default_cfg["dpi"])
-
+    # axins = ax.inset_axes((0.35, 0.45, 0.35, 0.35))
     for i in range(line_num):
         legend = (
             legend_list[i]
@@ -215,13 +292,41 @@ def plot_stateXvs_(data_x, data_, args):
 
         # sns.lineplot(x=data_x[i+1, :], y=data_[i+1, :], label="{}".format(legend), linewidth=2,color="{}".format(color))  #
         plt.scatter(x=data_x[i+1, :], y=data_[i+1, :], label="{}".format(legend), s=2, c="{}".format(color)) #, linewidths=0.1
+
+        # axins.scatter(x=data_x[i+1, :], y=data_[i+1, :], label="{}".format(legend), s=2, c="{}".format(color))
     # x = [0, 5, 10, 15, 20] sns.lineplot
-    plt.xticks([0, 50, 100])
-    plt.yticks([-200, -100, 0])
+    # plt.xticks([0, 50, 100])
+    # plt.yticks([-200, -100, 0])
     # plt.axis('equal')
     # plt.legend(ncol=2)
     # plt.xlim(0, 100)
     # plt.ylim(-200, 0)
+
+    # xlim_lower = 0
+    # xlim_upper = 15
+    # ylim_lower = 115
+    # ylim_upper = 120
+    # axins.set_xlim(xlim_lower, xlim_upper)
+    # axins.set_ylim(ylim_lower, ylim_upper)
+    # # 画主图的方框
+    # tx0 = xlim_lower
+    # tx1 = xlim_upper
+    # ty0 = ylim_lower
+    # ty1 = ylim_upper
+    # sx = [tx0, tx1, tx1, tx0, tx0]
+    # sy = [ty0, ty0, ty1, ty1, ty0]
+    # ax.plot(sx, sy, "black")
+    # # 画两条连接线
+    # xy = (tx0, ty0) # 原图上
+    # xy2 = (tx0, ty1) # 引出框
+    # con = mpatches.ConnectionPatch(xyA=xy2, xyB=xy, coordsA="data", coordsB="data",
+    #                                axesA=axins, axesB=ax)
+    # axins.add_artist(con)
+    # xy = (tx1, ty0)
+    # xy2 = (tx1, ty1)
+    # con = mpatches.ConnectionPatch(xyA=xy2, xyB=xy, coordsA="data", coordsB="data",
+    #                                axesA=axins, axesB=ax)
+    # axins.add_artist(con)
     plt.tick_params(labelsize=default_cfg["tick_size"])
     # 使用 ax.tick_params 来设置刻度线方向
     ax.tick_params(axis='x', direction='in')  # x轴刻度线向内
@@ -243,9 +348,9 @@ def plot_stateXvs_(data_x, data_, args):
     plt.savefig(
         path_state_fmt, format=default_cfg["img_fmt"], bbox_inches="tight"
     )
-    # plt.savefig(
-    #     path_state_fmt_o, format="pdf", bbox_inches="tight"
-    # )
+    plt.savefig(
+        path_state_fmt_o, format="pdf", bbox_inches="tight"
+    )
     plt.close()
 
 def plot_upperloss(data, args):
@@ -331,8 +436,7 @@ def compute_IR_metrics(args):
     data_result_varphidot_tt = pd.DataFrame(pd.read_csv(root_path_varphidot_tt, header=None))
     data_result_varphidot_tl = pd.DataFrame(pd.read_csv(root_path_varphidot_tl, header=None))
 
-
-    start_index = 2
+    start_index = 1
     end_index = -1
     interval = 1
     m1 = 5760.  # Total mass of the tractor [kg]
@@ -369,32 +473,33 @@ def compute_IR_metrics(args):
                 C_varphi_dot1*np.array(data_result_varphidot_tt.iloc[4, start_index:end_index:interval], dtype='float32')),
                 max(C_varphi2*np.array(data_result_varphi_tl.iloc[4, start_index:end_index:interval], dtype='float32')+
                 C_varphi_dot2*np.array(data_result_varphidot_tl.iloc[4, start_index:end_index:interval], dtype='float32')))
-    R_FHADP = max(max(C_varphi1*np.array(data_result_varphi_tt.iloc[1, start_index:end_index:interval], dtype='float32')+
-                C_varphi_dot1*np.array(data_result_varphidot_tt.iloc[1, start_index:end_index:interval], dtype='float32')),
-                max(C_varphi2*np.array(data_result_varphi_tl.iloc[1, start_index:end_index:interval], dtype='float32')+
+    R_FHADP = max(max(C_varphi1 * np.array(data_result_varphi_tt.iloc[1, start_index:end_index:interval], dtype='float32') +
+        C_varphi_dot1 * np.array(data_result_varphidot_tt.iloc[1, start_index:end_index:interval], dtype='float32')),max(C_varphi2*np.array(data_result_varphi_tl.iloc[1, start_index:end_index:interval], dtype='float32')+
                 C_varphi_dot2*np.array(data_result_varphidot_tl.iloc[1, start_index:end_index:interval], dtype='float32')))
-    R_ABPO = max(max(C_varphi1*np.array(data_result_varphi_tt.iloc[2, start_index:end_index:interval], dtype='float32')+
-                C_varphi_dot1*np.array(data_result_varphidot_tt.iloc[2, start_index:end_index:interval], dtype='float32')),
-                max(C_varphi2*np.array(data_result_varphi_tl.iloc[2, start_index:end_index:interval], dtype='float32')+
+    # R_FHADP =
+    # R_ABPO =
+    R_ABPO = max(max(C_varphi1 * np.array(data_result_varphi_tt.iloc[2, start_index:end_index:interval], dtype='float32') +
+        C_varphi_dot1 * np.array(data_result_varphidot_tt.iloc[2, start_index:end_index:interval], dtype='float32')),max(C_varphi2*np.array(data_result_varphi_tl.iloc[2, start_index:end_index:interval], dtype='float32')+
                 C_varphi_dot2*np.array(data_result_varphidot_tl.iloc[2, start_index:end_index:interval], dtype='float32')))
     # print("absmaxR[MPC, PUMPC, FHADP, ABPO]:", max(abs(R_MPC)), max(abs(R_PUMPC)), max(abs(R_FHADP)), max(abs(R_ABPO)))
     print("IR[MPC, PUMPC, FHADP, ABPO]:", R_MPC, R_PUMPC, R_FHADP, R_ABPO)
+    # print("IR[FHADP, ABPO]:", R_FHADP, R_ABPO)
 
 if __name__ == "__main__":
     # Parameters Setup
     parser = argparse.ArgumentParser()
     parser.add_argument("--time_step", type=float, default=0.01)
-    parser.add_argument("--csv_file_name", type=str, default="State-4")
-    parser.add_argument("--csv_file_name2", type=str, default="State-5")
-    parser.add_argument("--line_num", type=int, default=4)
-    parser.add_argument("--language", type=str, default="ch")
-    # parser.add_argument("--x_label", type=str, default=r"Pos $p_{\rm x,tt}\ /\mathrm{m}$")
-    # parser.add_argument("--y_label", type=str, default=r"Pos $p_{\rm y,tt}\ /\mathrm{m}$")
-    # parser.add_argument("--x_label", type=str, default=r"Time $/\mathrm{s}$")
+    parser.add_argument("--csv_file_name", type=str, default="State-3")#State-Ref-2-yerr
+    parser.add_argument("--csv_file_name2", type=str, default="State-3")
+    parser.add_argument("--line_num", type=int, default=5)
+    parser.add_argument("--language", type=str, default="en")
+    # parser.add_argument("--x_label", type=str, default=r"Pos $p_{\rm x,tl}\ /\mathrm{m}$")
+    # parser.add_argument("--y_label", type=str, default=r"Pos $p_{\rm y,tl}\ /\mathrm{m}$")
+    parser.add_argument("--x_label", type=str, default=r"Time $/\mathrm{s}$")
     # parser.add_argument("--y_label", type=str, default=r"Lateral error $p_{\rm y,tt}^{\rm err}\ /\mathrm{m}$")
-    # parser.add_argument("--y_label", type=str, default=r"Yaw $\phi_{\rm tt}\ /\mathrm{rad}$")
+    parser.add_argument("--y_label", type=str, default=r"Yaw $\phi_{\rm tt}\ /\mathrm{rad}$")
     # parser.add_argument("--y_label", type=str, default=r"Yaw error $\phi_{\rm tl}^{\rm err}\ /\mathrm{rad}$")
-    # parser.add_argument("--y_label", type=str, default=r"Yawrate $\dot\phi_{\rm tt}\ /\mathrm{rad·s^{-1}}$")
+    # parser.add_argument("--y_label", type=str, default=r"Yawrate $\dot\phi_{\rm tl}\ /\mathrm{rad·s^{-1}}$")
     # parser.add_argument("--y_label", type=str, default=r"Roll $\varphi_{\rm tt}\ /\mathrm{rad}$") #
     # parser.add_argument("--y_label", type=str, default=r"Roll rate $\dot\varphi_{\rm tl}\ /\mathrm{rad·s^{-1}}$")
     # parser.add_argument("--y_label", type=str, default=r"Lateral speed $v_{\rm tt}\ /\mathrm{m·s^{-1}}$") # ·s^{-1}
@@ -403,8 +508,8 @@ if __name__ == "__main__":
 
     # parser.add_argument("--x_label", type=str, default=r"$p_{\rm x,tl}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"$p_{\rm y,tl}\ /\mathrm{m}$")
-    parser.add_argument("--x_label", type=str, default=r"时间 $/\mathrm{s}$")
-    parser.add_argument("--y_label", type=str, default=r" $u_{\rm tt}\ /\mathrm{(m·s^{-1})}$")
+    # parser.add_argument("--x_label", type=str, default=r"时间 $/\mathrm{s}$")
+    # parser.add_argument("--y_label", type=str, default=r" $u_{\rm tt}\ /\mathrm{(m·s^{-1})}$")
     # parser.add_argument("--y_label", type=str, default=r"速度误差$u_{\rm tt}^{\rm err}\ /\mathrm{(m·s^{-1})}$")
     # parser.add_argument("--y_label", type=str, default=r"横向误差$p_{\rm y,tt}^{\rm err}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"$\phi_{\rm tt}\ /\degree$")
@@ -421,14 +526,16 @@ if __name__ == "__main__":
     # parser.add_argument("--x_label", type=str, default=r"$M$")
 
     parser.add_argument("--legend_list", type=list, default=
-    ["参考状态","MPC方法", "FHADP方法", "Bi-level方法"])#
-    # ["MPC", "PUMPC", "FHADP", "ABPO"])#"Ref",
+    # ["参考状态","MPC方法", "FHADP方法", "Bi-level方法"])#
+    ["Ref","MPC", "PUMPC", "FHADP", "ABPO"])#
+    # ["FHADP", "ABPO"])#"Ref",
     parser.add_argument("--color_list", type=list, default=
-    ["b","#8A2BE2", "lime", "magenta"]) #,
-    # ["#8A2BE2", "#FA8072", "lime", "magenta"]) #,"b",
+    # ["b","#8A2BE2", "lime", "magenta"]) #,
+    ["b","#8A2BE2", "#FA8072", "lime", "magenta"]) #,
+    # ["lime", "magenta"]) #,"b",
     parser.add_argument("--figures_root", type=str,
-                        default='../../figures/FHADP2-FHADP2-pyth_semitruckpu7dof/241223-184240-circle90/')
-    # parser.add_argument("--figures_root", type=str,default='../../results/pyth_semitruckpu7doflateral/FHADP2_240426-091408-upper_20-inner_50000/')
+                        default='../../figures/FHADP2-FHADP2-pyth_semitruckpu7dof/240909-214411-dlc/')
+    # parser.add_argument("--figures_root", type=str, default='D:/1_Troy.Z/4_博士培养/4_论文写作与评审/2_论文写作/12_ABPO/round3/experiment_data/u_turn/')
     # Get parameter dictionary
     args = vars(parser.parse_args())
 
@@ -444,6 +551,17 @@ if __name__ == "__main__":
     elif args["line_num"]==3:
         data_csv = read_csv_line3(read_path, args["line_num"])
         read_datax = read_csv_line3(read_path_datax, args["line_num"])
+    elif args["line_num"]==2:
+        data_csv = read_csv_line2(read_path, args["line_num"])
+        read_datax = read_csv_line2(read_path_datax, args["line_num"])
+    # f = interp1d(read_datax[1, :], data_csv[1, :], bounds_error=False, fill_value="extrapolate")
+    # y_fhadp_error = data_csv[1, :] - read_datax[2, :]#f(read_datax[2, :])
+    # y_abpo_error = data_csv[1, :] - read_datax[3, :]#f(read_datax[3, :])
+    # # 合并为两列
+    # data = np.column_stack((np.arange(0, len(y_fhadp_error)),y_fhadp_error, y_abpo_error))
+    # # 保存为 CSV（无列名）
+    # np.savetxt('errors2u.csv', data, delimiter=',', fmt='%.6f', header='step,fhadp_error,abpo_error', comments='')
+
 
     if args["x_label"] == r"Time $/\mathrm{s}$" or args["x_label"] == r"时间 $/\mathrm{s}$":
         plot_Timevs_(data_csv, args)
@@ -458,4 +576,4 @@ if __name__ == "__main__":
     # plot_upperloss(data_csv, args)
     # compute_Rmetrics(read_path, read_path2)
     # compute_yoff_metrics(args)
-    # compute_IR_metrics(args)
+    compute_IR_metrics(args)

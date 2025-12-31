@@ -88,7 +88,7 @@ class VehicleDynamicsData:
         self.K_varphi = self.vehicle_params["K_varphi"]  # roll stiffness of tire [N-m/rad] /3.14*180
         self.C_varphi = self.vehicle_params["C_varphi"]  # Roll damping of the suspension [N-m-s/rad]
 
-    def f_xu(self, states, actions, delta_t, road_info):
+    def f_xu_(self, states, actions, delta_t, road_info):
         theta_road, varphi_road = road_info
         R = np.array([theta_road, varphi_road]).reshape(2, 1)
 
@@ -185,6 +185,137 @@ class VehicleDynamicsData:
         state_next[3:8] = states[3:8] + delta_t * X_dot
         state_next[8:13] = actions
         return state_next
+
+    def f_xu(self, x0: np.array, u: np.array, dt: float, road_info: np.array) -> np.array:
+        """
+        Compute vehicle dynamics using RK4 integration with numpy arrays
+        Args:
+            x0: initial state vector (13,) - [x, y, phi, vx, vy, phidot, varphi, varphi_dot, ...]
+            dt: time step
+            u: control input (5,) - [Q_fl, Q_fr, Q_rl, Q_rr, delta]
+            road_info: road information (2,) - [theta_road, varphi_road]
+
+        Returns:
+            next_state: state after time step dt (13,)
+        """
+        if u is None:
+            raise ValueError("Control input 'u' cannot be None in f_xu")
+
+        def dynamics(x, u, road_info):
+            # Unpack parameters
+            m = self.m
+            Izz = self.Izz
+            lf = self.lf
+            lr = self.lr
+            k_alpha1 = self.k_alpha1
+            k_alpha2 = self.k_alpha2
+            k_alpha3 = self.k_alpha3
+            k_alpha4 = self.k_alpha4
+            Rw = self.Rw
+            ms = self.ms
+            hs = self.hs
+            K_varphi = self.K_varphi
+            C_varphi = self.C_varphi
+            g = self.g
+            Ixx = self.Ixx
+            Ixz = self.Ixz
+            lw = self.lw
+
+            # Unpack states
+            phi = x[2]
+            vx = x[3]
+            vy = x[4]
+            phidot = x[5]
+            varphi = x[6]
+            varphi_dot = x[7]
+
+            # Unpack controls
+            Q1 = u[0]  # Q_fl
+            Q2 = u[1]  # Q_fr
+            Q3 = u[2]  # Q_rl
+            Q4 = u[3]  # Q_rr
+            delta = u[4]  # steering angle
+
+            # Compute total torque and ensure vx is not too small for numerical stability
+            total_torque = Q1 + Q2 + Q3 + Q4
+            vx_safe = max(vx, 1.0)
+
+            # Compute slip angles
+            alpha_f = delta - np.arctan2(vy + lf * phidot, vx_safe)
+            alpha_r = -np.arctan2(vy - lr * phidot, vx_safe)
+
+            # Compute lateral forces
+            Fyf = k_alpha1 * alpha_f + k_alpha2 * alpha_f  # Combined front left/right
+            Fyr = k_alpha3 * alpha_r + k_alpha4 * alpha_r  # Combined rear left/right
+            # 分别计算左右轮的侧向力
+            Fyf_left = k_alpha1 * (delta - np.arctan2(vy + lf * phidot, vx_safe + 0.5 * lw * phidot))
+            Fyf_right = k_alpha2 * (delta - np.arctan2(vy + lf * phidot, vx_safe - 0.5 * lw * phidot))
+            Fyr_left = k_alpha3 * (-np.arctan2(vy - lr * phidot, vx_safe + 0.5 * lw * phidot))
+            Fyr_right = k_alpha4 * (-np.arctan2(vy - lr * phidot, vx_safe - 0.5 * lw * phidot))
+
+
+            # Compute longitudinal force
+            Fx = total_torque / Rw
+
+            # Compute common denominator for roll dynamics
+            dividend = (m * Ixx * Izz - Izz * ms ** 2 * hs ** 2 - m * Ixz ** 2)
+
+            # Compute derivatives
+            x_dot = vx * np.cos(phi) - vy * np.sin(phi)
+            y_dot = vx * np.sin(phi) + vy * np.cos(phi)
+            phi_dot = phidot
+
+            # Longitudinal and lateral acceleration
+            vx_dot = (Fx - Fyf * np.sin(delta)) / m + vy * phidot
+            # vy_dot = (Fyf * np.cos(delta) + Fyr) / m - vx * phidot
+            vy_dot = ((Fyf_left + Fyf_right) * np.cos(delta) + Fyr_left + Fyr_right) / m - vx * phidot
+            # Yaw acceleration
+            phidot_dot = (lf * Fyf * np.cos(delta) - lr * Fyr) / Izz
+
+            # # Roll dynamics
+            # 增加离心力引起的roll力矩
+            centrifugal_moment = ms * hs * (vy_dot + vx * phidot)
+
+            # 增加悬架阻尼（典型值约3000-5000 Nms/rad）
+            C_varphi = 4000
+
+            varphi_dot_dot = (centrifugal_moment
+                              - (K_varphi - ms * g * hs) * varphi
+                              - C_varphi * varphi_dot) / (Ixx + ms * hs ** 2)
+            # varphi_dot_dot = (-ms * hs * Izz * (K_varphi - ms * g * hs) * varphi
+            #                   - ms * hs * Izz * C_varphi * varphi_dot) / dividend
+
+            # Road influence
+            theta_road, varphi_road = road_info[0], road_info[1]
+            road_effect = -g * np.sin(theta_road)
+
+            # Apply road effect to longitudinal dynamics
+            vx_dot = vx_dot + road_effect
+
+            # Stack all derivatives
+            derivatives = np.array([
+                x_dot, y_dot, phi_dot,
+                vx_dot, vy_dot, phidot_dot,
+                varphi_dot, varphi_dot_dot  # Placeholder for the remaining states
+            ])
+
+            # # Keep the action states the same as input actions
+            # derivatives[8:13] = u
+
+            return derivatives
+
+        # RK4 integration
+        k1 = dynamics(x0, u, road_info)
+        k2 = dynamics(x0 + 0.5 * dt * k1, u, road_info)
+        k3 = dynamics(x0 + 0.5 * dt * k2, u, road_info)
+        k4 = dynamics(x0 + dt * k3, u, road_info)
+
+        next_state = x0 + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+        # Normalize the angle phi to keep it within [-pi, pi]
+        next_state[2] = angle_normalize(next_state[2])
+
+        return next_state
 
 class Fourwdstabilitycontrol(PythBaseEnv):
     metadata = {

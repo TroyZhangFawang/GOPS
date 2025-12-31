@@ -92,8 +92,11 @@ class BoxCollisionChecker(BaseCollisionChecker):
     def check_trajectory(self, traj:Trajectory, predicted_obstacles:TrackingBoxList, ego_length=0.0, ego_width=0.0):
         if ego_length and ego_width:
             self.set_ego_veh_size(ego_length,ego_width)
+        self.road_boundary_width = 3.6
 
         for i in range(traj.steps):
+            if abs(traj.l[i]) > self.road_boundary_width:
+                return True
             x, y, heading = traj.x[i], traj.y[i], traj.heading[i]
             ego_box_vertices = obb2vertices(
                 [x, y, self.ego_length+2*self.safe_dist[0], self.ego_width+2*self.safe_dist[1], heading])

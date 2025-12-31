@@ -41,7 +41,7 @@ class CartCostEvaluator:
 
 class FrenetCostEvaluator:
     def __init__(self):
-        self.weight_lat_comfort = 5.0
+        self.weight_lat_comfort = 1.0
         self.weight_long_comfort = 1.0
 
         self.weight_comfort = 1.0

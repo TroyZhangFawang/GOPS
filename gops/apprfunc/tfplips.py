@@ -45,7 +45,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from gops.utils.ttt import TTTModel, TTTConfig
+# from gops.utils.ttt import TTTModel, TTTConfig
 
 def generate_square_subsequent_mask(sz):
     """

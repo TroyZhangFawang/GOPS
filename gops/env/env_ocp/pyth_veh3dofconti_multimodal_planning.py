@@ -29,7 +29,7 @@ class DynamicObstacleData:
     # distance from front axle to rear axle
     l: float = 3.0
     dt: float = 0.1
-    veh_length: float = 4.8,
+    veh_length: float = 4.8
     veh_width: float = 2.0
 
     def step(self):

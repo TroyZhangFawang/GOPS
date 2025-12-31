@@ -31,7 +31,7 @@ def read_path(root_path):
 def read_csv(root_path):
     data_result = pd.DataFrame(pd.read_csv(root_path, header=None))
     start_index = 100
-    end_index = 600
+    end_index = 500
     interval = 1
     step_list = np.array(data_result.iloc[start_index:end_index:interval, 0], dtype='float32')
     a_x = np.array(data_result.iloc[start_index:end_index:interval, 2], dtype='float32')
@@ -71,46 +71,12 @@ def read_csv(root_path):
     data_pool[:, 16] = deltaf_cmd
     return data_pool
 
-def unit_transform_4wisd(state):
-    state[0] = state[0]  # x
-    state[1] = state[1]  # y
-    state[2] = state[2] / 180 * np.pi  # yaw
-
-    state[3] = state[3] / 3.6  # vx
-    state[4] = state[4] / 3.6  # vy
-    state[5] = state[5] / 180 * np.pi  # yaw_rate
-    state[6] = state[6] / 180 * np.pi  # roll angle
-    state[7] = state[7] / 180 * np.pi  # roll rate
-
-    state[8] = state[8]  # kappa_1
-    state[9] = state[9]  # kappa_2 rpm to rad/s
-    state[10] = state[10] # kappa_3
-    state[11] = state[11] # kappa_4
-    # control feedback
-    state[12] = state[12]  # drive torque on wheel 1
-    state[13] = state[13]
-    state[14] = state[14]
-    state[15] = state[15]
-    state[16] = state[16] / 180 * np.pi  # steering angle on wheel 1
-    state[17] = state[17] / 180 * np.pi  # steering angle on wheel 2
-    state[18] = state[18] / 180 * np.pi  # steering angle on wheel 3
-    state[19] = state[19] / 180 * np.pi  # steering angle on wheel 4
-    state[20] = state[20] / 180 * np.pi # beta
-    state[21] = state[21] * 9.8 # acceleration
-    state[30] = state[30] / 3.6  # vw L1
-    state[31] = -state[31] / 180 * np.pi  # longitudinal slope of road
-    state[32] = state[32] / 180 * np.pi  # lateral slope of road
-    state[33] = -state[33] / 180 * np.pi  # longitudinal slope of road
-    state[34] = state[34] / 180 * np.pi  # lateral slope of road
-    state[35] = -state[35]/180*np.pi   # longitudinal slope of road
-    state[36] = state[36]/180*np.pi   # lateral slope of road
-    return state
 
 def model_verification_4wisd(real_data,env_id):
     run_step = len(real_data[:, 0])
     delta_t = 0.02
     # state
-    state_python = np.concatenate((real_data[1, 1:5], real_data[1, 9:15]))
+    state_python = np.concatenate((real_data[1, 1:5], real_data[1, 14:15], real_data[1, 7:9], real_data[1, 9:14]))
     model_self = create_env(env_id)
     
     step_sim = 0
@@ -172,13 +138,14 @@ def model_verification_4wisd(real_data,env_id):
         vx_self.append(state_python[3])
         # vy_self.append(state_python[4])
         # yawrate_self.append(state_python[5])
-        # roll_self.append(state_python[6])
-        # rollrate_self.append(state_python[7])
         ax_self.append(state_python[4])
-        Qw1_self.append(state_python[5])
-        Qw3_self.append(state_python[7])
-        Qw4_self.append(state_python[8])
-        delta_w1_self.append(state_python[9])
+        roll_self.append(state_python[5])
+        rollrate_self.append(state_python[6])
+
+        Qw1_self.append(state_python[7])
+        Qw3_self.append(state_python[9])
+        Qw4_self.append(state_python[10])
+        delta_w1_self.append(state_python[11])
         Qw1_cmd.append(control[0])
         Qw3_cmd.append(control[2])
         Qw4_cmd.append(control[3])
@@ -190,8 +157,8 @@ def model_verification_4wisd(real_data,env_id):
         vx_car.append(real_data[i, 4])
         # vy_car.append(real_data[i, 5])
         # yawrate_car.append(real_data[i, 6])
-        # roll_car.append(real_data[i, 7])
-        # rollrate_car.append(real_data[i, 8])
+        roll_car.append(real_data[i, 7])
+        rollrate_car.append(real_data[i, 8])
         ax_car.append(real_data[i, 14])
 
         Qw1_car.append(real_data[i, 9])
@@ -334,33 +301,33 @@ def model_verification_4wisd(real_data,env_id):
     # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     # plt.savefig(os.path.join(picture_dir, "-yaw rate.png"))
     #
-    # f6 = plt.figure("-roll", figsize=(8, 5))
-    # ax = f6.add_axes([0.125, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    # l1, = plt.plot(np.arange(1, run_step, 1)*delta_t, roll_self, lw=2, color="darkviolet")
-    # l2, = plt.plot(np.arange(1, run_step, 1)*delta_t, roll_car, lw=2, linestyle='--', color="deepskyblue")
-    # plt.legend(handles=[l1, l2], labels=['4wisd', 'car'], prop={'size': 10}, loc=2,
-    #            ncol=2)
-    # plt.ylabel("roll [rad]", fontsize=14)
-    # plt.xlabel("Times [s]", fontsize=14)
-    # plt.tick_params(labelsize=12)
-    # plt.subplots_adjust(bottom=0.31)
-    # plt.grid(axis='both', ls='-.')
-    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    # plt.savefig(os.path.join(picture_dir, "-roll.png"))
+    f6 = plt.figure("-roll", figsize=(8, 5))
+    ax = f6.add_axes([0.125, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(1, run_step, 1)*delta_t, roll_self, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(1, run_step, 1)*delta_t, roll_car, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['4wisd', 'car'], prop={'size': 10}, loc=2,
+               ncol=2)
+    plt.ylabel("roll [rad]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-roll.png"))
     #
-    # f7 = plt.figure("-roll rate", figsize=(8, 5))
-    # ax = f7.add_axes([0.125, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
-    # l1, = plt.plot(np.arange(1, run_step, 1)*delta_t, rollrate_self, lw=2, color="darkviolet")
-    # l2, = plt.plot(np.arange(1, run_step, 1)*delta_t, rollrate_car, lw=2, linestyle='--', color="deepskyblue")
-    # plt.legend(handles=[l1, l2], labels=['4wisd', 'car'], prop={'size': 10}, loc=2,
-    #            ncol=2)
-    # plt.ylabel("roll rate [rad/s]", fontsize=14)
-    # plt.xlabel("Times [s]", fontsize=14)
-    # plt.tick_params(labelsize=12)
-    # plt.subplots_adjust(bottom=0.31)
-    # plt.grid(axis='both', ls='-.')
-    # plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-    # plt.savefig(os.path.join(picture_dir, "-roll rate.png"))
+    f7 = plt.figure("-roll rate", figsize=(8, 5))
+    ax = f7.add_axes([0.125, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
+    l1, = plt.plot(np.arange(1, run_step, 1)*delta_t, rollrate_self, lw=2, color="darkviolet")
+    l2, = plt.plot(np.arange(1, run_step, 1)*delta_t, rollrate_car, lw=2, linestyle='--', color="deepskyblue")
+    plt.legend(handles=[l1, l2], labels=['4wisd', 'car'], prop={'size': 10}, loc=2,
+               ncol=2)
+    plt.ylabel("roll rate [rad/s]", fontsize=14)
+    plt.xlabel("Times [s]", fontsize=14)
+    plt.tick_params(labelsize=12)
+    plt.subplots_adjust(bottom=0.31)
+    plt.grid(axis='both', ls='-.')
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+    plt.savefig(os.path.join(picture_dir, "-roll rate.png"))
 
     f3 = plt.figure("-x", figsize=(8, 5))
     ax = f3.add_axes([0.09, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
@@ -520,7 +487,7 @@ def model_verification_4wisd(real_data,env_id):
     # plt.show()
 
 if __name__ == '__main__':
-    root_path = "D:/1_Troy.Z/4_博士培养/4_论文写作与评审/2_论文写作/20_分布式模块化独立转向驱动稳定性控制/实车试验/0402/SuiShi0227_7ms-obs-comp10_pre12_12.csv"
+    root_path = "D:/1_Troy.Z/4_博士培养/4_论文写作与评审/2_论文写作/20_分布式模块化独立转向驱动稳定性控制/实车试验/0402/SuiShi0227_6-5ms-obs-4-best.csv"
     real_data = read_csv(root_path)
     model_verification_4wisd(real_data, env_id='pyth_stabilitykinematic_real')
 

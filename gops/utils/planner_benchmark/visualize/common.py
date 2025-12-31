@@ -137,7 +137,7 @@ class SnapShot:
         figure_num = (album_size-1) // max_num_one_fig + 1
         for page in range(figure_num):
             start_idx = page * max_num_one_fig
-            fig, axes = plt.subplots(nrow, ncol, figsize=figsize)
+            fig, axes = plt.subplots(nrow, ncol, figsize=figsize, dpi=300)
             fig.subplots_adjust(left=0,right=1,top=1,bottom=0,hspace=0, wspace=0)
             # plt.figure()
             # plt.tight_layout()

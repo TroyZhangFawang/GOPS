@@ -6,15 +6,15 @@ import torch.nn as nn
 import torch
 
 
-import spider.elements as elm
-from spider.sampler.LatticeSampler import LatticeSampler
+import gops.utils.planner_benchmark.elements as elm
+from gops.utils.planner_benchmark.sampler.LatticeSampler import LatticeSampler
 
-from spider.rl.state.StateConverter import KineStateEncoder
-from spider.rl.action.ActionConverter import DiscreteTrajActionDecoder, DiscreteTrajActionEncoder
-from spider.rl.policy.ClassificationILPolicy import ClassificationILPolicy
-import spider.rl.convert as cvt
-from spider.planner_zoo.BaseNeuralPlanner import BaseNeuralPlanner
-from spider.utils.transform.frenet import FrenetTransformer
+from gops.utils.planner_benchmark.rl.state.StateConverter import KineStateEncoder
+from gops.utils.planner_benchmark.rl.action.ActionConverter import DiscreteTrajActionDecoder, DiscreteTrajActionEncoder
+from gops.utils.planner_benchmark.rl.policy.ClassificationILPolicy import ClassificationILPolicy
+import gops.utils.planner_benchmark.rl.convert as cvt
+from gops.utils.planner_benchmark.planner_zoo.BaseNeuralPlanner import BaseNeuralPlanner
+from gops.utils.planner_benchmark.utils.transform.frenet import FrenetTransformer
 
 class MlpCritic(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_size=64):
@@ -128,7 +128,7 @@ class ProbabilisticPlanner(BaseNeuralPlanner):
 
 
 if __name__ == '__main__':
-    from spider.interface import DummyBenchmark
+    from gops.utils.planner_benchmark.interface import DummyBenchmark
     #
     # planner = MlpPlanner()
     #

@@ -21,7 +21,7 @@ from gops.utils.math_utils import angle_normalize
 
 class VehicleDynamicsData:
     def __init__(self):
-        self.v_x = 25
+        self.v_x = 20
         self.m1 = 5760.  # Total mass of the tractor [kg]
         self.m1s = 4455.  # Sprung mass of the tractor [kg]
         self.m2 = 20665  # Total mass of the semitrailer [kg]

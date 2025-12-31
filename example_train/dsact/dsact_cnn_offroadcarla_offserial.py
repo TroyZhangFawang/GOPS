@@ -34,7 +34,7 @@ if __name__ == "__main__":
     ################################################
     # Key Parameters for users
     parser.add_argument("--env_id", type=str, default="gym_offroadcarla", help="id of environment")
-    parser.add_argument("--task", type=str, default="planning", help="planning/control")
+    # parser.add_argument("--task", type=str, default="control", help="planning/control")
     parser.add_argument("--vdes", type=float, default=10, help="target speed")
     parser.add_argument("--port", type=int, default=2000)
     parser.add_argument("--port_evaluator", type=int, default=2010)
@@ -165,6 +165,8 @@ if __name__ == "__main__":
     # Get parameter dictionary
     args = vars(parser.parse_args())
     env = create_env(**{**args, "vector_env_num": None})
+    obs, _ = env.reset()
+    print(obs)
     args = init_args(env, **args)
     # start_tensorboard(args["save_folder"])
     # Step 1: create algorithm and approximate function

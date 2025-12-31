@@ -1,11 +1,11 @@
 # 碰撞躲避约束的建模方法
-import spider.utils.collision.CollisionChecker
-from spider.elements.trajectory import Trajectory
-from spider.utils.collision.CollisionChecker import BoxCollisionChecker
+import gops.utils.planner_benchmark.utils.collision.CollisionChecker
+from gops.utils.planner_benchmark.elements.trajectory import Trajectory
+from gops.utils.planner_benchmark.utils.collision.CollisionChecker import BoxCollisionChecker
 # from utils.collision.SAT import SAT_check
 import numpy as np
-from spider.elements.box import obb2vertices,aabb2vertices,TrackingBox,TrackingBoxList
-import spider
+from gops.utils.planner_benchmark.elements.box import obb2vertices,aabb2vertices,TrackingBox,TrackingBoxList
+
 
 
 
@@ -41,7 +41,7 @@ def generate_corridor_bboxes(initial_guess:Trajectory, bboxes:TrackingBoxList,
 
     # bboxes.dilate(radius)
     # bboxes.predict(initial_guess.x) # TODO:QZL:是不是要把预测放到外面
-    collision_checker = BoxCollisionChecker(method=spider.COLLISION_CHECKER_SAT)
+    collision_checker = BoxCollisionChecker(method=gops.utils.planner_benchmark.COLLISION_CHECKER_SAT)
 
     corridor = []
     for i in range(len(initial_guess.t)):
@@ -89,7 +89,7 @@ def generate_corridor_ogm(initial_guess:Trajectory, ogm,
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
-    from utils.Visualize import *
+    from gops.utils.planner_benchmark.utils.Visualize import *
 
     traj = Trajectory()
     traj.x = np.arange(11)

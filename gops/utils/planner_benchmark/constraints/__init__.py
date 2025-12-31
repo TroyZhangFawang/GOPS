@@ -7,7 +7,7 @@ qzl: 包含两部分内容：
 
 
 '''
-from spider.constraints.constraint_checker import *
-from spider.constraints.constraint_formulator import *
-from spider.constraints.ConstraintCollection import ConstraintCollection
+from gops.utils.planner_benchmark.constraints.constraint_checker import *
+from gops.utils.planner_benchmark.constraints.constraint_formulator import *
+from gops.utils.planner_benchmark.constraints.ConstraintCollection import ConstraintCollection
 

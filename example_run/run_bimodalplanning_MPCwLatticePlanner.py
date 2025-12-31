@@ -6,7 +6,7 @@ result_path = "../results/pyth_veh3dofconti_bimodal_planning/"
 runner = PlanningMPCRunner(
     log_policy_dir_list=[result_path],
     # env_id="pyth_veh3dofconti_bimodal_planning",
-    base_planner1="MPCPlanner",  # 配合MPCPlanner或者MPCController使用
+    main_planner="MPCPlanner",  # 配合MPCPlanner或者MPCController使用
     opt_args={
         "opt_controller_type": "MPC",
         "num_pred_step": 30,
@@ -21,9 +21,9 @@ runner = PlanningMPCRunner(
         "use_terminal_cost": False,
     },
     is_init_info=True,
-    init_info={"init_state": [5, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":0, "u_num":0, "ref_time":0}, #
+    init_info={"init_state": [5, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num":8, "u_num":0, "ref_time":0}, #
     legend_list=[],
-    base_planner2="LatticePlanner", # LatticePlanner/BezierPlanner/MPCPlanner
+    base_planner="LatticePlanner", # LatticePlanner/BezierPlanner/MPCPlanner
     controller="SimpleController",  # IDMController/SimpleController/MPCController/IdealController
     constrained_env=True,
     is_tracking=True,

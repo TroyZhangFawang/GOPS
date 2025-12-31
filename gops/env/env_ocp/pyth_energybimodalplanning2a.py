@@ -378,6 +378,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.ref_points[i+1, 4:], self.dt)
         #         self.state_full[i, :] = state
 
+
         self.t = self.t + self.dt
 
         self.ref_points[:-1] = self.ref_points[1:]

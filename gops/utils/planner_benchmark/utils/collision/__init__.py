@@ -1,2 +1,2 @@
-from spider.utils.collision.CollisionChecker import BoxCollisionChecker
-from spider.utils.collision.CollisionConstraints import *
+from gops.utils.planner_benchmark.utils.collision.CollisionChecker import BoxCollisionChecker
+from gops.utils.planner_benchmark.utils.collision.CollisionConstraints import *

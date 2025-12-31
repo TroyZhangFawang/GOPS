@@ -2,7 +2,7 @@ from gops.sys_simulator.sys_run import PlanningRunner
 import numpy as np
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-result_path = "../results/pyth_veh3dofconti_bimodal_planning/FHADP2Lagrangian_250426-114641"
+result_path = "../results/pyth_veh3dofconti_bimodal_planning/FHADP2Lagrangian_250510-200146"
 runner = PlanningRunner(
     log_policy_dir_list=[result_path],
     trained_policy_iteration_list=["620000"],

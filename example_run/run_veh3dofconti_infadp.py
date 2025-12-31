@@ -15,7 +15,7 @@ import numpy as np
 
 runner = PolicyRunner(
     log_policy_dir_list=["/home/bit/Troy.Z/1_code/GOPS/results/pyth_veh3dofconti/FHADP_240315-142233"],
-    trained_policy_iteration_list=["87000_opt"],
+    trained_policy_iteration_list=["87000"],
     is_init_info=False,
     init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0, 0]}, # ref_num = [0, 1, 2,..., 7]
     save_render=False,

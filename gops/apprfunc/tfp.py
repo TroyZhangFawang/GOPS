@@ -399,15 +399,16 @@ class TP7(nn.Module, Action_Distribution):
         self.ref_obs_dim = kwargs["ref_obs_dim"]  # 参考观测维度
         self.dim_feedforward = kwargs.get("dim_feedforward", 2048)  # 前馈网络维度
 
-        # 输入编码部分，使用 MLP 和 GELU 激活函数
+        # 输入编码部分，使用 MLP 和 GELU 激活函数, in_features = self.state_dim + self.ref_obs_dim, out_features = d_model
         self.input_mlp = nn.Sequential(
             nn.Linear(self.state_dim + self.ref_obs_dim, d_model),
             nn.GELU(),
             nn.Linear(d_model, d_model),
         )
+        #
         self.pos_encoder = PositionalEncoding(d_model)
 
-        # 自注意力层
+        # 自注意力层 in features=d_model=embed_dim, out features=d_model=embed_dim
         self.self_attention = nn.MultiheadAttention(d_model, nhead, batch_first=True)
 
         # 使用 MLP 进行动作输出，使用 GELU 激活函数
