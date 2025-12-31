@@ -55,8 +55,8 @@ if __name__ == "__main__":
     policy_func_type = parser.parse_known_args()[0].policy_func_type
     parser.add_argument("--d_model", type=int, default=256)
     parser.add_argument("--nhead", type=int, default=4)
-    parser.add_argument("--num_encoder_layers", type=int, default=1)
-    parser.add_argument("--num_decoder_layers", type=int, default=1)
+    parser.add_argument("--num_encoder_layers", type=int, default=2)
+    parser.add_argument("--num_decoder_layers", type=int, default=2)
     parser.add_argument("--max_trajectory", type=int, default=100)
     parser.add_argument("--dim_feedforward", type=int, default=512)
     parser.add_argument("--state_dim", type=int, default=13)
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         type=str,
         default="off_serial_trainer")
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=5000000)
+    parser.add_argument("--max_iteration", type=int, default=1000000)
     trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     # Max size of reply buffer
     parser.add_argument("--buffer_max_size", type=int, default=100000)
     # Batch size of replay samples from buffer
-    parser.add_argument("--replay_batch_size", type=int, default=64)
+    parser.add_argument("--replay_batch_size", type=int, default=128)
     # Period of sampling
     parser.add_argument("--sample_interval", type=int, default=1)
 
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     # 5. Parameters for sampler
     parser.add_argument("--sampler_name", type=str, default="off_sampler")
     # Batch size of sampler for buffer store
-    parser.add_argument("--sample_batch_size", type=int, default=128)
+    parser.add_argument("--sample_batch_size", type=int, default=256)
     # Add noise to action for better exploration
     parser.add_argument(
         "--noise_params",

@@ -23,7 +23,7 @@ from gops.env.vector.vector_env import VectorEnv
 from gops.utils.common_utils import set_seed
 from gops.utils.explore_noise import GaussNoise, EpsilonGreedy
 from gops.utils.tensorboard_setup import tb_tags
-from gops.utils.control.SimpleController import SimpleController
+from gops.utils.planner_benchmark.control import SimpleController
 
 
 class Experience(NamedTuple):

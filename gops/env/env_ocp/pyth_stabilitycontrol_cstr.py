@@ -51,8 +51,8 @@ class VehicleDynamicsData:
             C_slip2=8.885 * 1.525 * 1.062e+04/4,  # N
             C_slip3=8.885 * 1.525 * 1.062e+04/4,  # N
             C_slip4=8.885 * 1.525 * 1.062e+04/4,  # N
-            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4,  # roll stiffness of suspension [N-m/rad] /3.14*180
-            C_varphi=0,  # Roll damping of the suspension [N-m-s/rad]
+            K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 2,  # roll stiffness of suspension [N-m/rad] 原参数(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4
+            C_varphi=30000,  # Roll damping of the suspension [N-m-s/rad] 原参数0
             mu_road=0.85,  # road Adhesion coefficient
         )
 
@@ -196,7 +196,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
     def __init__(
         self,
         pre_horizon: int = 30,
-        min_torque: float = -298.0,
+        min_torque: float = 0.0,
         max_torque: float = 298.0,
         max_steer: float = 0.5,
         max_delta_torque: float = 10.0,
@@ -242,7 +242,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
 
         self.dt = 0.01
-        self.max_episode_steps = 750
+        self.max_episode_steps = 2000
 
         self.state = None
         self.ref_x = None
@@ -336,7 +336,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
             delta_state = self.sample_initial_state()
         torque = np.random.uniform(50, 298)
         steer = np.random.uniform(-0.5, 0.5)
-        action_psc = np.array([0]*5)#np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))
+        action_psc = np.concatenate((torque+delta_state[8:12], steer+delta_state[12:]))#np.array([0]*5)#
         self.state = np.concatenate(
             (self.ref_points[0][:4] + delta_state[:4], delta_state[4:8], action_psc))
 
@@ -382,7 +382,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.slope_points[-1] = new_slope_point
         self.done = self.judge_done()
         if self.done:
-            reward = reward - 5000
+            reward = reward - 1000
         return self.get_obs(), reward, self.done, self.info
 
     def get_obs(self) -> np.ndarray:
@@ -450,20 +450,20 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         # r_action_str = np.sum((self.action[4:]) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
         r_action_strdot = (action[4]/0.02) ** 2
-
-        return -(
-                0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-                + 0.07 * (vx - ref_vx) ** 2
-                + 0.02 * angle_normalize(phi - ref_phi) ** 2
-                + 0.01 * (phi_dot - phi_dot_ref) ** 2
-                + 0.01 * self.I_rollover ** 2
-                # + 0.01 * r_action_Q
-                # + 0.01 * r_action_str
-                + 0.01 * r_action_Qdot
-                + 0.01 * r_action_strdot
-                # + 0.01 * r_slip
-                # + 0.5 * (beta - beta_ref) ** 2
-        )
+        return self.I_rollover
+        # return -(
+        #         0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+        #         + 0.07 * (vx - ref_vx) ** 2
+        #         + 0.02 * angle_normalize(phi - ref_phi) ** 2
+        #         + 0.01 * (phi_dot - phi_dot_ref) ** 2
+        #         + 0.01 * self.I_rollover ** 2
+        #         # + 0.01 * r_action_Q
+        #         # + 0.01 * r_action_str
+        #         + 0.01 * r_action_Qdot
+        #         + 0.01 * r_action_strdot
+        #         # + 0.01 * r_slip
+        #         # + 0.5 * (beta - beta_ref) ** 2
+        # )
 
     def judge_done(self) -> bool:
         done = (abs(self.state[0]-self.ref_points[0, 0]) > 5 # delta_x
@@ -475,7 +475,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
 
     def get_constraint(self) -> np.ndarray:
         side_slip_angle = self.state[4] / self.state[3]
-        print(abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g)))
+        # print(abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g)))
         constraint = np.array([abs(self.state[5]) - abs(self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g/self.state[3]), abs(side_slip_angle) - abs(np.arctan(0.02*self.vehicle_dynamics.mu_road*self.vehicle_dynamics.g))], dtype=np.float32)
         return constraint
 

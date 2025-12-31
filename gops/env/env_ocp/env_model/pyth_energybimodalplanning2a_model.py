@@ -113,7 +113,7 @@ class PythEnergybimodalplanning2aModel(PythBaseModel):
         u_para: Optional[Dict[str, Dict]] = None,
         slope_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = np.pi / 6,
-        static_obstacle_num: int = 10,
+        static_obstacle_num: int = 20,
         d_pre: float = 20.0,  # 离障碍物多少远开始规划
         lateral_sample: float = 3.5,  # 横向采样距离
         forward_sample: float = 10.0,  # 纵向采样距离
@@ -272,8 +272,8 @@ class PythEnergybimodalplanning2aModel(PythBaseModel):
     def judge_done(self, obs: torch.Tensor) -> torch.Tensor:
         delta_x, delta_y, delta_phi = obs[:, 0], obs[:, 1], obs[:, 2]
         done = (
-            (torch.abs(delta_x) > 10)
-            | (torch.abs(delta_y) > 10)
+            (torch.abs(delta_x) > 7.5)
+            | (torch.abs(delta_y) > 7.5)
             | (torch.abs(delta_phi) > np.pi)
         )
         return done

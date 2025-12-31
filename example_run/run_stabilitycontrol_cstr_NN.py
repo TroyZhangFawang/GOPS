@@ -12,15 +12,16 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-result_path1 = "../results/pyth_stabilitycontrol_cstr/TRANSStolenMpcLagrangian_250108-105229/"
-result_path2 = "../results/pyth_stabilitycontrol_cstr/FHADP2Lagrangian_250308-081022/"
+# result_path1 = "../results/pyth_stabilitycontrol_cstr/RMPC3_250416-094501/"
+result_path2 = "../results/pyth_stabilitycontrol_cstr/FHADP2Lagrangian_250816-161029/"
+result_path3 = "../results/pyth_stabilitycontrol_cstr/FHADP2Lagrangian_250419-215649/"
 runner = PolicyRunner(
-    log_policy_dir_list=[result_path1, result_path2],
-    trained_policy_iteration_list=["1000000", "1000000"],
+    log_policy_dir_list=[result_path2,result_path3], #,result_path1
+    trained_policy_iteration_list=["472000_opt",  "349000_opt"],#,"209000_opt"
     is_init_info=True,
-    init_info={"init_state": [0, 0.2, 0, -0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':1}, #
+    init_info={"init_state": [0, 0.2, 0.0349, -0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0], "ref_time":0.0, "ref_num": 2, 'u_num':0, 'slope_num':0}, # 0, 0.2, 0.0349, -0.5--dlc  0, 0.2, 0.047, -1.0-sine
     save_render=False,
-    legend_list=["TFMPC","FHADP2"],
+    legend_list=["WO-RP","W-RP"],#"MLPMPC","RNNMPC","TFMPC"
     use_opt=False,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",

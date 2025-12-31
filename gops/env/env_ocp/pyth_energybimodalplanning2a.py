@@ -136,7 +136,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         u_para: Optional[Dict[str, Dict]] = None,
         slope_para: Optional[Dict[str, Dict]] = None,
         max_steer: float = np.pi / 6,
-        static_obstacle_num: int = 10,
+        static_obstacle_num: int = 20,
         d_pre: float = 20.0,  # 离障碍物多少远开始规划
         lateral_sample: float = 3.5,  # 横向采样距离
         forward_sample: float = 10.0,  # 纵向采样距离
@@ -145,7 +145,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         work_space = kwargs.pop("work_space", None)
         if work_space is None:
             # initial range of [delta_x, delta_y, delta_phi, delta_u, v, w, psi, psi_dot]
-            init_high = np.array([2, 1, np.pi / 6, 2, 0.1, 0.1, np.pi / 6, 0.1], dtype=np.float32)
+            init_high = np.array([2, 1, np.pi / 6, 2, 0.1, 0.1, np.pi / 36, 0.1], dtype=np.float32)
             init_low = -init_high
             work_space = np.stack((init_low, init_high))
         super(PythEnergybimodalplanning2a, self).__init__(work_space=work_space, **kwargs)
@@ -237,17 +237,17 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         if path_num is not None:
             self.path_num = path_num
         else:
-            self.path_num = self.np_random.choice([0, 1, 2, 3])
+            self.path_num = self.np_random.choice([7])
 
         if u_num is not None:
             self.u_num = u_num
         else:
-            self.u_num = self.np_random.choice([0, 1])
+            self.u_num = self.np_random.choice([0])
 
         if slope_num is not None:
             self.slope_num = slope_num
         else:
-            self.slope_num = self.np_random.choice([0, 1])
+            self.slope_num = self.np_random.choice([0])
 
 
         ref_points = []
@@ -285,26 +285,26 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         #,53, 58, 65, 67.5, 75, 80.5, 92, 97.5, 102, 105.5,
                        # 113, 120, 128, 137.5, 145, 146.5, 147, 153.5, 155, 157.5,
         for i_static in range(self.static_obstacle_num):
-            delta_t = static_time[i_static]#self.np_random.uniform(2, 7)
+            delta_t = self.np_random.uniform(3, 70) #static_time[i_static]#
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
             delta_lon = 0#1.0 * self.np_random.uniform(-1, 1)
             delta_lat = 0#1.0 * self.np_random.uniform(-1, 1)
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
-            self.static_length = np.array([0.5, 3, 5,0.5, 3, 5,0.5, 3, 5, 7])#np.random.uniform(0, 2, self.static_obstacle_num)
-            self.static_width = np.array([5.0, 4, 3.0, 5.6, 4.7, 3.9,1.7, 1.4, 3.2,  6.7]) #np.random.uniform(0, 2, self.static_obstacle_num)#, 0.5
-            self.static_height = np.array([0.2, 0.5, 0.5, 0.2, 0.5, 0.5,0.2, 0.1, 0.5, 1.0]) #np.random.uniform(0, 1, self.static_obstacle_num)#, 0.23
-            self.static_material = np.array([0, 0, 1, 0, 0, 0, 1, 1, 0 , 0])
+            self.static_length = np.random.uniform(0, 10, self.static_obstacle_num)#np.array([0.5, 3, 5,0.5, 3, 5,0.5, 3, 5, 7])#
+            self.static_width = np.random.uniform(0, 10, self.static_obstacle_num)#, 0.5 np.array([5.0, 4, 3.0, 5.6, 4.7, 3.9,1.7, 1.4, 3.2,  6.7]) #
+            self.static_height = np.random.uniform(0, 2, self.static_obstacle_num)#, 0.23 np.array([0.2, 0.5, 0.5, 0.2, 0.5, 0.5,0.2, 0.1, 0.5, 1.0]) #
+            self.static_material = self.np_random.choice([0, 1])#np.array([0, 0, 1, 0, 0, 0, 1, 1, 0 , 0])
             self.static_obss.append(
                 StaticObstacle(
                     obs_id=i_static,
                     x=static_obs_x,
                     y=static_obs_y,
                     phi=static_obs_phi,
-                    length=self.static_length[i_static],
+                    length=self.static_length[i_static], #
                     width=self.static_width[i_static],
                     height=self.static_height[i_static],
-                    material=self.static_material[i_static]
+                    material=self.static_material
                 )
             )
 
@@ -360,23 +360,23 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        # reward = self.compute_reward(action)
-        # disturb = self.ref_points[1, 4:]
-        # self.state = self.vehicle_dynamics.f_xu(self.state, action, disturb, self.dt)
+        reward = self.compute_reward(action)
+        disturb = self.ref_points[1, 4:]
+        self.state = self.vehicle_dynamics.f_xu(self.state, action, disturb, self.dt)
 
         # # # 新加的##########----要想这部分成功run起来，NN based需要在mlp里的finitehorizonfull 的forward函数把取第一个action给注释掉
         # # MPC 需要在opt_controller.py文件里把 163行的0改为：，同时需要把sys_run 中 run_an_episode 中action的第0个存到action_list中
         # # 如果要plot，还得在sys run里修改action_list
-        disturb = self.ref_points[1, 4:]
-        self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], disturb,self.dt)
-        self.state_full = np.empty((self.pre_horizon, self.state_dim))
-        self.state_full[0, :] = self.state
-        reward = self.compute_reward(action[0, :])
-        self.action = action
-        state = self.state
-        for i in range(1, self.pre_horizon):
-                state = self.vehicle_dynamics.f_xu(state, action[i, :], self.ref_points[i+1, 4:], self.dt)
-                self.state_full[i, :] = state
+        # disturb = self.ref_points[1, 4:]
+        # self.state = self.vehicle_dynamics.f_xu(self.state, action[0, :], disturb,self.dt)
+        # self.state_full = np.empty((self.pre_horizon, self.state_dim))
+        # self.state_full[0, :] = self.state
+        # reward = self.compute_reward(action[0, :])
+        # self.action = action
+        # state = self.state
+        # for i in range(1, self.pre_horizon):
+        #         state = self.vehicle_dynamics.f_xu(state, action[i, :], self.ref_points[i+1, 4:], self.dt)
+        #         self.state_full[i, :] = state
 
         self.t = self.t + self.dt
 
@@ -399,6 +399,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
                 self.processed_obstacles.add(self.obstacle.obs_id)
                 self.generate_guide = 0
                 self.obstacle = None
+
         else:
             # 判断下是否需要生成引导轨迹
             obstacle, generate_guide = self.is_generate_guide()
@@ -473,7 +474,7 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
 
         self.done = self.judge_done()
         if self.done:
-            reward = reward - 100
+            reward = reward - 1000
 
         return self.get_obs(), reward, self.done, self.info
 
@@ -501,7 +502,9 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
                 self.static_state[:, 1], self.static_state[:, 2], self.static_state[:, 3],
             )
         static_u_tf = np.zeros((self.static_obstacle_num,)) - self.state[3]
-        static_obs = np.concatenate((static_x_tf, static_y_tf, static_phi_tf, static_u_tf))
+        static_obs = np.concatenate((static_x_tf/(static_x_tf).max(), static_y_tf/(static_y_tf).max(),
+                                     static_phi_tf/(static_phi_tf).max(), static_u_tf/(static_u_tf).max()))
+        # static_obs = np.concatenate((static_x_tf, static_y_tf, static_phi_tf, static_u_tf))
         return np.concatenate((ego_obs, ref_obs, static_obs))
 
     def compute_reward(self, action: np.ndarray) -> float:
@@ -510,25 +513,25 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
         steer, a_x = action
         return -(
             0.04 * (x - ref_x) ** 2
-            + 0.2 * (y - ref_y) ** 2
+            + 0.02 * (y - ref_y) ** 2
             + 0.02 * angle_normalize(phi - ref_phi) ** 2
-            + 0.25 * (u - ref_u) ** 2
+            + 0.02 * (u - ref_u) ** 2
             + 0.01 * w ** 2
-            + 0.5 * steer ** 2
+            + 0.05 * steer ** 2
             + 0.01 * a_x ** 2
         )
 
     def judge_done(self) -> bool:
         x, y, phi = self.state[:3]
         ref_x, ref_y, ref_phi = self.ref_points[0, :3]
-        done = (
-             (np.abs(y - ref_y) > 10)
-            | (np.abs(angle_normalize(phi - ref_phi)) > np.pi)
-        )
-        # (np.abs(x - ref_x) > 10)
-        # |
-        if done:
-            print((np.abs(x - ref_x) > 10), np.abs(y - ref_y) > 10, np.abs(angle_normalize(phi - ref_phi)) > np.pi)
+        done = ((np.abs(x - ref_x) > 7.5)
+                | (np.abs(y - ref_y) > 7.5)
+                | (np.abs(angle_normalize(phi - ref_phi)) > np.pi)
+                | (self.get_constraint() > 0)
+                 )
+
+        # if done:
+        #     # print((np.abs(x - ref_x) > 10), np.abs(y - ref_y) > 10, np.abs(angle_normalize(phi - ref_phi)) > np.pi)
         return done
 
     def update_static_state(self):
@@ -782,6 +785,58 @@ class PythEnergybimodalplanning2a(PythBaseEnv):
 
         traj_point = np.array([point[0], point[1], phi, u], dtype=np.float32)
         return traj_point
+
+    def get_constraint(self) -> np.ndarray:
+        # collision detection using bicircle model
+        # distance from vehicle center to front/rear circle center
+        d_ego = (self.veh_length - self.veh_width) / 2
+        d_static = (self.static_state[:, 4] - self.static_state[:, 5]) / 2
+        # circle radius
+        r = 0.5 * self.veh_width
+
+        x, y, phi = self.state[:3]
+        ego_center = np.array(
+            [
+                [x + d_ego * np.cos(phi), y + d_ego * np.sin(phi)],
+                [x - d_ego * np.cos(phi), y - d_ego * np.sin(phi)],
+            ],
+            dtype=np.float32,
+        )
+
+        static_x = self.static_state[:, 1]
+        static_y = self.static_state[:, 2]
+        static_phi = self.static_state[:, 3]
+        static_center = np.stack(
+            (
+                np.stack(
+                    ((static_x + d_static * np.cos(static_phi)), static_y + d_static * np.sin(static_phi)),
+                    axis=1,
+                ),
+                np.stack(
+                    ((static_x - d_static * np.cos(static_phi)), static_y - d_static * np.sin(static_phi)),
+                    axis=1,
+                ),
+            ),
+            axis=1,
+        )
+
+        min_dist = np.inf
+        for i in range(2):
+            # front and rear circle of ego vehicle
+            for j in range(2):
+                # front and rear circle of staticounding vehicles
+                dist = np.linalg.norm(
+                    ego_center[np.newaxis, i] - static_center[:, j], axis=1
+                )
+                min_dist = min(min_dist, np.min(dist))
+        ego_to_veh_violation = 2 * r - min_dist
+
+        # road boundary violation
+        ego_upper_y = max(ego_center[0, 1], ego_center[1, 1]) + r
+        ego_lower_y = min(ego_center[0, 1], ego_center[1, 1]) - r
+        # upper_bound_violation = ego_upper_y - self.upper_bound
+        # lower_bound_violation = self.lower_bound - ego_lower_y
+        return np.array([ego_to_veh_violation], dtype=np.float32)
 
     @property
     def info(self) -> dict:

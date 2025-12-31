@@ -271,9 +271,9 @@ class FourwdstabilitycontrolCstrModel(PythBaseModel):
             "u_num": u_num,
             "ref_time": next_t,
             "slope_points": next_slope_points,
-            # "constraint": self.get_constraint(state, info),
-            "constraint_yawrate": self.get_constraint_yawrate(state, info),
-            "constraint_sideslip": self.get_constraint_sideslip(state, info),
+            "constraint": self.get_constraint(state, info),
+            # "constraint_yawrate": self.get_constraint_yawrate(state, info),
+            # "constraint_sideslip": self.get_constraint_sideslip(state, info),
         })
 
         return next_obs, reward, isdone, next_info

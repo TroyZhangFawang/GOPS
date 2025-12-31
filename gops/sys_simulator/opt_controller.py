@@ -161,7 +161,7 @@ class OptController:
         if self.verbose > 0:
             self._print_statistics(res)
         return res.x.reshape((self.num_ctrl_points, self.optimize_dim))[
-            :, : self.action_dim
+            0, : self.action_dim
         ]
 
     def _cost_fcn_and_jac(

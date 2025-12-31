@@ -53,9 +53,9 @@ if __name__ == "__main__":
     parser.add_argument("--policy_func_type", type=str, default="GRU")
     parser.add_argument("--policy_act_distribution", type=str, default="default")
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--hidden_dim", type=int, default=256)
+    parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--bidirectional", type=int, default=True)
-    parser.add_argument("--num_layers", type=int, default=1)
+    parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--state_dim", type=int, default=13)
     parser.add_argument("--ref_obs_dim", type=int, default=6)
 
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     # Max size of reply buffer
     parser.add_argument("--buffer_max_size", type=int, default=100000)
     # Batch size of replay samples from buffer
-    parser.add_argument("--replay_batch_size", type=int, default=64)
+    parser.add_argument("--replay_batch_size", type=int, default=128)
     # Period of sampling
     parser.add_argument("--sample_interval", type=int, default=1)
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # 5. Parameters for sampler
     parser.add_argument("--sampler_name", type=str, default="off_sampler")
     # Batch size of sampler for buffer store
-    parser.add_argument("--sample_batch_size", type=int, default=128)
+    parser.add_argument("--sample_batch_size", type=int, default=256)
     # Add noise to action for better exploration
     parser.add_argument(
         "--noise_params",
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     ################################################
     # 6. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
-    parser.add_argument("--num_eval_episode", type=int, default=10)
+    parser.add_argument("--num_eval_episode", type=int, default=1000)
     parser.add_argument("--eval_interval", type=int, default=1000)
     parser.add_argument("--eval_save", type=str, default=True, help="save evaluation data")
 
@@ -112,9 +112,9 @@ if __name__ == "__main__":
     # 7. Data savings
     parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=1000)
+    parser.add_argument("--apprfunc_save_interval", type=int, default=5000)
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=1000)
+    parser.add_argument("--log_save_interval", type=int, default=5000)
 
     ################################################
     # Get parameter dictionary

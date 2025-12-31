@@ -18,6 +18,11 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 
+import os
+
+path = os.getcwd()
+print(path)
+
 DEFAULT_PATH_PARAM = {
     "sine": {"A": 1.5, "omega": 2 * np.pi / 10, "phi": 0.0,},
     # "double_lane": {
@@ -28,33 +33,33 @@ DEFAULT_PATH_PARAM = {
     #     "y1": 0.0,
     #     "y2": 3.5,
     # },
-    "double_lane": {
-        "t1": 1.5,
-        "t2": 3.0,
-        "t3": 4.5,
-        "t4": 6.0,
-        "y1": 0.0,
-        "y2": 3.5,
-    }, #标准DLC 20m/s
     # "double_lane": {
-    #     "t1": 7.0,
-    #     "t2": 9.0,
-    #     "t3": 12.5,
-    #     "t4": 14.5,
+    #     "t1": 1.5,
+    #     "t2": 3.0,
+    #     "t3": 4.5,
+    #     "t4": 6.0,
     #     "y1": 0.0,
     #     "y2": 3.5,
-    # },#standard DLC
+    # }, #标准DLC 20m/s
+    "double_lane": {
+        "t1": 7.0,
+        "t2": 9.0,
+        "t3": 12.5,
+        "t4": 14.5,
+        "y1": 0.0,
+        "y2": 3.5,
+    },#standard DLC
     "triangle": {"A": 3.0, "T": 10.0, },
     "circle": {"r": 100.0, },
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100}, #李萨如曲线
-    "rtk_path": {"root": "../gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
+    "rtk_path": {"root": "/home/ubuntu/文档/ZFW/GOPS/gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
 }
 
 DEFAULT_SPEED_PARAM = {
-    "constant": {"u": 20, },
-    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 20.0,},
+    "constant": {"u": 5, },
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 15.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
