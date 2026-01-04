@@ -230,7 +230,6 @@ class Veh3dofBimodalPlanningModel(Veh3dofcontiModel):
             action_upper_bound=[np.pi / 6, 3],
             device=device,
         )
-
         self.vehicle_dynamics = VehicleDynamicsModel()
         self.dynamic_obs_model = DynamicObstacleModel()
         self.ref_traj = MultiRefTrajModel(path_para, u_para)

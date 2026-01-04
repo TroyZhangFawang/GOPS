@@ -154,8 +154,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         d_pre: float = 20.0,  # 离障碍物多少远开始规划
         lateral_sample: float = 3.5,  # 横向采样距离
         forward_sample: float = 10.0,  # 纵向采样距离
-        **kwargs: Any,
-    ):
+        **kwargs: Any,):
         super().__init__(pre_horizon, path_para, u_para, **kwargs)
         ego_obs_dim = 6
         ref_obs_dim = 4
@@ -222,13 +221,13 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
         dynamic_time = [5, 5]
         for i_dynamic in range(self.dynamic_obstacle_num):
             # avoid ego vehicle
-            delta_t = dynamic_time[i_dynamic]#self.np_random.uniform(3, 5)
-            dynamic_phi = np.array([np.pi*5/4, np.pi/4])#self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
-            delta_lon = 0#1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = np.array([-3.5, 3.5])#1.0 * self.np_random.uniform(-1, 1)
+            delta_t = self.np_random.uniform(3, 5)#dynamic_time[i_dynamic]#
+            dynamic_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)#np.array([np.pi*5/4, np.pi/4])#
+            delta_lon = 1.0 * self.np_random.uniform(-1, 1)#0#
+            delta_lat = 1.0 * self.np_random.uniform(-1, 1)#np.array([-3.5, 3.5])#
             dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            dynamic_y = 0#self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)
-            dynamic_u = np.array([-4, -4])#np.random.uniform(0, 10, self.dynamic_obstacle_num)
+            dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)#0#
+            dynamic_u = np.random.uniform(0, 10, self.dynamic_obstacle_num)#np.array([-4, -4])#
             self.dynamic_obss.append(
                 DynamicObstacleData(
                     x=dynamic_x,
@@ -243,17 +242,17 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             self.obstacle_trackingbox.append(obstacle)
         self.static_obss = []
         # add static obstacle
-        static_time = [3, 7, 9]
+        static_time = [3, 7, 9] #static_time[i_static]#
         for i_static in range(self.static_obstacle_num):
-            delta_t = static_time[i_static]#self.np_random.uniform(2, 7)
+            delta_t = self.np_random.uniform(2, 7)
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
-            delta_lon = 0#1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = np.array([0., 0, 0])#1.0 * self.np_random.uniform(-1, 1)
+            delta_lon = 1.0 * self.np_random.uniform(-1, 1)#0#
+            delta_lat = 1.0 * self.np_random.uniform(-1, 1)#np.array([0., 0, 0])#
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            static_obs_y = 0#self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)
-            self.static_length = np.array([0.5, 3, 5])#np.random.uniform(0, 2, self.static_obstacle_num)
-            self.static_width = np.array([1.5, 2.0, 1.3]) #np.random.uniform(0, 2, self.static_obstacle_num)#, 0.5
-            self.static_height = np.array([0.2, 0.5, 0.1]) #np.random.uniform(0, 1, self.static_obstacle_num)#, 0.23
+            static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)#0#
+            self.static_length = np.random.uniform(0, 2, self.static_obstacle_num)#np.array([0.5, 3, 5])#
+            self.static_width = np.random.uniform(0, 2, self.static_obstacle_num)#, 0.5#np.array([1.5, 2.0, 1.3]) #
+            self.static_height = np.random.uniform(0, 1, self.static_obstacle_num)#, 0.23#np.array([0.2, 0.5, 0.1]) #
             self.static_obss.append(
                 StaticObstacle(
                     obs_id=i_static,
@@ -1107,7 +1106,6 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
 
             # 在图例中标注是否可跨越
             legend_label.append(f'Static_{i_static}({"可跨" if can_cross else "避让"})')
-
 
         # 新增绘制逻辑 -------------------------------------------------
         if hasattr(self, 'guide_traj') and self.best_curve is not None:

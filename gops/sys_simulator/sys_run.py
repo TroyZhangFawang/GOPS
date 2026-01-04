@@ -10,12 +10,13 @@
 #  Update: 2022-12-05, Congsheng Zhang: create plot module
 
 import argparse
-import datetime
-import glob
 import os
-import gym
+import imageio
+from PIL import Image
+import glob
+import datetime
+import subprocess
 from typing import Any, Optional, Tuple
-import matplotlib.pyplot as plt
 # import gops.utils.planner_benchmark.visualize as vis
 import numpy as np
 import seaborn as sns
@@ -34,7 +35,6 @@ from gops.utils.common_utils import get_args_from_json, mp4togif
 from gops.utils.gops_path import gops_path
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from matplotlib import rcParams
 # ================= 论文绘图风格配置 (Start) =================
 # 1. 尝试加载宋体 (请确保路径正确，或改为系统路径)
 try:
@@ -53,7 +53,18 @@ default_cfg["label_size"] = 20
 default_cfg["legend_size"] = 15
 default_cfg["img_fmt"] = "png"
 default_cfg["pad"] = 0.5
-
+default_cfg["tick_size"] = 8
+default_cfg["tick_label_font"] = "Times New Roman"
+default_cfg["legend_font"] = {
+    "family": "Times New Roman",
+    "size": "8",
+    "weight": "normal",
+}
+default_cfg["label_font"] = {
+    "family": "Times New Roman",
+    "size": "9",
+    "weight": "normal",
+}
 # ================= 论文绘图风格配置 (End) =================
 
 class PolicyRunner:
@@ -901,7 +912,7 @@ class PolicyRunner:
 
             # Run policy
             eval_dict, tracking_dict = self.run_an_episode(
-                env, networks, self.init_info, is_opt=False, render=False
+                env, networks, self.init_info, is_opt=False, render=True
             )
             print("Successfully run policy {}".format(i + 1))
             print("===========================================================\n")
@@ -9077,6 +9088,440 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
                 for key, value in value.items():
                     print(key, value)
 
+class EnhancedPolicyRunner(PolicyRunner):
+    """Enhanced PolicyRunner with video screenshot and GIF conversion功能"""
+
+    def __init__(self, *args, **kwargs):
+        # Extract custom parameters first
+        self.save_screenshots = kwargs.pop('save_screenshots', False)
+        self.screenshot_interval = kwargs.pop('screenshot_interval', 10)  # Capture every N steps
+        self.convert_to_gif = kwargs.pop('convert_to_gif', False)
+        self.gif_fps = kwargs.pop('gif_fps', 10)
+
+        super().__init__(*args, **kwargs)
+
+        # Create additional directories if needed
+        if self.save_screenshots:
+            self.screenshots_dir = os.path.join(self.save_path, "screenshots")
+            os.makedirs(self.screenshots_dir, exist_ok=True)
+
+        if self.convert_to_gif:
+            self.gif_dir = os.path.join(self.save_path, "gifs")
+            os.makedirs(self.gif_dir, exist_ok=True)
+
+    def run_an_episode(self, env, controller, init_info, is_opt, render=True):
+        """Override to capture screenshots during rendering"""
+        # 在方法开始处导入或定义必要的函数
+        try:
+            from gops.utils.common_utils import get_reference_from_info, get_robot_state_from_info
+        except ImportError:
+            # 如果无法导入，定义简化版本
+            def get_reference_from_info(info):
+                return []
+
+            def get_robot_state_from_info(info):
+                return []
+
+        state_list = []
+        action_list = []
+        reward_list = []
+        constrain_list = []
+        obs_list = []
+        step = 0
+        step_list = []
+        calctime_list = []
+        info_list = [init_info]
+
+        # For screenshot capture
+        frame_images = []
+
+        obs, info = env.reset(**init_info)
+        state = env.state
+        print("Initial robot state: ")
+        print(self._PolicyRunner__convert_format(np.asarray(state.robot_state)))
+
+        # plot tracking
+        state_with_ref_error = {}
+        done = False
+        info.update({"TimeLimit.truncated": False})
+
+        while not (done or info["TimeLimit.truncated"]):
+            print("step:", step + 1)
+            state_list.append(state.robot_state)
+            obs_list.append(obs)
+
+            if is_opt:
+                try:
+                    from gym import Env
+                except ImportError:
+                    Env = object
+
+                if isinstance(env.unwrapped, Env):
+                    time_start = time.time()
+                    action = controller(state)
+                    calc_time = time.time() - time_start
+                else:
+                    time_start = time.time()
+                    action = controller(obs, info)
+                    calc_time = time.time() - time_start
+            else:
+                time_start = time.time()
+                action = self.compute_action(obs, controller)
+                action = self._PolicyRunner__action_noise(action)
+                calc_time = time.time() - time_start
+
+            if self.use_dist:
+                action = np.hstack((action, env.dist_func(step * env.tau)))
+            if self.constrained_env:
+                constrain_list.append(info["constraint"])
+            if self.is_tracking:
+                reference = get_reference_from_info(info)
+                state_num = len(reference)
+                self.ref_state_num = sum(x is not None for x in reference)
+                if step == 0:
+                    for i in range(state_num):
+                        if reference[i] is not None:
+                            state_with_ref_error["state-{}".format(i)] = []
+                            state_with_ref_error["ref-{}".format(i)] = []
+                            state_with_ref_error["state-{}-error".format(i)] = []
+
+                robot_state = get_robot_state_from_info(info)
+                for i in range(state_num):
+                    if reference[i] is not None:
+                        state_with_ref_error["state-{}".format(i)].append(robot_state[i])
+                        state_with_ref_error["ref-{}".format(i)].append(reference[i])
+                        state_with_ref_error["state-{}-error".format(i)].append(
+                            reference[i] - robot_state[i]
+                        )
+
+            next_obs, reward, done, info = env.step(action)
+
+            # save the real action (without scaling)
+            action_list.append(info.get("raw_action", action))
+            step_list.append(step)
+            reward_list.append(reward)
+            info_list.append(info)
+            calctime_list.append(calc_time * 1000)
+            obs = next_obs
+            state = env.state
+            # Capture screenshot if enabled
+            if render and self.save_screenshots and step % self.screenshot_interval == 0:
+                try:
+                    frame = env.render(mode='rgb_array')
+                    if frame is not None:
+                        frame_images.append(frame)
+                        # Save individual screenshot
+                        screenshot_path = os.path.join(
+                            self.screenshots_dir, f"frame_{step*env.dt:.1f}s.png")
+                        plt.imsave(screenshot_path, frame)
+                except Exception as e:
+                    print(f"Failed to capture screenshot at step {step}: {e}")
+
+            step = step + 1
+
+            if "TimeLimit.truncated" not in info.keys():
+                info["TimeLimit.truncated"] = False
+
+            # Draw environment animation
+            if render:
+                try:
+                    env.render(mode='human')
+                except:
+                    try:
+                        env.render()
+                    except:
+                        pass
+
+        # Create GIF from captured frames if enabled
+        if self.convert_to_gif and frame_images:
+            self._create_gif_from_frames(frame_images)
+
+        # Also try to convert existing MP4 to GIF if available
+        self._convert_existing_videos_to_gif()
+
+        eval_dict = {
+            "reward_list": reward_list,
+            "action_list": action_list,
+            "state_list": state_list,
+            "step_list": step_list,
+            "obs_list": obs_list,
+            "info_list": info_list,
+            "calctime_list": calctime_list,
+            "frame_images": frame_images if self.save_screenshots else None
+        }
+
+        if self.constrained_env:
+            eval_dict.update({"constrain_list": constrain_list, })
+
+        if self.is_tracking:
+            tracking_dict = state_with_ref_error
+        else:
+            tracking_dict = {}
+
+        return eval_dict, tracking_dict
+
+    def _create_gif_from_frames(self, frames):
+        """Create GIF from captured frames"""
+        if not frames:
+            return
+
+        try:
+            gif_path = os.path.join(self.gif_dir, "simulation.gif")
+
+            # Save as GIF using imageio
+            with imageio.get_writer(gif_path, mode='I', fps=self.gif_fps) as writer:
+                for frame in frames:
+                    writer.append_data(frame)
+
+            print(f"Created GIF: {gif_path}")
+
+            # Also create a smaller version for quick viewing
+            small_gif_path = os.path.join(self.gif_dir, "simulation_small.gif")
+            self._create_optimized_gif(frames, small_gif_path)
+
+        except Exception as e:
+            print(f"Failed to create GIF: {e}")
+
+    def _create_optimized_gif(self, frames, output_path, max_size=(640, 480)):
+        """Create optimized GIF with reduced size"""
+        try:
+            # Resize frames
+            resized_frames = []
+            for frame in frames:
+                img = Image.fromarray(frame)
+                img.thumbnail(max_size, Image.Resampling.LANCZOS)
+                resized_frames.append(np.array(img))
+
+            # Save optimized GIF
+            with imageio.get_writer(output_path, mode='I', fps=self.gif_fps) as writer:
+                for frame in resized_frames:
+                    writer.append_data(frame)
+
+            print(f"Created optimized GIF: {output_path}")
+
+        except Exception as e:
+            print(f"Failed to create optimized GIF: {e}")
+
+    def _convert_existing_videos_to_gif(self):
+        """Convert existing MP4 videos to GIF format"""
+        if not hasattr(self, 'save_path'):
+            return
+
+        videos_path = os.path.join(self.save_path, "videos")
+        if not os.path.exists(videos_path):
+            return
+
+        mp4_files = glob.glob(os.path.join(videos_path, "*.mp4"))
+
+        for mp4_file in mp4_files:
+            try:
+                gif_file = mp4_file.replace('.mp4', '.gif')
+
+                # Use ffmpeg if available
+                cmd = [
+                    'ffmpeg', '-i', mp4_file,
+                    '-vf', 'fps=10,scale=640:-1:flags=lanczos',
+                    '-y', gif_file
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"Converted {mp4_file} to GIF")
+                else:
+                    print(f"FFmpeg conversion failed: {result.stderr}")
+
+            except Exception as e:
+                print(f"Failed to convert {mp4_file} to GIF: {e}")
+
+    def run(self):
+        """Override run method to include post-processing"""
+        try:
+            # 直接调用父类的私有方法
+            self._PolicyRunner__run_data()
+            self._PolicyRunner__save_mp4_as_gif()
+            self.draw()
+
+            # Generate summary report
+            self._generate_summary_report()
+            print("Simulation completed successfully!")
+
+        except Exception as e:
+            print(f"Error during simulation: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # 尝试备用方案
+            print("\nTrying alternative approach...")
+            self._run_manual_simulation()
+
+    def _run_manual_simulation(self):
+        """手动运行仿真的备用方案"""
+        try:
+            import torch
+            import json
+            from gops.env.env_ocp.pyth_veh3dofconti_bimodaldiffusion_planning import env_creator
+            from gops.create_pkg.create_env_model import create_env_model
+            from gops.create_pkg.create_alg import create_alg
+
+            # 获取第一个策略路径
+            result_path = self.log_policy_dir_list[0]
+
+            # 创建环境
+            env = env_creator(
+                pre_horizon=20,
+                max_steer=np.pi / 6,
+                max_accel=3.0,
+                dynamic_obstacle_num=2,
+                static_obstacle_num=3,
+                control_mode="planning"
+            )
+
+            # 加载配置
+            with open(os.path.join(result_path, "config.json"), 'r') as f:
+                args = json.load(f)
+
+            # 创建网络
+            networks = create_alg(**args)
+
+            # 加载训练好的模型
+            model_path = os.path.join(result_path, "apprfunc", f"apprfunc_{self.trained_policy_iteration_list[0]}.pkl")
+            networks.load_state_dict(torch.load(model_path))
+
+            # 使用初始化信息
+            init_state = self.init_info.get("init_state", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            ref_num = self.init_info.get("ref_num", 0)
+            ref_time = self.init_info.get("ref_time", 0)
+
+            # 运行仿真
+            obs, _ = env.reset(init_state=init_state, ref_num=ref_num, ref_time=ref_time)
+            frames = []
+            rewards = []
+
+            for step in range(200):  # 最多200步
+                # 获取动作
+                batch_obs = torch.from_numpy(np.expand_dims(obs, axis=0).astype("float32"))
+                logits = networks.policy(batch_obs)
+                action_distribution = networks.create_action_distributions(logits)
+                action = action_distribution.mode()
+                action = action.detach().numpy()[0]
+                # 执行动作
+                obs, reward, done, info = env.step(action)
+                rewards.append(reward)
+
+                # 渲染并保存帧
+                try:
+                    frame = env.render(mode='rgb_array')
+                    if frame is not None:
+                        frames.append(frame)
+                        print(f"Step {step}: captured frame {frame.shape}")
+                except Exception as e:
+                    print(f"Step {step}: render error - {e}")
+
+                if done:
+                    print(f"Episode terminated at step {step}")
+                    break
+
+            # 保存结果
+            print(f"Simulation completed: {len(frames)} frames captured, total reward: {sum(rewards):.2f}")
+
+            # 保存为GIF
+            if frames:
+                gif_dir = os.path.join(self.save_path, "manual_gifs")
+                os.makedirs(gif_dir, exist_ok=True)
+
+                gif_path = os.path.join(gif_dir, "manual_simulation.gif")
+                with imageio.get_writer(gif_path, mode='I', fps=10) as writer:
+                    for frame in frames:
+                        writer.append_data(frame)
+                print(f"Manual simulation saved as {gif_path}")
+
+                # 也保存为视频
+                self._save_frames_as_video(frames, os.path.join(gif_dir, "manual_simulation.mp4"))
+
+            # 保存奖励数据
+            if rewards:
+                reward_path = os.path.join(self.save_path, "manual_rewards.txt")
+                with open(reward_path, 'w') as f:
+                    for i, r in enumerate(rewards):
+                        f.write(f"Step {i}: {r:.4f}\n")
+                    f.write(f"\nTotal: {sum(rewards):.4f}\n")
+                print(f"Rewards saved to {reward_path}")
+
+        except Exception as e:
+            print(f"Manual simulation also failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _save_frames_as_video(self, frames, output_path):
+        """将帧保存为视频文件"""
+        try:
+            if not frames:
+                return
+
+            # 使用OpenCV或imageio保存为视频
+            try:
+                import cv2
+                height, width = frames[0].shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                video = cv2.VideoWriter(output_path, fourcc, 10.0, (width, height))
+
+                for frame in frames:
+                    # 转换颜色空间 RGB -> BGR
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    video.write(frame_bgr)
+
+                video.release()
+                print(f"Video saved to {output_path}")
+
+            except ImportError:
+                # 如果没有OpenCV，使用imageio
+                with imageio.get_writer(output_path, mode='I', fps=10) as writer:
+                    for frame in frames:
+                        writer.append_data(frame)
+                print(f"Video saved to {output_path} using imageio")
+
+        except Exception as e:
+            print(f"Failed to save video: {e}")
+
+    def _generate_summary_report(self):
+        """Generate a summary report with links to videos/GIFs"""
+        try:
+            report_path = os.path.join(self.save_path, "simulation_summary.md")
+
+            with open(report_path, 'w') as f:
+                f.write("# Simulation Summary Report\n\n")
+                f.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Environment: {self.env_id}\n")
+                f.write(f"Algorithm: {self.algorithm_list[0] if self.algorithm_list else 'Unknown'}\n\n")
+
+                # Check for generated files
+                if os.path.exists(os.path.join(self.save_path, "videos")):
+                    f.write("## Generated Videos\n")
+                    videos = glob.glob(os.path.join(self.save_path, "videos", "*.mp4"))
+                    for video in videos:
+                        rel_path = os.path.relpath(video, self.save_path)
+                        f.write(f"- [{os.path.basename(video)}]({rel_path})\n")
+
+                if hasattr(self, 'gif_dir') and os.path.exists(self.gif_dir):
+                    f.write("\n## Generated GIFs\n")
+                    gifs = glob.glob(os.path.join(self.gif_dir, "*.gif"))
+                    for gif in gifs:
+                        rel_path = os.path.relpath(gif, self.save_path)
+                        f.write(f"- [{os.path.basename(gif)}]({rel_path})\n")
+
+                if hasattr(self, 'screenshots_dir') and os.path.exists(self.screenshots_dir):
+                    f.write("\n## Screenshots\n")
+                    screenshots = glob.glob(os.path.join(self.screenshots_dir, "*.png"))
+                    if screenshots:
+                        # Show first few screenshots
+                        for i, screenshot in enumerate(screenshots[:5]):
+                            rel_path = os.path.relpath(screenshot, self.save_path)
+                            f.write(f"- Frame {i * self.screenshot_interval}: ![{rel_path}]({rel_path})\n")
+
+            print(f"Summary report generated: {report_path}")
+
+        except Exception as e:
+            print(f"Failed to generate summary report: {e}")
 
 def get_robot_state_from_info(info: dict) -> np.ndarray:
     state = info["state"]

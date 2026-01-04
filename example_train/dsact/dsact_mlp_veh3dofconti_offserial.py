@@ -31,12 +31,10 @@ if __name__ == "__main__":
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning")
-    parser.add_argument("--control_mode", type=str, default="planning")
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti", help="id of environment")
     parser.add_argument("--algorithm", type=str, default="DSACT", help="RL algorithm")
     parser.add_argument("--enable_cuda", default=False, help="Enable CUDA")
     parser.add_argument("--seed", default=12345, help="Global seed")
-    ################################################
     # 1. Parameters for environment
     parser.add_argument("--reward_scale", type=float, default=0.2, help="reward scale factor")
     parser.add_argument("--is_render", type=bool, default=False, help="Draw environment animation")
@@ -52,7 +50,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--value_func_type", type=str, default="MLP", help="Options: MLP/CNN/CNN_SHARED/RNN/POLY/GAUSS")
     value_func_type = parser.parse_known_args()[0].value_func_type
-    parser.add_argument("--value_hidden_sizes", type=list, default=[256,256,256])
+    parser.add_argument("--value_hidden_sizes", type=list, default=[256, 256, 256])
     parser.add_argument(
         "--value_hidden_activation", type=str, default="gelu", help="Options: relu/gelu/elu/selu/sigmoid/tanh"
     )
@@ -75,7 +73,7 @@ if __name__ == "__main__":
         help="Options: default/TanhGaussDistribution/GaussDistribution",
     )
     policy_func_type = parser.parse_known_args()[0].policy_func_type
-    parser.add_argument("--policy_hidden_sizes", type=list, default=[256,256,256])
+    parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256, 256])
     parser.add_argument(
         "--policy_hidden_activation", type=str, default="gelu", help="Options: relu/gelu/elu/selu/sigmoid/tanh"
     )
@@ -118,7 +116,7 @@ if __name__ == "__main__":
     # Size of collected samples before training
     parser.add_argument("--buffer_warm_size", type=int, default=10000)
     # Max size of reply buffer
-    parser.add_argument("--buffer_max_size", type=int, default=2*500000)
+    parser.add_argument("--buffer_max_size", type=int, default=2 * 500000)
     # Batch size of replay samples from buffer
     parser.add_argument("--replay_batch_size", type=int, default=256)
     # Period of sampling
@@ -141,8 +139,8 @@ if __name__ == "__main__":
 
     ################################################
     # 7. Data savings
-    #parser.add_argument("--save_folder", type=str, default= "/home/wangwenxuan/gops_idp/gops/results/DSAC2/humanoid_r_0.2_sb_20_si_1_2")
-    parser.add_argument("--save_folder", type=str, default= None)
+    # parser.add_argument("--save_folder", type=str, default= "/home/wangwenxuan/gops_idp/gops/results/DSAC2/humanoid_r_0.2_sb_20_si_1_2")
+    parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
     parser.add_argument("--apprfunc_save_interval", type=int, default=50000)
     # Save key info every N updates

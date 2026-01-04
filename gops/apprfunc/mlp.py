@@ -19,6 +19,7 @@ __all__ = [
     "DiffusionPolicyeasy",
     "StochaPolicy",
     "EncodingStochaPolicy",
+    "EncodingStochaPolicy2",
     "ActionValue",
     "ActionValueDis",
     "ActionValueDistri",
@@ -264,6 +265,39 @@ class StochaPolicy(nn.Module, Action_Distribution):
 
         return torch.cat((action_mean, action_std), dim=-1)
 
+
+class PromptEncoder(nn.Module):
+    """专门用于编码引导轨迹 (Prompts)，增加了 BatchNorm 防止梯度爆炸"""
+
+    def __init__(self, input_dim=2, hidden_dim=32, output_dim=32):
+        super().__init__()
+        self.net = nn.Sequential(
+            # 第一层卷积 + BN + ReLU
+            nn.Conv1d(input_dim, 16, kernel_size=3, padding=1),
+            nn.BatchNorm1d(16),  # 【关键修复】归一化中间特征
+            nn.ReLU(),
+
+            # 第二层卷积 + BN + ReLU
+            nn.Conv1d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),  # 【关键修复】
+            nn.ReLU(),
+
+            # 池化
+            nn.AdaptiveMaxPool1d(1)
+        )
+        self.fc = nn.Linear(32, output_dim)
+
+    def forward(self, x):
+        # x shape: (Batch, Points, 2)
+        # 手动归一化输入：假设视野约为 30m，除以 30 将数值缩放到 [0, 1] 附近
+        # 这比依赖 BN 更稳健，特别是对于坐标数据
+        x = x / 30.0
+
+        x = x.transpose(1, 2)  # -> (Batch, 2, Points)
+        feat = self.net(x)
+        feat = feat.squeeze(-1)
+        return self.fc(feat)
+
 # Stochastic Policy
 class EncodingStochaPolicy(nn.Module, Action_Distribution):
     """
@@ -379,6 +413,88 @@ class EncodingStochaPolicy(nn.Module, Action_Distribution):
 
         return torch.cat((action_mean, action_std), dim=-1)
 
+class EncodingStochaPolicy2(nn.Module, Action_Distribution):
+    def __init__(self, **kwargs):
+        super().__init__()
+        obs_dim = kwargs["obs_dim"]
+        act_dim = kwargs["act_dim"]
+        hidden_sizes = kwargs["hidden_sizes"]
+        self.std_type = kwargs["std_type"]
+
+        # === 维度定义 ===
+        self.ego_dim = 6
+        self.ref_dim = 20 * 4
+        self.obs_dim = 3 * 8
+        # 注意：这里不需要定义 prompt_dim，因为我们后面是按 shape view 的
+
+        self.num_prompts = 3
+        self.points_per_prompt = 20
+        # 计算剩下的维度给 Prompt
+        self.known_dim = self.ego_dim + self.ref_dim + self.obs_dim
+
+        # 1. Encoders (保持维度匹配)
+        self.ref_encoder = nn.Sequential(
+            nn.Linear(self.ref_dim, 128), nn.ReLU(), nn.Linear(128, 64)
+        )
+        self.obstacle_encoder = nn.Sequential(
+            nn.Linear(self.obs_dim, 128), nn.ReLU(), nn.Linear(128, 64)
+        )
+        self.prompt_encoder = PromptEncoder(input_dim=2, output_dim=32)
+        self.ego_encoder = nn.Sequential(
+            nn.Linear(self.ego_dim, 64), nn.ReLU()
+        )
+
+        # 5. 融合维度: 64*3 + 32*3 = 288
+        total_feat_dim = 64 + 64 + 64 + (32 * 3)
+
+        # 策略头
+        # 使用正交初始化 (Orthogonal Initialization) 有助于 RL 收敛
+        self.mean_net = mlp([total_feat_dim] + list(hidden_sizes) + [act_dim],
+                            get_activation_func(kwargs["hidden_activation"]),
+                            get_activation_func(kwargs["output_activation"]))
+
+        self.log_std_net = mlp([total_feat_dim] + list(hidden_sizes) + [act_dim],
+                               get_activation_func(kwargs["hidden_activation"]),
+                               get_activation_func(kwargs["output_activation"]))
+
+        self.min_log_std = kwargs["min_log_std"]
+        self.max_log_std = kwargs["max_log_std"]
+        self.register_buffer("act_high_lim", torch.from_numpy(kwargs["act_high_lim"]))
+        self.register_buffer("act_low_lim", torch.from_numpy(kwargs["act_low_lim"]))
+        self.action_distribution_cls = kwargs["action_distribution_cls"]
+
+    def forward(self, obs):
+        # 1. 鲁棒的切分逻辑
+        ego = obs[:, :self.ego_dim]
+        ref = obs[:, self.ego_dim: self.ego_dim + self.ref_dim]
+        obst = obs[:, self.ego_dim + self.ref_dim: self.ego_dim + self.ref_dim + self.obs_dim]
+        prompts = obs[:, self.ego_dim + self.ref_dim + self.obs_dim:]
+
+        # 2. 编码
+        ego_feat = self.ego_encoder(ego)
+        ref_feat = self.ref_encoder(ref)
+        obs_feat = self.obstacle_encoder(obst)
+
+        # 处理 Prompts
+        prompts = prompts.reshape(-1, self.num_prompts, self.points_per_prompt, 2)
+        prompt_feats = []
+        for i in range(self.num_prompts):
+            p_feat = self.prompt_encoder(prompts[:, i, :, :])
+            prompt_feats.append(p_feat)
+        prompt_combined = torch.cat(prompt_feats, dim=-1)
+
+        # 3. 融合
+        combined = torch.cat([ego_feat, ref_feat, obs_feat, prompt_combined], dim=-1)
+
+        # 4. 输出
+        action_mean = self.mean_net(combined)
+        action_log_std = self.log_std_net(combined)
+
+        # 【关键修复】严格限制 Log Std 的范围，防止 NaN
+        action_log_std = torch.clamp(action_log_std, self.min_log_std, self.max_log_std)
+        action_std = action_log_std.exp()
+
+        return torch.cat((action_mean, action_std), dim=-1)
 class ActionValue(nn.Module, Action_Distribution):
     """
     Approximated function of action-value function.

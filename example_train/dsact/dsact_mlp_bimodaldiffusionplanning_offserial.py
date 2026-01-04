@@ -31,14 +31,15 @@ if __name__ == "__main__":
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning")
-    parser.add_argument("--control_mode", type=str, default="planning")
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning", help="id of environment")
+    parser.add_argument("--control_mode", type=str, default="planning", help="planning/control")
+    # parser.add_argument("--vdes", type=float, default=10, help="target speed of longitudinal")
     parser.add_argument("--algorithm", type=str, default="DSACT", help="RL algorithm")
     parser.add_argument("--enable_cuda", default=False, help="Enable CUDA")
     parser.add_argument("--seed", default=12345, help="Global seed")
     ################################################
     # 1. Parameters for environment
-    parser.add_argument("--reward_scale", type=float, default=0.2, help="reward scale factor")
+    parser.add_argument("--reward_scale", type=float, default=0.05, help="reward scale factor")
     parser.add_argument("--is_render", type=bool, default=False, help="Draw environment animation")
     parser.add_argument("--is_adversary", type=bool, default=False, help="Adversary training")
 
@@ -62,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy_func_name",
         type=str,
-        default="StochaPolicy",
+        default="EncodingStochaPolicy2",
         help="Options: None/DetermPolicy/FiniteHorizonPolicy/StochaPolicy",
     )
     parser.add_argument(
@@ -103,7 +104,7 @@ if __name__ == "__main__":
         help="Options: on_serial_trainer, on_sync_trainer, off_serial_trainer, off_async_trainer",
     )
     # Maximum iteration number
-    parser.add_argument("--max_iteration", type=int, default=1000000)
+    parser.add_argument("--max_iteration", type=int, default=100000000)
     parser.add_argument(
         "--ini_network_dir",
         type=str,

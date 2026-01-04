@@ -1,7 +1,5 @@
-# gops/algorithm/dsact_diffusion.py
 
-# 【关键】添加 DsactDiffusion 到 __all__，适配自动注册 (驼峰命名规则)
-__all__ = ["ApproxContainer", "DSACTDiffusion", "DsactDiffusion"]
+__all__ = ["ApproxContainer", "DSACTDiffusion2", "DsactDiffusion2"]
 
 import time
 from copy import deepcopy
@@ -24,15 +22,10 @@ from gops.utils.common_utils import get_apprfunc_dict
 class ActionDistResult:
     def __init__(self, action):
         self.action = action
-
     def sample(self):
-        # 返回动作和假的 logp (Diffusion 策略通常不直接计算 logp)
         return self.action, torch.zeros((self.action.shape[0],), device=self.action.device)
-
-    # 【关键修复】添加 mode 方法，适配 Evaluator 的调用
     def mode(self):
         return self.action
-
 
 # ==========================================
 # Diffusion 数学工具类 (改为 nn.Module 以支持自动设备管理)
@@ -125,15 +118,9 @@ class DiffusionPolicyWrapper(nn.Module):
 class ApproxContainer(ApprBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
-        # 1. 提取 Diffusion 参数
+        # Diffusion Policy 部分
         self.diffusion_steps = kwargs.get("diffusion_steps", 20)
-
-        # 【关键修复】不再强制指定 device，让它默认为 CPU
-        # 当 Trainer 调用 .cuda() 时，它会自动转到 GPU
         self.scheduler = DiffusionScheduler(num_steps=self.diffusion_steps)
-
-        # 2. 构建 Policy 网络
         policy_args = get_apprfunc_dict("policy", **kwargs)
         mlp_policy = create_apprfunc(**policy_args)
 
@@ -143,21 +130,16 @@ class ApproxContainer(ApprBase):
         act_max = float(np.max(act_high))
         act_min = float(np.min(act_low))
 
-        # Wrapper 包装
-        self.policy = DiffusionPolicyWrapper(
-            mlp_policy, self.scheduler, act_dim, act_max, act_min
-        )
+        self.policy = DiffusionPolicyWrapper(mlp_policy, self.scheduler, act_dim, act_max, act_min)
         self.policy_target = deepcopy(self.policy)
 
-        # 3. 构建 Critic 网络
-        q_args = get_apprfunc_dict("q", **kwargs)
+        q_args = get_apprfunc_dict("value", **kwargs)
+
         self.q1 = create_apprfunc(**q_args)
         self.q2 = create_apprfunc(**q_args)
         self.q1_target = deepcopy(self.q1)
         self.q2_target = deepcopy(self.q2)
 
-        # 4. 优化器
-        # 注意：这里我们只优化 MLP 部分的参数
         self.policy_optimizer = Adam(self.policy.mlp.parameters(), lr=kwargs["policy_learning_rate"])
         self.q1_optimizer = Adam(self.q1.parameters(), lr=kwargs["q_learning_rate"])
         self.q2_optimizer = Adam(self.q2.parameters(), lr=kwargs["q_learning_rate"])
@@ -168,19 +150,21 @@ class ApproxContainer(ApprBase):
         return ActionDistResult(logits)
 
 
-# ==========================================
-# DSACT_Diffusion (算法逻辑)
-# ==========================================
-class DSACTDiffusion(AlgorithmBase):
+class DSACTDiffusion2(AlgorithmBase):
     def __init__(self, index=0, **kwargs):
         super().__init__(index, **kwargs)
         self.networks = ApproxContainer(**kwargs)
         self.gamma = kwargs["gamma"]
         self.delay_update = kwargs["delay_update"]
 
+        # 【DSACT 特有参数】
+        self.tau_b = kwargs.get("tau_b", 0.01)  # 用于 std 的软更新
+        self.mean_std1 = None  # 动态记录 std 均值
+        self.mean_std2 = None
+
     @property
     def adjustable_parameters(self):
-        return ("gamma", "tau", "delay_update")
+        return ("gamma", "tau", "delay_update", "tau_b")
 
     def local_update(self, data: DataDict, iteration: int) -> dict:
         tb_info = self.__compute_gradient(data, iteration)
@@ -201,7 +185,6 @@ class DSACTDiffusion(AlgorithmBase):
                 for p, p_targ in zip(self.networks.q2.parameters(), self.networks.q2_target.parameters()):
                     p_targ.data.mul_(polyak)
                     p_targ.data.add_((1 - polyak) * p.data)
-                # 更新 policy target (wrapper 里的 mlp)
                 for p, p_targ in zip(self.networks.policy.mlp.parameters(),
                                      self.networks.policy_target.mlp.parameters()):
                     p_targ.data.mul_(polyak)
@@ -212,9 +195,17 @@ class DSACTDiffusion(AlgorithmBase):
         self.networks.q2_optimizer.zero_grad()
         self.networks.policy_optimizer.zero_grad()
 
-        loss_q, loss_q_info = self.__compute_loss_critic(data)
+        # 使用 DSACT 的 Critic Loss
+        loss_q, q1, q2, std1, std2 = self.__compute_loss_q(data)
         loss_q.backward()
-        tb_info = loss_q_info
+
+        tb_info = {
+            tb_tags["loss_critic"]: loss_q.item(),
+            "DDSACT/critic_avg_q1-RL iter": q1.item(),
+            "DDSACT/critic_avg_q2-RL iter": q2.item(),
+            "DDSACT/critic_avg_std1-RL iter": std1.item(),
+            "DDSACT/critic_avg_std2-RL iter": std2.item(),
+        }
 
         if iteration % self.delay_update == 0:
             loss_policy, loss_policy_info = self.__compute_loss_policy(data)
@@ -223,30 +214,130 @@ class DSACTDiffusion(AlgorithmBase):
 
         return tb_info
 
-    def __compute_loss_critic(self, data: DataDict):
-        # 使用 data["obs2"] 兼容 GOPS 键名
+    def __q_evaluate(self, obs, act, qnet):
+        output = qnet(obs, act)
+        # 1. 维度处理
+        if output.dim() == 1:
+            output = output.unsqueeze(-1)
+
+        # 2. 维度检查
+        if output.shape[-1] != 2:
+            raise ValueError(
+                f"Q Network output dim is {output.shape[-1]}, expected 2 (Mean + Std).\n"
+                f"Please check your config: --q_func_name must be 'ActionValueDistri'!"
+            )
+
+        # 3. 解析 Mean 和 Std
+        mean, std = torch.chunk(output, chunks=2, dim=-1)
+        # 4. 稳健性处理：虽然 softplus 恒正，但为了防止数值过小导致除零，加上一个极小值
+        std = torch.clamp(std, min=1e-6, max=100.0)
+        # 5. DSACT 的采样逻辑
+        normal = torch.distributions.Normal(torch.zeros_like(mean), torch.ones_like(std))
+        z = normal.sample()
+        z = torch.clamp(z, -3, 3)
+        q_sample = mean + torch.mul(z, std)
+        return mean, std, q_sample
+
+    def __compute_loss_q(self, data: DataDict):
         obs, act, rew, obs_next, done = data["obs"], data["act"], data["rew"], data["obs2"], data["done"]
 
-        q1 = self.networks.q1(obs, act)
-        q2 = self.networks.q2(obs, act)
+        if rew.dim() == 1: rew = rew.unsqueeze(-1)
+        if done.dim() == 1: done = done.unsqueeze(-1)
 
+        # 1. 计算当前的 Q(s, a) 分布
+        # 【修改】接收 3 个返回值
+        q1_mean, q1_std, _ = self.__q_evaluate(obs, act, self.networks.q1)
+        q2_mean, q2_std, _ = self.__q_evaluate(obs, act, self.networks.q2)
+
+        # 2. 动量更新 std 均值
+        with torch.no_grad():
+            if self.mean_std1 is None:
+                self.mean_std1 = torch.mean(q1_std)
+            else:
+                self.mean_std1 = (1 - self.tau_b) * self.mean_std1 + self.tau_b * torch.mean(q1_std)
+
+            if self.mean_std2 is None:
+                self.mean_std2 = torch.mean(q2_std)
+            else:
+                self.mean_std2 = (1 - self.tau_b) * self.mean_std2 + self.tau_b * torch.mean(q2_std)
+
+        # 3. 计算 Target Q
         with torch.no_grad():
             next_act = self.networks.policy_target(obs_next)
-            q1_next = self.networks.q1_target(obs_next, next_act)
-            q2_next = self.networks.q2_target(obs_next, next_act)
-            q_next = torch.min(q1_next, q2_next)
-            target_q = rew + self.gamma * (1 - done) * q_next
 
-        loss_q = nn.MSELoss()(q1, target_q) + nn.MSELoss()(q2, target_q)
-        return loss_q, {tb_tags["loss_critic"]: loss_q.item(), "q1_val": q1.mean().item()}
+            # 【修改】接收 3 个返回值，我们需要 q_sample 来计算 bound
+            q1_next_mean, _, q1_next_sample = self.__q_evaluate(obs_next, next_act, self.networks.q1_target)
+            q2_next_mean, _, q2_next_sample = self.__q_evaluate(obs_next, next_act, self.networks.q2_target)
+
+            # (C) Min Q (保守估计)
+            # 使用 Mean 进行 Min 操作
+            q_next = torch.min(q1_next_mean, q2_next_mean)
+
+            # 使用 Sample 进行 Bound 计算
+            # 这里的逻辑是：如果 Q1 的均值更小，我们就用 Q1 的采样值作为未来的参考
+            q_next_sample = torch.where(q1_next_mean < q2_next_mean, q1_next_sample, q2_next_sample)
+
+            # (D) 计算 Target
+            # 传入 q_next (均值) 和 q_next_sample (采样值)
+            target_q1_mean, target_q1_bound = self.__compute_target_q(
+                rew, done, q1_mean, self.mean_std1, q_next, q_next_sample
+            )
+            target_q2_mean, target_q2_bound = self.__compute_target_q(
+                rew, done, q2_mean, self.mean_std2, q_next, q_next_sample
+            )
+
+        # 4. 计算 Loss
+        bias = 0.1
+        q1_loss = self.__dsact_loss_func(q1_mean, q1_std, target_q1_mean, target_q1_bound, self.mean_std1, bias)
+        q2_loss = self.__dsact_loss_func(q2_mean, q2_std, target_q2_mean, target_q2_bound, self.mean_std2, bias)
+
+        loss_q = q1_loss + q2_loss
+        return loss_q, q1_mean.detach().mean(), q2_mean.detach().mean(), q1_std.detach().mean(), q2_std.detach().mean()
+
+    def __compute_target_q(self, r, done, q_current, q_std_avg, q_next, q_next_sample):
+        """计算 DSACT 的 Target，去掉了 Entropy 项"""
+        # 标准 Bellman Target
+        target_q = r + (1 - done) * self.gamma * q_next
+
+        # Target Bound: 使用 Next Sample 计算 (这是 DSACT 论文的核心细节)
+        target_q_sample = r + (1 - done) * self.gamma * q_next_sample
+
+        # Bound 限制
+        td_bound = 3 * q_std_avg
+        difference = torch.clamp(target_q_sample - q_current, -td_bound, td_bound)
+        target_q_bound = q_current + difference
+
+        return target_q, target_q_bound
+
+    def __dsact_loss_func(self, q, q_std, target_q, target_q_bound, mean_std, bias=0.1):
+        """DSACT 复杂的 Loss 函数"""
+        # 第一项：Mean Error weighted by Variance
+        # 如果方差(std)很大，说明这里不确定，梯度就小一点
+        # 如果方差很小，说明这里很确定，梯度就大一点
+        term1 = -(target_q - q).detach() / (torch.pow(q_std, 2) + bias) * q
+
+        # 第二项：Variance Estimation Error
+        # 让 q_std 去拟合真实的 TD Error
+        term2 = -((torch.pow(q.detach() - target_q_bound, 2) - torch.pow(q_std, 2)) / (
+                    torch.pow(q_std, 3) + bias)) * q_std
+
+        # 缩放因子
+        weight = torch.pow(mean_std, 2) + bias
+        loss = weight * torch.mean(term1 + term2)
+        return loss
 
     def __compute_loss_policy(self, data: DataDict):
+        # 保持之前的 Weighted BC 逻辑，这是适配 Diffusion 的最佳方案
         obs, act_real = data["obs"], data["act"]
 
         with torch.no_grad():
-            q1 = self.networks.q1(obs, act_real)
-            q2 = self.networks.q2(obs, act_real)
-            adv = torch.min(q1, q2) - torch.min(q1, q2).mean()
+            # 使用 DSACT 的 Mean Q 来计算优势
+            q1_mean, _, _ = self.__q_evaluate(obs, act_real, self.networks.q1)
+            q2_mean, _, _ = self.__q_evaluate(obs, act_real, self.networks.q2)
+
+            # Advantage Normalization
+            q_min = torch.min(q1_mean, q2_mean)
+            adv = q_min - q_min.mean()
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
             weights = torch.exp(adv * 3.0).clamp(max=100.0)
 
@@ -255,7 +346,6 @@ class DSACTDiffusion(AlgorithmBase):
         act_noisy = self.networks.scheduler.add_noise(act_real, noise, t)
 
         noise_pred = self.networks.policy(obs, act_noisy, t)
-
         loss_mse = nn.MSELoss(reduction='none')(noise_pred, noise).mean(dim=1)
         loss_diff = (loss_mse * weights).mean()
 
@@ -268,5 +358,4 @@ class DSACTDiffusion(AlgorithmBase):
             return action.squeeze(0)
 
 
-
-DsactDiffusion = DSACTDiffusion
+DsactDiffusion2 = DSACTDiffusion2

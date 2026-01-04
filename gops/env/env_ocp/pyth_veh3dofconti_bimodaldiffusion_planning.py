@@ -1,220 +1,371 @@
-# pyth_veh3dofconti_bimodaldiffusion_planning.py
-
 import gym
 import numpy as np
 import math
 from gym import spaces
-from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize
-from gops.env.env_ocp.pyth_veh3dofcontiplanning import ego_vehicle_coordinate_transform
+from gops.env.env_ocp.pyth_base_env import PythBaseEnv
 from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
+from gops.utils.math_utils import angle_normalize
+from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
 from dataclasses import dataclass
-from typing import List
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from gops.utils.planner_benchmark.control import SimpleController
 
+def ego_vehicle_coordinate_transform(
+    ego_x: np.ndarray,
+    ego_y: np.ndarray,
+    ego_phi: np.ndarray,
+    ref_x: np.ndarray,
+    ref_y: np.ndarray,
+    ref_phi: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Transform absolute coordinate of ego vehicle and reference points to the ego
+    vehicle coordinate. The origin is the position of ego vehicle. The x-axis points
+    to heading angle of ego vehicle.
+
+    Args:
+        ego_x (np.ndarray): Absolution x-coordinate of ego vehicle, shape ().
+        ego_y (np.ndarray): Absolution y-coordinate of ego vehicle, shape ().
+        ego_phi (np.ndarray): Absolution heading angle of ego vehicle, shape ().
+        ref_x (np.ndarray): Absolution x-coordinate of reference points, shape (N,).
+        ref_y (np.ndarray): Absolution y-coordinate of reference points, shape (N,).
+        ref_phi (np.ndarray): Absolution tangent angle of reference points, shape (N,).
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: Transformed x, y, phi of reference
+        points.
+    """
+    cos_tf = np.cos(-ego_phi)
+    sin_tf = np.sin(-ego_phi)
+    ref_x_tf = (ref_x - ego_x) * cos_tf - (ref_y - ego_y) * sin_tf
+    ref_y_tf = (ref_x - ego_x) * sin_tf + (ref_y - ego_y) * cos_tf
+    ref_phi_tf = angle_normalize(ref_phi - ego_phi)
+    return ref_x_tf, ref_y_tf, ref_phi_tf
 
 # ==========================================
 # 辅助类定义
-# ==========================================
+@dataclass
+class DynamicObstacleData:
+    """动态障碍物数据结构 (从专家环境移植)"""
+    x: float = 0.0
+    y: float = 0.0
+    phi: float = 0.0
+    u: float = 0.0
+    delta: float = 0.0  # 前轮转角
+    l: float = 3.0  # 轴距
+    dt: float = 0.1
 
+    def step(self):
+        # 简单的运动学模型更新
+        self.x = self.x + self.u * np.cos(self.phi) * self.dt
+        self.y = self.y + self.u * np.sin(self.phi) * self.dt
+        self.phi = self.phi + self.u * np.tan(self.delta) / self.l * self.dt
+        self.phi = angle_normalize(self.phi)
 @dataclass
 class Obstacle:
-    """定义越野环境中的障碍物"""
+    """统一障碍物接口，兼容静态和动态"""
     x: float
     y: float
     l: float = 2.0
     w: float = 2.0
     phi: float = 0.0
-    u: float = 0.0  # 纵向速度
-    type: str = "static"
+    u: float = 0.0
+    type: str = "static" # "static" or "dynamic"
     can_cross: bool = False
-
+    id: int = 0
+    # 动态障碍物特有句柄
+    dynamic_data: Optional[DynamicObstacleData] = None
 
 class BezierGenerator:
+    """
+    二阶贝塞尔曲线生成器 (Quadratic Bezier)
+    输入: P0(起点), P1(控制点), P2(终点)
+    """
     @staticmethod
-    def generate(p0, p1, p2, p3, num_points=20):
+    def generate(p0, p1, p2, num_points=20):
         t = np.linspace(0, 1, num_points)
         t = t[:, np.newaxis]
-        curve = (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3 * p3
+        # 二阶贝塞尔公式: B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
+        curve = (1 - t) ** 2 * p0 + 2 * (1 - t) * t * p1 + t ** 2 * p2
         return curve
 
+class VehicleDynamicsData:
+    def __init__(self):
+        self.vehicle_params = dict(
+            k_f=-128915.5,  # front wheel cornering stiffness [N/rad]
+            k_r=-85943.6,  # rear wheel cornering stiffness [N/rad]
+            l_f=1.06,  # distance from CG to front axle [m]
+            l_r=1.85,  # distance from CG to rear axle [m]
+            m=1412.0,  # mass [kg]
+            I_z=1536.7,  # Polar moment of inertia at CG [kg*m^2]
+            miu=1.0,  # tire-road friction coefficient
+            g=9.81,  # acceleration of gravity [m/s^2]
+            ground_clearance=0.25,
+            wheel_distance=1.8,
+            veh_length=4.8,
+            veh_width=2.0,
+        )
+        l_f, l_r, mass, g = (
+            self.vehicle_params["l_f"],
+            self.vehicle_params["l_r"],
+            self.vehicle_params["m"],
+            self.vehicle_params["g"],
+        )
+        F_zf, F_zr = l_r * mass * g / (l_f + l_r), l_f * mass * g / (l_f + l_r)
+        self.vehicle_params.update(dict(F_zf=F_zf, F_zr=F_zr))
 
-# ==========================================
-# 核心环境类
-# ==========================================
+    def f_xu(self, states, actions, delta_t):
+        x, y, phi, u, v, w = states
+        steer, a_x = actions
+        k_f = self.vehicle_params["k_f"]
+        k_r = self.vehicle_params["k_r"]
+        l_f = self.vehicle_params["l_f"]
+        l_r = self.vehicle_params["l_r"]
+        m = self.vehicle_params["m"]
+        I_z = self.vehicle_params["I_z"]
+        next_state = [
+            x + delta_t * (u * np.cos(phi) - v * np.sin(phi)),
+            y + delta_t * (u * np.sin(phi) + v * np.cos(phi)),
+            phi + delta_t * w,
+            u + delta_t * a_x,
+            (
+                m * v * u
+                + delta_t * (l_f * k_f - l_r * k_r) * w
+                - delta_t * k_f * steer * u
+                - delta_t * m * np.square(u) * w
+            )
+            / (m * u - delta_t * (k_f + k_r)),
+            (
+                I_z * w * u
+                + delta_t * (l_f * k_f - l_r * k_r) * v
+                - delta_t * l_f * k_f * steer * u
+            )
+            / (I_z * u - delta_t * (np.square(l_f) * k_f + np.square(l_r) * k_r)),
+        ]
+        next_state[2] = angle_normalize(next_state[2])
+        return np.array(next_state, dtype=np.float32)
 
-class SimuVeh3dofcontiBimodalDiffusion(gym.Env):
-    def __init__(self, **kwargs):
+class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
+    metadata = {
+        "render.modes": ["human", "rgb_array"],
+    }
+    def __init__(self,
+                 pre_horizon: int = 20,
+                 path_para: Optional[Dict[str, Dict]] = None,
+                 u_para: Optional[Dict[str, Dict]] = None,
+                 max_steer: float = np.pi / 6,
+                 max_accel: float = 3.0,
+                 dynamic_obstacle_num: int = 1,
+                 static_obstacle_num: int = 2,
+                 d_pre: float = 20.0,  # 离障碍物多少远开始规划
+                 lateral_sample: float = 3.5,  # 横向采样距离
+                 forward_sample: float = 20.0,  # 纵向采样距离
+                 **kwargs):
+        super().__init__(pre_horizon, path_para, u_para, **kwargs)
+        self.max_episode_steps = 100
+        self.controller = SimpleController()
         self.is_adversary = kwargs.get("is_adversary", False)
         self.is_constraint = kwargs.get("is_constraint", False)
-
-        # --- 1. 预测时域与动作空间 ---
-        self.pred_horizon = kwargs.get("pred_horizon", 20)
+        # 控制模式开关, "planning": "control": 输入 [steer, acc] , 直接控制
+        self.control_mode = kwargs.get("control_mode", "planning")
+        self.max_steer = max_steer
+        self.max_accel = max_accel
         self.action_dim = 2
-        self.action_space = spaces.Box(
-            low=-np.inf, high=np.inf,
-            shape=(self.pred_horizon * self.action_dim,),
-            dtype=np.float32
-        )
-
+        # --- 1. 预测时域与动作空间 ---
+        self.pred_horizon = pre_horizon
+        if self.control_mode == "planning":
+            self.action_space = spaces.Box(
+                low=np.array([-lateral_sample], dtype=np.float32),
+                high=np.array([lateral_sample], dtype=np.float32),
+                dtype=np.float32
+            )
+        else:
+            # SAC/PPO 输出直接控制量: [steer, acc]
+            self.action_space = spaces.Box(
+                low=np.array([-self.max_steer, -self.max_accel]),
+                high=np.array([self.max_steer, self.max_accel]),
+                dtype=np.float32
+            )
         # --- 2. 观测空间设计 (融合全局跟踪信息 + 引导信息) ---
-
         # A. 基础参考路径参数 (用于生成 ref_points)
-        self.ref_horizon = 20  # 观测中包含的参考点数量
-
+        self.ref_horizon = pre_horizon
         # B. 障碍物参数
-        self.max_obs_num = 5  # 观测中最多包含的障碍物数量
+        self.max_obs_num = dynamic_obstacle_num+static_obstacle_num  # 观测中最多包含的障碍物数量
+        self.dynamic_obstacle_num = dynamic_obstacle_num
+        self.static_obstacle_num = static_obstacle_num
         self.obs_feat_dim = 8  # [x, y, phi, u, l, w, type, dist]
-
         # C. 维度计算
         self.dim_ego = 6
-        self.dim_ref = (self.ref_horizon - 1) * 4
+        self.dim_ref = self.ref_horizon * 4
         self.dim_obstacles = self.max_obs_num * self.obs_feat_dim
-        self.dim_prompts = 60
-
+        self.perception_range = 60.0
+        self.guide_traj_num = 3
+        self.dim_prompts = self.guide_traj_num * self.ref_horizon * 2
         self.total_obs_dim = self.dim_ego + self.dim_ref + self.dim_obstacles + self.dim_prompts
-        print(f"Diffusion Environment Obs Dim: {self.total_obs_dim}")
-
+        obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
+                             1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
+        self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
             shape=(self.total_obs_dim,),
             dtype=np.float32
         )
-
         # --- 3. 物理模型初始化 ---
-        self.vehicle_dynamics = SimuVeh3dofconti(**kwargs)
-        self.ref_traj = MultiRefTrajData()  # 加载参考轨迹数据
-        self.dt = 0.1
-        self.max_episode_steps = 200
-
+        self.d_pre = d_pre  # 障碍物感知前瞻距离
+        self.lateral_sample = lateral_sample  # 横向偏移量
+        self.forward_sample = forward_sample
+        self.veh_width = self.vehicle_dynamics.vehicle_params["veh_width"]
+        self.veh_length = self.vehicle_dynamics.vehicle_params["veh_length"]
+        self.wheel_distance = self.vehicle_dynamics.vehicle_params["wheel_distance"]
+        self.ground_clearance = self.vehicle_dynamics.vehicle_params["ground_clearance"]
         # 内部状态
-        self.steps = 0
-        self.time = 0.0
         self.obstacles: List[Obstacle] = []
         self.guide_trajectories: List[np.ndarray] = []
         self.current_diffusion_traj = None
-        self.ref_points = None
-
-        # 【关键修复】初始化随机种子
+        self.current_planning_traj = None
+        self.history_traj = []
         self.seed()
+        self.info_dict = {
+            "state": {"shape": (self.state_dim,), "dtype": np.float32},
+            "ref_points": {"shape": (self.pre_horizon + 1, 4), "dtype": np.float32},
+            "path_num": {"shape": (), "dtype": np.uint8},
+            "u_num": {"shape": (), "dtype": np.uint8},
+            "ref_time": {"shape": (), "dtype": np.float32},
+            "ref": {"shape": (4,), "dtype": np.float32},
+        }
 
-    # =======================================================
-    # 【关键修复】添加 seed 方法
-    # =======================================================
-    def seed(self, seed=None):
-        self.np_random, seed = gym.utils.seeding.np_random(seed)
-        # 同时也设置内部物理模型的随机种子
-        if hasattr(self.vehicle_dynamics, 'seed'):
-            self.vehicle_dynamics.seed(seed)
-        return [seed]
-
-    def reset(self):
-        self.steps = 0
-        self.time = 0.0
-
-        # 1. 随机选择参考轨迹
-        # 使用 self.np_random 替代 np.random 以支持 seed
-        # self.path_num = self.np_random.randint(0, 3)
-        # self.u_num = self.np_random.randint(0, 2)
-
-        # 安全测试模式：
-        self.path_num = 0
-        self.u_num = 0
-
-        # 2. 初始化参考点
-        self.ref_points = np.zeros((self.ref_horizon, 4), dtype=np.float32)
-        for i in range(self.ref_horizon):
-            curr_t = self.time + i * self.dt
-            self.ref_points[i, 0] = self.ref_traj.compute_x(curr_t, self.path_num, self.u_num)
-            self.ref_points[i, 1] = self.ref_traj.compute_y(curr_t, self.path_num, self.u_num)
-            self.ref_points[i, 2] = self.ref_traj.compute_phi(curr_t, self.path_num, self.u_num)
-            self.ref_points[i, 3] = self.ref_traj.compute_u(curr_t, self.path_num, self.u_num)
-
-        # 3. 重置车辆
-        init_x = self.ref_points[0, 0]
-        init_y = self.ref_points[0, 1]
-        init_phi = self.ref_points[0, 2]
-        init_u = self.ref_points[0, 3]
-
-        self.vehicle_dynamics.reset()
-        # 加上一点随机扰动，使用 self.np_random
-        self.vehicle_dynamics.state = np.array([
-            init_x,
-            init_y + self.np_random.uniform(-0.5, 0.5),
-            init_phi + self.np_random.uniform(-0.05, 0.05),
-            init_u, 0, 0
-        ], dtype=np.float32)
-
-        self.state = self.vehicle_dynamics.state.copy()
-
-        # 4. 生成障碍物
+    def reset(self,
+              init_state: list = None,
+              ref_time: float = None,
+              ref_num: int = None,
+              **kwargs) -> Tuple[np.ndarray, dict]:
+        super().reset(init_state, ref_time, ref_num, **kwargs)
+        # 4. 生成越野特有元素
         self.obstacles = self._generate_offroad_obstacles()
-
-        # 5. 生成引导轨迹 (Prompt)
         self.guide_trajectories = self._generate_guidance_prompts()
 
-        return self._get_obs()
+        # 初始化渲染变量
+        self.current_diffusion_traj = None
+        self.current_planning_traj = None
+        self.history_traj = [self.state[:2]] # 记录起点
+        self.step_self = 0
+        self.info["TimeLimit.truncated"] = False
+        return self._get_obs(), self.info
+
+    def _ego_to_global(self, points, vehicle_state):
+        """将局部坐标点转换为全局坐标"""
+        ego_x, ego_y, ego_phi = vehicle_state[0], vehicle_state[1], vehicle_state[2]
+        c, s = np.cos(ego_phi), np.sin(ego_phi)
+        x_global = points[:, 0] * c - points[:, 1] * s + ego_x
+        y_global = points[:, 0] * s + points[:, 1] * c + ego_y
+        return np.stack([x_global, y_global], axis=1)
 
     def step(self, action):
-        self.steps += 1
-        self.time += self.dt
-        # 1. 解析 Diffusion Action
-        self.current_diffusion_traj = action.reshape(self.pred_horizon, self.action_dim)
+        if np.any(np.isnan(action)):
+            print("【致命错误】Agent输出了 NaN Action!")
+            action = np.zeros_like(action)
+        if self.control_mode == "planning":
+            # 1. 坐标系对齐：全部在 Ego Frame 下工作
+            ego_x, ego_y, ego_phi = self.state[0], self.state[1], self.state[2]
 
-        # 2. 更新参考轨迹
-        self._update_ref_points()
-
-        # 3. 轨迹跟踪控制 (P Controller)
-        target_dx = self.current_diffusion_traj[0, 0]
-        target_dy = self.current_diffusion_traj[0, 1]
-
-        # 获取参考速度
-        ref_u = self.ref_points[0, 3]
-        u_current = self.state[3]
-
-        # 纵向控制
-        acc = 1.0 * (ref_u - u_current) + 0.5 * target_dx
-        acc = np.clip(acc, -3.0, 2.0)
-
-        # 横向
-        if abs(target_dx) < 0.1:
-            steer = 0.0
+            # 1. 寻找最近的威胁障碍物
+            nearest_obs = None
+            min_dist = float('inf')
+            for obs in self.obstacles:
+                # 计算到障碍物的距离
+                dist = np.linalg.norm([obs.x - ego_x, obs.y - ego_y])
+                # 判定条件：
+                # 1. 距离在感知范围内 (d_pre) 2. 障碍物在车前方 (简单判断 x)
+                if dist < self.d_pre and obs.x > ego_x:
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_obs = obs
+            # === 情况 A: 存在威胁障碍物 ===
+            if nearest_obs is not None:
+                y_target = nearest_obs.y + action[0] + nearest_obs.w / 2 + self.veh_width / 2
+                p0 = np.array([ego_x, ego_y])
+                # 控制点 p1: 在障碍物横向截面处
+                p1 = np.array([nearest_obs.x, y_target])
+                # 终点 p2: 在障碍物后方，回归目标 y
+                p2 = np.array([nearest_obs.x + self.forward_sample + nearest_obs.l / 2, y_target])
+                # Global 坐标系轨迹
+                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pred_horizon + 1)
+                self.current_planning_traj = full_curve
+            # === 情况 B: 无威胁，自由行驶 ===
+            else:
+                # 获取全局参考路径在 Ego 系下的投影 (作为基准)
+                ref_ego_x, ref_ego_y, _ = ego_vehicle_coordinate_transform(
+                    ego_x, ego_y, ego_phi,
+                    self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2]
+                )
+                # ==========================================
+                # 2. 确定基准点 (Residual Learning)
+                mid_idx = min(len(ref_ego_x) - 1, int(self.pred_horizon / 2))
+                end_idx = min(len(ref_ego_x) - 1, self.pred_horizon - 1)
+                p1_base = np.array([ref_ego_x[mid_idx], ref_ego_y[mid_idx]])
+                p2_base = np.array([ref_ego_x[end_idx], ref_ego_y[end_idx]])
+                # ==========================================
+                # 3. 生成局部轨迹 (Ego Frame)
+                # ==========================================
+                p0 = np.array([0.0, 0.0])  # 【关键】P0 必须是局部原点
+                p1 = p1_base + np.array([0.0, action[0]])  # 动作是相对于基准的偏移
+                p2 = p2_base + np.array([0.0, action[0]])
+                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pred_horizon + 1)
+                # 立即转为 Global 轨迹 (仅用于 Reward 计算和 Render 绘图)
+                self.current_planning_traj = self._ego_to_global(
+                    full_curve[1:], self.state
+                )
+            # ==========================================
+            # 4. 追踪控制器 (使用局部坐标)
+            # real_action = self._tracking_controller(full_curve[1:])
+            real_action = self.controller.get_control(self.current_planning_traj, self.ref_points[0, 3], self.state[:3], self.state[3])
+            reward = self._compute_reward(real_action)
+            _, _, _, _ = super().step(real_action)
         else:
-            steer = math.atan2(target_dy, target_dx)
-        steer = np.clip(steer, -0.4, 0.4)
-
-        real_action = np.array([steer, acc], dtype=np.float32)
-
-        # 4. 物理步进
-        self.vehicle_dynamics.step(real_action)
-        self.state = self.vehicle_dynamics.state.copy()
-
+            # --- 分支 B: SAC/PPO/DSACT Controller 模式 ---
+            steer = np.clip(action[0], -self.max_steer, self.max_steer)
+            acc = np.clip(action[1], -self.max_accel, self.max_accel)
+            real_action = np.array([steer, acc], dtype=np.float32)
+            self.current_diffusion_traj = None  # 无轨迹可视化
+            _, _, _, _ = super().step(real_action)
+            reward = self._compute_reward(real_action)
+        # 障碍物步进 (动态障碍物更新)
+        self.step_self += 1
+        for obs in self.obstacles:
+            if obs.type == "dynamic" and obs.dynamic_data is not None:
+                obs.dynamic_data.step()
+                # 同步回 Obstacle 对象
+                obs.x = obs.dynamic_data.x
+                obs.y = obs.dynamic_data.y
+                obs.phi = obs.dynamic_data.phi
+                obs.u = obs.dynamic_data.u
         # 5. 更新引导
         self.guide_trajectories = self._generate_guidance_prompts()
-
         obs = self._get_obs()
-        reward = self._compute_reward(real_action)
-        done = self.steps >= self.max_episode_steps
-
-        # 出界判定
-        lat_error = abs(self.state[1] - self.ref_points[0, 1])
-        if lat_error > 5.0:
+        # 6. 终止条件
+        done = self.judge_done()
+        if done:
+            reward -= 10
+        # 7. 时间限制 (Truncated: 步数超限)
+        is_truncated = self.step_self >= self.max_episode_steps
+        if is_truncated:
+            self.info["TimeLimit.truncated"] = True
+            reward += 10.0  # 存活奖励
             done = True
-            reward -= 100.0
+        else:
+            self.info["TimeLimit.truncated"] = False
+        # 8. 记录历史轨迹用于渲染 (在 __init__ 中记得初始化 self.history_traj = [])
+        if not hasattr(self, 'history_traj'): self.history_traj = []
+        self.history_traj.append(self.state[:2])
+        if len(self.history_traj) > self.max_episode_steps: self.history_traj.pop(0)
 
-        return obs, reward, done, {}
+        if np.isnan(reward) or np.isinf(reward):
+            print("Warning: Reward is NaN/Inf! Resetting to -10.0")
+            # reward = -10.0  # 兜底防止崩盘
 
-    def _update_ref_points(self):
-        # 整体前移一位
-        self.ref_points[:-1] = self.ref_points[1:]
-
-        # 计算新点
-        future_t = self.time + (self.ref_horizon - 1) * self.dt
-        new_ref_point = np.array([
-            self.ref_traj.compute_x(future_t, self.path_num, self.u_num),
-            self.ref_traj.compute_y(future_t, self.path_num, self.u_num),
-            self.ref_traj.compute_phi(future_t, self.path_num, self.u_num),
-            self.ref_traj.compute_u(future_t, self.path_num, self.u_num),
-        ], dtype=np.float32)
-        self.ref_points[-1] = new_ref_point
+        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
+            print("Warning: Obs contains NaN/Inf!")
+            # obs = np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0)
+        return obs, reward, done, self.info
 
     def _get_obs(self):
         # 1. 坐标变换: 全局参考点 -> 局部 Ego 坐标系
@@ -226,20 +377,31 @@ class SimuVeh3dofcontiBimodalDiffusion(gym.Env):
 
         # 2. Ego Obs
         ego_obs = np.concatenate(
-            ([ref_x_tf[0], ref_y_tf[0], ref_phi_tf[0], ref_u_tf[0]], self.state[4:])
+            ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_u_tf[0]*self.obs_scale[3]], self.state[4:])
         )
-
         # 3. Ref Preview Obs
-        ref_obs = np.stack((ref_x_tf, ref_y_tf, ref_phi_tf, ref_u_tf), 1)[1:].flatten()
+        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3]), 1)[1:].flatten()
 
-        # 4. Obstacle Obs
+        # 4. Obstacle Obs (改进版：增加感知范围过滤)
         obs_feats = []
         dists = []
+
+        # 设定感知半径 (例如 60米)
+        # 只有在视野内的障碍物才值得关注
+
         for obs in self.obstacles:
             d = np.sqrt((obs.x - self.state[0]) ** 2 + (obs.y - self.state[1]) ** 2)
-            dists.append((d, obs))
+
+            # 【关键修改】增加距离过滤
+            # 只有距离小于感知半径，且不是那种已经被甩在身后很远(例如身后15米外)的障碍物才加入
+            # 这里简单用欧氏距离过滤，你也可以加 (obs.x - ego_x) > -10 这样的逻辑
+            if d < self.perception_range:
+                dists.append((d, obs))
+
+        # 按距离排序，优先关注最近的
         dists.sort(key=lambda x: x[0])
 
+        # 填充特征向量
         for i in range(self.max_obs_num):
             if i < len(dists):
                 d, obs = dists[i]
@@ -247,11 +409,16 @@ class SimuVeh3dofcontiBimodalDiffusion(gym.Env):
                     self.state[0], self.state[1], self.state[2],
                     np.array([obs.x]), np.array([obs.y]), np.array([obs.phi])
                 )
-                ou_tf = obs.u - self.state[3]
-                type_code = 1.0 if obs.can_cross else 0.0
-                feat = [ox_tf[0], oy_tf[0], ophi_tf[0], ou_tf, obs.l, obs.w, type_code, d]
+                # 增加 u 的相对速度
+                u_rel = obs.u - self.state[3]
+                # [x, y, phi, u, l, w, type, dist]
+                feat = [ox_tf[0]/self.perception_range, oy_tf[0]/self.perception_range, ophi_tf[0]*self.obs_scale[2],
+                        u_rel*self.obs_scale[3], obs.l*self.obs_scale[2], obs.w*self.obs_scale[2], 1.0 if obs.type == "dynamic" else 0.0, d/self.perception_range]
             else:
+                # 如果视野内没有障碍物，或者不足 max_obs_num 个，用 0 填充
+                # 这告诉网络：“这里没有东西，是安全的”
                 feat = [0.0] * self.obs_feat_dim
+
             obs_feats.extend(feat)
 
         obstacle_obs = np.array(obs_feats, dtype=np.float32)
@@ -259,126 +426,766 @@ class SimuVeh3dofcontiBimodalDiffusion(gym.Env):
         # 5. Prompts Obs
         prompt_feats = []
         for traj in self.guide_trajectories:
-            indices = np.linspace(0, len(traj) - 1, 10, dtype=int)
-            sampled = traj[indices]
             px_tf, py_tf, _ = ego_vehicle_coordinate_transform(
                 self.state[0], self.state[1], self.state[2],
-                sampled[:, 0], sampled[:, 1], np.zeros(10)
+                traj[:, 0], traj[:, 1], np.zeros(len(traj))
             )
-            prompt_feats.append(np.stack([px_tf, py_tf], axis=1).flatten())
+            prompt_feats.append(np.stack([px_tf*self.obs_scale[0], py_tf*self.obs_scale[1]], axis=1).flatten())
 
+        while len(prompt_feats) < self.guide_traj_num:
+            # 不可跨越，补充一维0
+            prompt_feats.append(np.zeros(self.ref_horizon * 2))
         prompt_obs = np.concatenate(prompt_feats)
+
         return np.concatenate((ego_obs, ref_obs, obstacle_obs, prompt_obs))
 
-    def _generate_offroad_obstacles(self):
-        obs = []
-        ref_x = self.ref_points[-1, 0]  # 远端参考点附近生成
-        ref_y = self.ref_points[-1, 1]
+    def _update_ref_points(self):
+        # 整体前移一位
+        self.ref_points[:-1] = self.ref_points[1:]
+        # 计算新点
+        future_t = self.t + self.ref_horizon * self.dt
+        new_ref_point = np.array([
+            self.ref_traj.compute_x(future_t, self.path_num, self.u_num),
+            self.ref_traj.compute_y(future_t, self.path_num, self.u_num),
+            self.ref_traj.compute_phi(future_t, self.path_num, self.u_num),
+            self.ref_traj.compute_u(future_t, self.path_num, self.u_num),
+        ], dtype=np.float32)
+        self.ref_points[-1] = new_ref_point
 
-        # 1. 静态大石头 (不可跨)
-        obs.append(Obstacle(x=ref_x, y=ref_y + 1.0, l=2.0, w=2.0, can_cross=False))
-        # 2. 倒伏树木 (可跨)
-        obs.append(Obstacle(x=self.state[0] + 30, y=self.state[1] - 0.5, l=1.0, w=3.0, can_cross=True))
-        return obs
+    def _generate_offroad_obstacles_new(self):
+        obs_list = []
+
+        # 1. 动态障碍物
+        if self.path_num == 3:
+            # circle path
+            dynamic_delta = -np.arctan2(DynamicObstacleData.l, self.ref_traj.ref_trajs[3].r)
+        else:
+            dynamic_delta = 0.0
+
+        for i_dynamic in range(self.dynamic_obstacle_num):
+            delta_t = self.np_random.uniform(3, 8)  # 稍微放宽范围
+            dynamic_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
+
+            delta_lon = 1.0 * self.np_random.uniform(-1, 1)
+            delta_lat = 0#1.0 * self.np_random.uniform(-2.0, 2.0)  # 限制在路宽范围内
+
+            dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
+            dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
+            dynamic_u = self.np_random.uniform(2, 8)  # 速度随机
+
+            dyn_data = DynamicObstacleData(
+                x=dynamic_x, y=dynamic_y, phi=dynamic_phi, u=dynamic_u, delta=dynamic_delta, dt=self.dt
+            )
+            obs_list.append(Obstacle(
+                x=dynamic_x, y=dynamic_y, phi=dynamic_phi, u=dynamic_u,
+                l=4.8, w=2.0, type="dynamic", can_cross=False,
+                id=i_dynamic, dynamic_data=dyn_data
+            ))
+
+        # 2. 静态障碍物
+        for i_static in range(self.static_obstacle_num):
+            delta_t = self.np_random.uniform(5, 15)  # 放在稍远一点
+            static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
+
+            delta_lon = 1.0 * self.np_random.uniform(-2, 2)
+            delta_lat = 0#1.0 * self.np_random.uniform(-3.0, 3.0)
+
+            static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
+            static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
+
+            static_length = self.np_random.uniform(1.0, 3.0)
+            static_width = self.np_random.uniform(1.0, 3.0)
+            static_height = self.np_random.uniform(0.1, 0.6)
+
+            # 判断可跨越性
+            can_cross = (static_height < self.ground_clearance and static_width < self.wheel_distance)
+
+            obs_list.append(Obstacle(
+                x=static_obs_x, y=static_obs_y, phi=static_obs_phi, u=0.0,
+                l=static_length, w=static_width, type="static",
+                can_cross=can_cross, id=self.dynamic_obstacle_num + i_static
+            ))
+
+        return obs_list
+
+    def _generate_offroad_obstacles(self):
+        obs_list = []
+        ego_x = self.state[0]
+
+        # 1. 静态障碍 - 不可跨 (大石头)
+        obs_list.append(Obstacle(
+            x=ego_x + 30, y=0.0, l=2.0, w=2.0,
+            type="static", can_cross=False, id=1
+        ))
+
+        # 2. 静态障碍 - 可跨 (小土堆/水坑)
+        obs_list.append(Obstacle(
+            x=ego_x + 60, y=0.0, l=3.0, w=3.0,
+            type="static", can_cross=True, id=2
+        ))
+
+        # 3. 动态障碍 (同向慢车 - 视为不可跨)
+        dyn_data = DynamicObstacleData(
+            x=ego_x + 10, y=0, phi=0, u=8.0
+        )
+        obs_list.append(Obstacle(
+            x=dyn_data.x, y=dyn_data.y, l=4.0, w=2.0,
+            u=dyn_data.u, type="dynamic", can_cross=False, id=3,
+            dynamic_data=dyn_data
+        ))
+        return obs_list
 
     def _generate_guidance_prompts(self):
+        """
+                智能引导生成逻辑 (区分可跨/不可跨)：
+                1. 寻找最近的威胁障碍物。
+                2. 若无威胁 -> 生成 3 条全局参考线跟随 (左/中/右车道)。
+                3. 若有威胁 -> 判断障碍物属性：
+                   - 可跨越 (can_cross=True) -> 生成 3 条引导: [左绕, 跨越, 右绕]
+                   - 不可跨 (can_cross=False) -> 生成 2 条引导: [左绕, 右绕]
+                """
+        ego_x, ego_y = self.state[0], self.state[1]
+
+        # 1. 寻找最近的威胁障碍物
+        nearest_obs = None
+        min_dist = float('inf')
+        for obs in self.obstacles:
+            # 计算到障碍物的距离
+            dist = np.linalg.norm([obs.x - ego_x, obs.y - ego_y])
+            # 判定条件：
+            # 1. 距离在感知范围内 (d_pre) 2. 障碍物在车前方 (简单判断 x)
+            if dist < self.d_pre and obs.x > ego_x:
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_obs = obs
+
         prompts = []
-        ego_x, ego_y, ego_phi = self.state[0], self.state[1], self.state[2]
+        # === 情况 A: 存在威胁障碍物 ===
+        if nearest_obs is not None:
+            # 基础偏移量，这里我们基于障碍物的 y 中心生成偏移
+            obs_y = nearest_obs.y
+            if nearest_obs.can_cross:
+                # 【可跨越】：生成 左、中、右 三条
+                offsets = [
+                    obs_y - self.lateral_sample - nearest_obs.w / 2 - self.veh_width / 2,  # 右绕
+                    obs_y,  # 直接跨越
+                    obs_y + self.lateral_sample + nearest_obs.w / 2 + self.veh_width / 2  # 左绕
+                ]
+            else:
+                # 【不可跨】：只生成 左、右 两条
+                offsets = [
+                    obs_y - self.lateral_sample-nearest_obs.w/2-self.veh_width/2,  # 右绕
+                    obs_y + self.lateral_sample + nearest_obs.w / 2 + self.veh_width / 2  # 左绕
+                ]
 
-        target_ref_idx = self.pred_horizon - 1
-        ref_target = self.ref_points[target_ref_idx]
-        tx, ty, tphi = ref_target[0], ref_target[1], ref_target[2]
+            # 使用贝塞尔曲线生成平滑轨迹
+            for y_target in offsets:
+                # 控制点 p0: 自车当前位置
+                p0 = np.array([ego_x, ego_y])
+                # 控制点 p1: 在障碍物横向截面处
+                p1 = np.array([nearest_obs.x, y_target])
+                # 终点 p2: 在障碍物后方，回归目标 y
+                p2 = np.array([nearest_obs.x + self.forward_sample+nearest_obs.l/2, y_target])
 
-        offsets = [3.0, 0.0, -3.0]  # Left, Center, Right
+                curve = BezierGenerator.generate(p0, p1, p2, num_points=self.ref_horizon)
+                prompts.append(curve)
 
-        for lat_offset in offsets:
-            p0 = np.array([ego_x, ego_y])
-
-            # 计算目标点 (沿参考线法向偏移)
-            nx, ny = -np.sin(tphi), np.cos(tphi)
-            p3 = np.array([tx + nx * lat_offset, ty + ny * lat_offset])
-
-            # 控制点
-            dist = np.linalg.norm(p3 - p0)
-            p1 = p0 + np.array([np.cos(ego_phi), np.sin(ego_phi)]) * (dist * 0.4)
-            p2 = p3 - np.array([np.cos(tphi), np.sin(tphi)]) * (dist * 0.4)
-
-            curve = BezierGenerator.generate(p0, p1, p2, p3, num_points=self.pred_horizon)
-            prompts.append(curve)
+        # === 情况 B: 无威胁，自由行驶 ===
+        else:
+            # 优化：生成左、中、右三条车道线，让 Agent 自己选一条最近的去跟
+            # 这样如果它刚绕过障碍物在左边，它会自然地选择左车道线继续开，而不是被强行拉回中间
+            lane_offsets = [self.lateral_sample, 0.0, -self.lateral_sample]
+            for offset in lane_offsets:
+                traj_points = []
+                for i in range(self.ref_horizon):
+                    rx = self.ref_points[i, 0]
+                    ry = self.ref_points[i, 1]
+                    rphi = self.ref_points[i, 2]
+                    # 法向平移
+                    nx = -np.sin(rphi)
+                    ny = np.cos(rphi)
+                    px = rx + nx * offset
+                    py = ry + ny * offset
+                    traj_points.append([px, py])
+                prompts.append(np.array(traj_points))
         return prompts
 
-    def _compute_reward(self, real_action):
-        ego_x, ego_y, ego_u = self.state[0], self.state[1], self.state[3]
-        steer, acc = real_action
-        ref_u = self.ref_points[0, 3]
+    def _compute_reward(self, action):
+        if self.control_mode == "planning":
+            if self.current_planning_traj is None:
+                return -1.0
 
-        # 1. 速度追踪
-        r_velocity = -1.0 * (ego_u - ref_u) ** 2
-        if ego_u < 0.1: r_velocity -= 5.0
+            agent_planning_traj = self.current_planning_traj
 
-        # 2. 引导一致性
-        min_prompt_dist = float('inf')
-        for traj in self.guide_trajectories:
-            prompt_pt = traj[0]
-            dist_y = np.linalg.norm([ego_x - prompt_pt[0], ego_y - prompt_pt[1]])
-            if dist_y < min_prompt_dist:
-                min_prompt_dist = dist_y
-        r_lateral = -1.0 * max(0, min_prompt_dist - 1.5) ** 2
+            # --- 1. 智能引导奖励 (Smart Guidance + Heading Alignment) ---
+            min_cum_dist_score = float('inf')
+            valid_guide_found = False
+            best_guide_traj = None  # [新增] 用于存储匹配到的最佳引导线
 
-        # 3. 避障
-        r_collision = 0.0
+            for guide_traj in self.guide_trajectories:
+                # 1. 安全性检查 (只跟踪不撞墙的线)
+                # margin=1.0 意味着引导线必须离障碍物有1米以上的缓冲
+                if self._check_traj_collision(guide_traj, margin=1.0):
+                    continue
+
+                valid_guide_found = True
+
+                # 2. 截取长度对齐
+                min_len = min(len(agent_planning_traj), len(guide_traj))
+
+                # 3. 计算逐点欧氏距离 (位置误差)
+                diff_vec = agent_planning_traj[:min_len, :2] - guide_traj[:min_len, :2]
+                point_wise_dists = np.linalg.norm(diff_vec, axis=1)
+
+                # 4. 计算累计位置误差
+                cum_dist = np.sum(point_wise_dists)
+
+                # 寻找累计误差最小的那条安全线
+                if cum_dist < min_cum_dist_score:
+                    min_cum_dist_score = cum_dist
+                    best_guide_traj = guide_traj[:min_len]  # [新增] 保存最佳轨迹片段
+
+            # --- 计算 Guidance 和 Heading 奖励 ---
+            r_heading = 0.0  # [新增] 航向奖励
+            if not valid_guide_found:
+                r_guidance = -1.0
+                # 如果没路走了，heading 也没意义，给个惩罚
+                r_heading = -1.0
+            else:
+                # A. 位置引导奖励
+                r_guidance = -0.05 * min_cum_dist_score
+
+                # B. [新增] 航向一致性奖励 (Heading Alignment)
+                if best_guide_traj is not None:
+                    # 截取 agent 轨迹以匹配长度
+                    agent_match = agent_planning_traj[:len(best_guide_traj)]
+
+                    # 计算切向量 (x_{i+1} - x_i, y_{i+1} - y_i)
+                    # axis=0 表示沿时间维做差分
+                    agent_diff = np.diff(agent_match, axis=0)
+                    guide_diff = np.diff(best_guide_traj, axis=0)
+
+                    # 计算每一段的航向角 phi = arctan2(dy, dx)
+                    agent_phi = np.arctan2(agent_diff[:, 1], agent_diff[:, 0])
+                    guide_phi = np.arctan2(guide_diff[:, 1], guide_diff[:, 0])
+
+                    # 计算角度误差，并归一化到 [-pi, pi]
+                    phi_error = agent_phi - guide_phi
+                    phi_error = (phi_error + np.pi) % (2 * np.pi) - np.pi
+
+                    # 累计航向误差惩罚
+                    # 权重建议：因为弧度值较小 (0.1~0.5)，且是 Sum，建议系数给大一点点
+                    r_heading = -0.05 * np.sum(np.square(phi_error))
+
+            # --- 2. 任务奖励 ---
+            ego_u = self.state[3]
+            ref_u = self.ref_points[0, 3]
+            # 缩小了系数，避免数值过大掩盖几何奖励
+            r_velocity = -0.5 * np.square(ego_u - ref_u)
+
+            # --- 3. 自身碰撞检测 (升级版：支持动态预测 + 连续惩罚) ---
+            r_collision = 0.0
+            t_steps = np.linspace(0, self.pred_horizon * self.dt, len(agent_planning_traj))
+
+            for obs in self.obstacles:
+                # 动态预测
+                obs_future_x = obs.x + obs.u * np.cos(obs.phi) * t_steps
+                obs_future_y = obs.y + obs.u * np.sin(obs.phi) * t_steps
+                obs_future_traj = np.stack([obs_future_x, obs_future_y], axis=1)
+
+                dists = np.linalg.norm(agent_planning_traj[:, :2] - obs_future_traj, axis=1)
+
+                # 势场半径
+                safe_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 1.0
+
+                # 连续梯度惩罚
+                in_field_mask = dists < safe_threshold
+                if np.any(in_field_mask):
+                    intrusions = safe_threshold - dists[in_field_mask]
+                    # 系数 1.1 配合平方项
+                    r_collision -= np.sum(np.square(intrusions))
+            # [B] 真实物理碰撞惩罚
+            if self._check_ego_collision():
+                r_collision -= 10.0
+
+            # 生存奖励，保持正向激励
+            r_living = 0.1
+
+            return r_velocity + r_guidance + r_heading + r_collision + r_living
+        else:
+            return super().compute_reward(action)
+
+    def _check_ego_collision(self):
+        ego_x, ego_y = self.state[0], self.state[1]
         for obs in self.obstacles:
             dist = np.sqrt((ego_x - obs.x) ** 2 + (ego_y - obs.y) ** 2)
-            danger_radius = 2.5
-            if dist < danger_radius:
-                if obs.can_cross:
-                    r_collision -= 5.0 * (danger_radius - dist)
-                else:
-                    r_collision -= 50.0 * (danger_radius - dist)
+            safe_dist = (self.veh_width + obs.w) / 2.0 + 0.2
+            if dist < safe_dist:
+                return True
+        return False
 
-        r_smooth = -0.1 * steer ** 2 - 0.01 * acc ** 2
-        return r_velocity + r_lateral + r_collision + r_smooth
+    def _check_traj_collision(self, traj_points, margin=0.0):
+        """
+        margin: 额外的安全边界。检查 Prompt 时给 1.0，检查自身碰撞时给 0.0
+        """
+        if traj_points is None or len(traj_points) == 0:
+            return True
 
-    def render(self, mode='human'):
+        t_steps = np.linspace(0, self.pred_horizon * self.dt, len(traj_points))
+
+        for obs in self.obstacles:
+            obs_future_x = obs.x + obs.u * np.cos(obs.phi) * t_steps
+            obs_future_y = obs.y + obs.u * np.sin(obs.phi) * t_steps
+            obs_future_traj = np.stack([obs_future_x, obs_future_y], axis=1)
+
+            dists = np.linalg.norm(traj_points[:, :2] - obs_future_traj, axis=1)
+
+            # 【关键】这里加上 margin
+            # 对于动态障碍物，引导线必须离它远远的
+            collision_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 0.5 + margin
+
+            if np.any(dists < collision_threshold):
+                return True
+        return False
+
+    def judge_done(self) -> bool:
+        """
+        判断 Episode 是否结束
+        结束条件：
+        1. 偏离参考线太远 (横向误差过大)
+        2. 车头朝向严重偏离 (航向误差过大)
+        3. 发生碰撞 (物理碰撞)
+        4. 动态约束破坏 (可选，如速度过低或过高)
+        """
+        x, y, phi = self.state[:3]
+        ref_x, ref_y, ref_phi = self.ref_points[0, :3]
+
+        # 1. 横向误差限制 (6米约等于两个车道宽，可以维持)
+        lat_error_done = np.abs(y - ref_y) > 7.0
+        # 2. 航向误差限制 (建议收紧到 90度 或 60度)
+        # 超过 90度 (np.pi / 2) 意味着车已经横过来了，基本无法恢复正常行驶
+        heading_error_done = np.abs(angle_normalize(phi - ref_phi)) > (np.pi / 2)
+        # 3. 碰撞检测 (复用更准确的逻辑)
+        # 注意：这里直接调用 _check_ego_collision，它考虑了由车宽/长定义的矩形/圆形安全域
+        collision_done = self._check_ego_collision()
+        # 4. (可选) 纵向落后限制
+        # 如果 x 轴严重落后于参考点(说明倒车或者停滞不前)，也可以 done
+        dist_longi_done = (x - ref_x) < -10.0
+        done = lat_error_done | heading_error_done | collision_done | dist_longi_done
+        return bool(done)
+
+    def _tracking_controller(self, traj_ego):
+        """
+        鲁棒控制器 (Pure Pursuit + P-Speed)
+        输入: traj_ego (N, 2) - 自车坐标系下的规划轨迹点 [x, y]
+        输出: [steer, acc]
+        """
+        # 1. 动态预瞄距离 (Lookahead Distance)
+        # 速度越快看越远，最小 2.0m，最大 15.0m
+        k_v = 0.8  # 增益系数
+        lookahead_dist = np.clip(self.state[3] * k_v, 2.0, 15.0)
+
+        # 2. 搜索预瞄点 (第一个超出预瞄距离的点)
+        target_point = traj_ego[-1]  # 默认兜底为最后一个点
+        target_idx = len(traj_ego) - 1
+
+        for i, pt in enumerate(traj_ego):
+            dist = np.linalg.norm(pt)
+            if dist > lookahead_dist:
+                target_point = pt
+                target_idx = i
+                break
+
+        # 3. 横向控制: Pure Pursuit
+        # target_point 是 (x, y)，在自车系下，x为纵向，y为横向
+        # alpha 是目标点相对于车身纵轴的夹角
+        alpha = math.atan2(target_point[1], target_point[0])
+
+        # 纯追踪公式: delta = atan(2 * L * sin(alpha) / Ld)
+        steer = math.atan2(2.0 * self.wheel_distance * math.sin(alpha), lookahead_dist)
+
+        # 4. 纵向控制: 带有前馈的速度跟踪
+        # 获取规划轨迹对应点的期望速度 (这里近似取全局参考线的速度)
+        # 注意：这里假设 ref_points 依然是全局参考，且长度够长
+        ref_idx = min(target_idx, len(self.ref_points) - 1)
+        target_v = self.ref_points[ref_idx, 3]
+
+        # P 控制器
+        k_p_acc = 5.0
+        acc = k_p_acc * (target_v - self.state[3])
+        steer = np.clip(steer, -self.max_steer, self.max_steer)
+        acc = np.clip(acc, -self.max_accel, self.max_accel)
+        return np.array([steer, acc], dtype=np.float32)
+    @property
+    def info(self):
+        info = super().info
+        # info.update({
+        #     "is_success": self.is_success,
+        # })
+        return info
+
+    def render_tracking_controller(self, mode='human'):
         import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
 
+        # 1. 强制设置 Agg 后端 (解决服务器无头模式报错)
+        if mode == 'rgb_array':
+            plt.switch_backend('agg')
+
+        # 2. 画布初始化
         if not hasattr(self, 'fig') or self.fig is None:
-            self.fig, self.ax = plt.subplots(figsize=(10, 6))
+            self.fig, self.ax = plt.subplots(figsize=(10, 6), dpi=80)
+
+        # 3. 清理并绘图
         self.ax.cla()
 
-        ego_x, ego_y, ego_phi = self.state[0], self.state[1], self.state[2]
+        # 调用内部绘图逻辑，传入 self.ax
+        self._render(self.ax)
 
-        # 1. 参考线
-        if self.ref_points is not None:
-            self.ax.plot(self.ref_points[:, 0], self.ref_points[:, 1], 'b--', alpha=0.3, label='Global Ref')
+        # 4. 根据模式返回
+        if mode == 'rgb_array':
+            self.fig.canvas.draw()
+            # 获取 Buffer 并 Reshape
+            try:
+                data = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype=np.uint8)
+                width, height = self.fig.canvas.get_width_height()
+                data = data.reshape((height, width, 3))
+                return data
+            except Exception as e:
+                print(f"Render Error: {e}")
+                return None
+        elif mode == 'human':
+            try:
+                plt.pause(0.01)
+            except:
+                pass
+            return self.fig
 
-        # 2. 障碍
-        for obs in self.obstacles:
-            color = 'lime' if obs.can_cross else 'gray'
-            rect = patches.Rectangle((obs.x - obs.l / 2, obs.y - obs.w / 2), obs.l, obs.w, angle=np.degrees(obs.phi),
-                                     facecolor=color, edgecolor='k')
-            self.ax.add_patch(rect)
+    def render(self, mode='human'):
+        if mode == 'rgb_array':
+            # 确保返回正确的 numpy array
+            fig = self.render_tracking_controller(mode='rgb_array')
+            if fig is not None:
+                return fig
+            else:
+                # 备用方案：创建一个简单的图像
+                return np.zeros((480, 640, 3), dtype=np.uint8)
+        else:
+            return self.render_tracking_controller(mode=mode)
 
-        # 3. Prompt
-        for traj in self.guide_trajectories:
-            self.ax.plot(traj[:, 0], traj[:, 1], 'g:', alpha=0.5)
+    def _render(self, ax, veh_length=4.8, veh_width=2.0):
+        """
+        核心绘图逻辑：修复车辆显示和中文字体问题
+        """
+        import matplotlib.patches as pc
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import os
 
-        # 4. Action
-        if self.current_diffusion_traj is not None:
-            diff = self.current_diffusion_traj
-            c, s = np.cos(ego_phi), np.sin(ego_phi)
-            gx = ego_x + diff[:, 0] * c - diff[:, 1] * s
-            gy = ego_y + diff[:, 0] * s + diff[:, 1] * c
-            self.ax.plot(gx, gy, 'r-', lw=2, label='Diffusion')
+        # --- 0. 设置中文字体 ---
+        try:
+            # 设置中文字体路径（相对路径）
+            import matplotlib
+            # 方法1: 尝试使用绝对路径
+            chinese_font_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                'gops', 'utils', 'SIMSUN.ttf')
 
-        # 5. Ego
-        car = patches.Rectangle((ego_x - 2, ego_y - 1), 4, 2, angle=np.degrees(ego_phi), facecolor='blue')
-        self.ax.add_patch(car)
+            # 方法2: 如果上面的路径不对，尝试其他方式
+            if not os.path.exists(chinese_font_path):
+                # 尝试从当前文件位置向上查找
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                for _ in range(4):  # 向上查找4层目录
+                    current_dir = os.path.dirname(current_dir)
+                    test_path = os.path.join(current_dir, 'gops', 'utils', 'SIMSUN.ttf')
+                    if os.path.exists(test_path):
+                        chinese_font_path = test_path
+                        break
 
-        self.ax.set_xlim(ego_x - 10, ego_x + 50)
-        self.ax.set_ylim(ego_y - 15, ego_y + 15)
-        self.ax.legend()
-        plt.pause(0.01)
+            if os.path.exists(chinese_font_path):
+                # 添加字体到matplotlib
+                matplotlib.font_manager.fontManager.addfont(chinese_font_path)
+                font_name = matplotlib.font_manager.FontProperties(fname=chinese_font_path).get_name()
+                matplotlib.rcParams['font.sans-serif'] = [font_name]
+                matplotlib.rcParams['axes.unicode_minus'] = False
+            else:
+                # 使用默认字体
+                matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
+        except Exception as e:
+            print(f"加载中文字体时出错: {e}")
+
+        # --- 1. 绘制自车 (Ego) ---
+        ego_x, ego_y, phi = self.state[:3]
+
+        # 修复：正确计算旋转后的矩形顶点
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+
+        # 计算矩形的四个顶点（未旋转）
+        half_length = veh_length / 2
+        half_width = veh_width / 2
+
+        corners = np.array([
+            [-half_length, -half_width],  # 左下
+            [half_length, -half_width],  # 右下
+            [half_length, half_width],  # 右上
+            [-half_length, half_width]  # 左上
+        ])
+
+        # 旋转顶点
+        rotation_matrix = np.array([[cos_phi, -sin_phi], [sin_phi, cos_phi]])
+        rotated_corners = corners.dot(rotation_matrix.T)
+
+        # 平移顶点到自车位置
+        rotated_corners[:, 0] += ego_x
+        rotated_corners[:, 1] += ego_y
+
+        # 创建多边形（正确旋转的矩形）
+        from matplotlib.patches import Polygon
+        ego_polygon = Polygon(
+            rotated_corners,
+            closed=True,
+            facecolor='magenta',
+            edgecolor='darkmagenta',
+            alpha=0.3,
+            linewidth=1.5,
+            zorder=20,
+            label='自车'
+        )
+        ax.add_patch(ego_polygon)
+
+        # 添加自车前进方向箭头
+        arrow_length = veh_length * 0.8
+        arrow_dx = arrow_length * cos_phi
+        arrow_dy = arrow_length * sin_phi
+
+        ax.arrow(
+            ego_x, ego_y,
+            arrow_dx, arrow_dy,
+            head_width=0.8,
+            head_length=1.2,
+            fc='red',
+            ec='red',
+            alpha=0.8,
+            zorder=21
+        )
+
+        # --- 2. 绘制参考轨迹 (Global) ---
+        if hasattr(self, 'ref_points') and self.ref_points is not None:
+            ax.plot(
+                self.ref_points[:, 0],
+                self.ref_points[:, 1],
+                'b--',
+                lw=1.5,
+                zorder=2,
+                label='参考轨迹'
+            )
+
+        # --- 3. 绘制规划轨迹 (Local / Planning) ---
+        traj_global = getattr(self, 'current_planning_traj', None)
+        if traj_global is not None and len(traj_global) > 0:
+            ax.plot(
+                traj_global[:, 0],
+                traj_global[:, 1],
+                'pink',
+                marker='.',
+                markersize=4,
+                markeredgecolor='deeppink',
+                markeredgewidth=0.5,
+                linewidth=1.5,
+                alpha=0.8,
+                zorder=15,
+                label='规划轨迹'
+            )
+
+        # --- 4. 绘制历史轨迹 ---
+        if hasattr(self, 'history_traj') and self.history_traj:
+            history_array = np.array(self.history_traj)
+            if len(history_array) > 1:
+                ax.plot(
+                    history_array[:, 0],
+                    history_array[:, 1],
+                    'gray',
+                    linestyle='-',
+                    linewidth=1.0,
+                    alpha=0.5,
+                    zorder=5,
+                    label='历史轨迹'
+                )
+
+        legend_labels = ['自车', '全局轨迹', '规划轨迹', '历史轨迹']
+
+        # --- 5. 绘制障碍物 (Dynamic & Static) ---
+        if hasattr(self, 'obstacles'):
+            for i, obs in enumerate(self.obstacles):
+                # 判断障碍物类型
+                can_cross = getattr(obs, 'can_cross', False)
+                is_dynamic = getattr(obs, 'type', 'static') == 'dynamic'
+
+                # 设置颜色
+                if is_dynamic:
+                    color = 'red'  # 动态障碍物
+                    label_suffix = '动态'
+                else:
+                    if can_cross:
+                        color = 'lime'  # 可跨越的静态障碍物
+                        label_suffix = '静态(可跨)'
+                    else:
+                        color = 'gray'  # 不可跨越的静态障碍物
+                        label_suffix = '静态(不可跨)'
+
+                # 创建正确旋转的障碍物矩形
+                obs_cos_phi = np.cos(obs.phi)
+                obs_sin_phi = np.sin(obs.phi)
+
+                obs_half_length = obs.l / 2
+                obs_half_width = obs.w / 2
+
+                obs_corners = np.array([
+                    [-obs_half_length, -obs_half_width],
+                    [obs_half_length, -obs_half_width],
+                    [obs_half_length, obs_half_width],
+                    [-obs_half_length, obs_half_width]
+                ])
+
+                obs_rotation_matrix = np.array([
+                    [obs_cos_phi, -obs_sin_phi],
+                    [obs_sin_phi, obs_cos_phi]
+                ])
+                obs_rotated_corners = obs_corners.dot(obs_rotation_matrix.T)
+
+                # 平移顶点到障碍物位置
+                obs_rotated_corners[:, 0] += obs.x
+                obs_rotated_corners[:, 1] += obs.y
+
+                obs_polygon = Polygon(
+                    obs_rotated_corners,
+                    closed=True,
+                    facecolor=color,
+                    edgecolor='black',
+                    alpha=0.1,
+                    linewidth=2,
+                    zorder=10,
+                    label=f'障碍物: {label_suffix}'
+                )
+                ax.add_patch(obs_polygon)
+                legend_labels.append(f'障碍物: {label_suffix}')
+
+                # 如果是动态障碍物，添加速度箭头
+                if is_dynamic and abs(obs.u) > 0.1:
+                    speed_arrow_length = obs.u * 0.5
+                    arrow_dx = speed_arrow_length * obs_cos_phi
+                    arrow_dy = speed_arrow_length * obs_sin_phi
+                    ax.arrow(
+                        obs.x, obs.y,
+                        arrow_dx, arrow_dy,
+                        head_width=0.5,
+                        head_length=0.8,
+                        fc='darkred',
+                        ec='darkred',
+                        alpha=0.6,
+                        zorder=11
+                    )
+
+        # --- 6. 绘制贝塞尔引导线 ---
+        if hasattr(self, 'guide_trajectories') and self.guide_trajectories:
+            colors = ['cyan', 'orange', 'purple']
+            for i, guide_traj in enumerate(self.guide_trajectories):
+                if len(guide_traj) > 1:
+                    color = colors[i % len(colors)]
+                    ax.plot(
+                        guide_traj[:, 0],
+                        guide_traj[:, 1],
+                        color=color,
+                        linestyle='--',
+                        linewidth=1.0,
+                        alpha=0.5,
+                        zorder=3,
+                        label=f'引导线{i + 1}'
+                    )
+                    legend_labels.append(f'引导线{i + 1}')
+
+        # --- 7. 绘制贝塞尔曲线 ---
+        if hasattr(self, 'best_curve') and self.best_curve is not None:
+            try:
+                t_values = np.linspace(0, 1, 20)
+                curve_points = [self.best_curve.compute_point(t) for t in t_values]
+                if curve_points:
+                    cx = [p[0] for p in curve_points]
+                    cy = [p[1] for p in curve_points]
+                    ax.plot(
+                        cx, cy,
+                        'c--',
+                        linewidth=1.5,
+                        zorder=3,
+                        label='贝塞尔曲线'
+                    )
+                    legend_labels.append('贝塞尔曲线')
+            except:
+                pass
+
+        # --- 8. 设置视野 ---
+        # 以自车为中心的视野
+        view_x_min = ego_x - 20
+        view_x_max = ego_x + 80
+        view_y_min = ego_y - 10
+        view_y_max = ego_y + 10
+
+        ax.set_xlim(view_x_min, view_x_max)
+        ax.set_ylim(view_y_min, view_y_max)
+        ax.set_aspect('equal')
+
+        # --- 9. 添加文本信息 ---
+        ego_speed = self.state[3] * 3.6
+        title_text = f"时间: {self.t:.1f}s | 速度: {ego_speed:.1f} km/h"
+        # ax.set_title(title_text, fontsize=20, pad=10)
+        # 添加坐标轴标签
+        ax.set_xlabel(r'纵向位置 $p_x$ (m)', fontsize=20)
+        ax.set_ylabel(r'横向位置 $p_y$ (m)', fontsize=20)
+        ax.tick_params(labelsize=15)
+        ax.tick_params(axis='x', direction='in')
+        ax.tick_params(axis='y', direction='in')
+        # 添加网格
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+
+        # --- 10. 添加图例 ---
+        # 获取所有图例句柄和标签
+        handles, labels = ax.get_legend_handles_labels()
+
+        # 移除重复的标签
+        unique_labels = []
+        unique_handles = []
+        seen = set()
+
+        for handle, label in zip(handles, labels):
+            if label not in seen:
+                seen.add(label)
+                unique_labels.append(label)
+                unique_handles.append(handle)
+
+        # 限制图例数量，避免过多
+        if len(unique_labels) > 10:
+            unique_labels = unique_labels[:10]
+            unique_handles = unique_handles[:10]
+            unique_labels.append("...")
+            # 添加一个空句柄
+            from matplotlib.patches import Rectangle
+            empty_patch = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+            unique_handles.append(empty_patch)
+
+        # 创建图例
+        ax.legend(
+            unique_handles,
+            unique_labels,
+            loc='upper left',
+            bbox_to_anchor=(0, 1.4),  # 放在图表上方
+            ncol=5,  # 分3列显示
+            fontsize=12,
+            framealpha=0.8,
+            fancybox=False
+        )
+
+        # --- 11. 确保图形正确渲染 ---
+        ax.figure.tight_layout()
+
 def env_creator(**kwargs):
     return SimuVeh3dofcontiBimodalDiffusion(**kwargs)

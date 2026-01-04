@@ -12,10 +12,10 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-result_path = "../results/pyth_veh3dofconti_bimodal_planning/DSACT_251230-085345"
+result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260101-223633"
 runner = PolicyRunner(
     log_policy_dir_list=[result_path],
-    trained_policy_iteration_list=["500000"],
+    trained_policy_iteration_list=["300000"],
     is_init_info=True,
     init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num": 0, "u_num": 0, "ref_time": 0},  #
     save_render=True,
@@ -23,7 +23,7 @@ runner = PolicyRunner(
     use_opt=False,  # Use optimal solution for comparison
     opt_args={
         "opt_controller_type": "MPC",
-        "num_pred_step": 30,
+        "num_pred_step": 20,
         "gamma": 1,
         "mode": "shooting",
         "minimize_options": {
@@ -34,7 +34,7 @@ runner = PolicyRunner(
         },
         "use_terminal_cost": False,
     },
-    constrained_env=True,
+    constrained_env=False,
     is_tracking=True,
     dt=0.1,
 )
