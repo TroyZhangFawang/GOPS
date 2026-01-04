@@ -30,7 +30,7 @@ except ImportError as e:
 
 # 主执行代码
 if __name__ == "__main__":
-    result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260104-084539"
+    result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260104-105706"
 
     # 确保路径存在
     if not os.path.exists(result_path):
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     # 使用增强的runner
     runner = EnhancedPolicyRunner(
         log_policy_dir_list=[result_path],
-        trained_policy_iteration_list=["100000"],
+        trained_policy_iteration_list=["350000"],
         is_init_info=True,
         init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num": 0, "u_num": 0, "ref_time": 0},
         save_render=True,

@@ -161,7 +161,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                  forward_sample: float = 20.0,  # 纵向采样距离
                  **kwargs):
         super().__init__(pre_horizon, path_para, u_para, **kwargs)
-        self.max_episode_steps = 100
+        self.max_episode_steps = 150
         self.controller = SimpleController()
         self.is_adversary = kwargs.get("is_adversary", False)
         self.is_constraint = kwargs.get("is_constraint", False)
@@ -382,7 +382,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         # 3. Ref Preview Obs
         ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3]), 1)[1:].flatten()
 
-        # 4. Obstacle Obs (改进版：增加感知范围过滤)
+        # 4. Obstacle Obs
         obs_feats = []
         dists = []
 
@@ -411,9 +411,14 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                 )
                 # 增加 u 的相对速度
                 u_rel = obs.u - self.state[3]
+                #TTC (Time-To-Collision) 特征
+                ttc = 100.0
+                if (ox_tf[0] > 0 and u_rel < -0.1) or (ox_tf[0] < 0 and u_rel > 0.1):
+                    ttc = d / (abs(u_rel) + 1e-5)
+                ttc = np.clip(ttc, 0, 10.0)
                 # [x, y, phi, u, l, w, type, dist]
                 feat = [ox_tf[0]/self.perception_range, oy_tf[0]/self.perception_range, ophi_tf[0]*self.obs_scale[2],
-                        u_rel*self.obs_scale[3], obs.l*self.obs_scale[2], obs.w*self.obs_scale[2], 1.0 if obs.type == "dynamic" else 0.0, d/self.perception_range]
+                        u_rel*self.obs_scale[3], obs.l*self.obs_scale[2], obs.w*self.obs_scale[2], 1.0 if obs.type == "dynamic" else 0.0, ttc*self.obs_scale[2]]
             else:
                 # 如果视野内没有障碍物，或者不足 max_obs_num 个，用 0 填充
                 # 这告诉网络：“这里没有东西，是安全的”
@@ -452,7 +457,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         ], dtype=np.float32)
         self.ref_points[-1] = new_ref_point
 
-    def _generate_offroad_obstacles_new(self):
+    def _generate_offroad_obstacles(self):
         obs_list = []
 
         # 1. 动态障碍物
@@ -467,7 +472,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
             dynamic_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
 
             delta_lon = 1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = 0#1.0 * self.np_random.uniform(-2.0, 2.0)  # 限制在路宽范围内
+            delta_lat = 1.0 * self.np_random.uniform(-2.0, 2.0)  # 限制在路宽范围内
 
             dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
@@ -488,7 +493,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
 
             delta_lon = 1.0 * self.np_random.uniform(-2, 2)
-            delta_lat = 0#1.0 * self.np_random.uniform(-3.0, 3.0)
+            delta_lat = 1.0 * self.np_random.uniform(-3.0, 3.0)
 
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
@@ -508,7 +513,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
 
         return obs_list
 
-    def _generate_offroad_obstacles(self):
+    def _generate_offroad_obstacles_fix(self):
         obs_list = []
         ego_x = self.state[0]
 
@@ -683,7 +688,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
             # 缩小了系数，避免数值过大掩盖几何奖励
             r_velocity = -0.5 * np.square(ego_u - ref_u)
 
-            # --- 3. 自身碰撞检测 (升级版：支持动态预测 + 连续惩罚) ---
+            # --- 3. 自身碰撞检测
             r_collision = 0.0
             t_steps = np.linspace(0, self.pred_horizon * self.dt, len(agent_planning_traj))
 
@@ -696,14 +701,18 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                 dists = np.linalg.norm(agent_planning_traj[:, :2] - obs_future_traj, axis=1)
 
                 # 势场半径
-                safe_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 1.0
+                base_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 1.0
+                safety_buffer = 0.0
+                if obs.type == "dynamic":
+                    safety_buffer = 0.5 * abs(obs.u - self.state[3])
 
-                # 连续梯度惩罚
+                safe_threshold = base_threshold + safety_buffer
+
                 in_field_mask = dists < safe_threshold
                 if np.any(in_field_mask):
                     intrusions = safe_threshold - dists[in_field_mask]
                     # 系数 1.1 配合平方项
-                    r_collision -= np.sum(np.square(intrusions))
+                    r_collision -= np.sum(np.square(intrusions))* 2.0
             # [B] 真实物理碰撞惩罚
             if self._check_ego_collision():
                 r_collision -= 10.0
@@ -740,10 +749,18 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
 
             dists = np.linalg.norm(traj_points[:, :2] - obs_future_traj, axis=1)
 
-            # 【关键】这里加上 margin
-            # 对于动态障碍物，引导线必须离它远远的
-            collision_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 0.5 + margin
+            # 动态安全阈值
+            base_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 0.5 + margin
+            # 如果是动态障碍物，增加额外的纵向安全距离 (Longitudinal Safety Buffer)
+            # 这就是防止周车撞我的关键！即使横向没撞，如果纵向太近也不行。
+            safety_buffer = 0.0
+            if obs.type == "dynamic":
+                # 计算相对速度
+                # 简单近似：如果障碍物比我快且在我后面，或者比我慢且在我前面，都需要额外距离
+                # 这里简化为统一加一个速度相关的 buffer
+                safety_buffer = 0.5 * abs(obs.u - self.state[3])
 
+            collision_threshold = base_threshold + safety_buffer
             if np.any(dists < collision_threshold):
                 return True
         return False
@@ -874,27 +891,24 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
 
     def _render(self, ax, veh_length=4.8, veh_width=2.0):
         """
-        核心绘图逻辑：修复车辆显示和中文字体问题
+        核心绘图逻辑：修复车辆显示和中文字体问题 (精简图例版)
         """
         import matplotlib.patches as pc
         import matplotlib.pyplot as plt
         import numpy as np
         import os
+        from matplotlib.patches import Polygon
 
-        # --- 0. 设置中文字体 ---
+        # --- 0. 设置中文字体 (保持不变) ---
         try:
-            # 设置中文字体路径（相对路径）
             import matplotlib
-            # 方法1: 尝试使用绝对路径
             chinese_font_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 'gops', 'utils', 'SIMSUN.ttf')
 
-            # 方法2: 如果上面的路径不对，尝试其他方式
             if not os.path.exists(chinese_font_path):
-                # 尝试从当前文件位置向上查找
                 current_dir = os.path.dirname(os.path.abspath(__file__))
-                for _ in range(4):  # 向上查找4层目录
+                for _ in range(4):
                     current_dir = os.path.dirname(current_dir)
                     test_path = os.path.join(current_dir, 'gops', 'utils', 'SIMSUN.ttf')
                     if os.path.exists(test_path):
@@ -902,290 +916,146 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                         break
 
             if os.path.exists(chinese_font_path):
-                # 添加字体到matplotlib
                 matplotlib.font_manager.fontManager.addfont(chinese_font_path)
                 font_name = matplotlib.font_manager.FontProperties(fname=chinese_font_path).get_name()
                 matplotlib.rcParams['font.sans-serif'] = [font_name]
                 matplotlib.rcParams['axes.unicode_minus'] = False
             else:
-                # 使用默认字体
                 matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
         except Exception as e:
             print(f"加载中文字体时出错: {e}")
 
+        # --- 辅助函数：旋转矩形 ---
+        def get_rotated_rect(x, y, phi, l, w):
+            cos_phi, sin_phi = np.cos(phi), np.sin(phi)
+            half_l, half_w = l / 2, w / 2
+            corners = np.array([
+                [-half_l, -half_w], [half_l, -half_w],
+                [half_l, half_w], [-half_l, half_w]
+            ])
+            rot_mat = np.array([[cos_phi, -sin_phi], [sin_phi, cos_phi]])
+            rotated = corners.dot(rot_mat.T)
+            rotated[:, 0] += x
+            rotated[:, 1] += y
+            return rotated
+
         # --- 1. 绘制自车 (Ego) ---
         ego_x, ego_y, phi = self.state[:3]
+        ego_corners = get_rotated_rect(ego_x, ego_y, phi, veh_length, veh_width)
 
-        # 修复：正确计算旋转后的矩形顶点
-        cos_phi = np.cos(phi)
-        sin_phi = np.sin(phi)
-
-        # 计算矩形的四个顶点（未旋转）
-        half_length = veh_length / 2
-        half_width = veh_width / 2
-
-        corners = np.array([
-            [-half_length, -half_width],  # 左下
-            [half_length, -half_width],  # 右下
-            [half_length, half_width],  # 右上
-            [-half_length, half_width]  # 左上
-        ])
-
-        # 旋转顶点
-        rotation_matrix = np.array([[cos_phi, -sin_phi], [sin_phi, cos_phi]])
-        rotated_corners = corners.dot(rotation_matrix.T)
-
-        # 平移顶点到自车位置
-        rotated_corners[:, 0] += ego_x
-        rotated_corners[:, 1] += ego_y
-
-        # 创建多边形（正确旋转的矩形）
-        from matplotlib.patches import Polygon
         ego_polygon = Polygon(
-            rotated_corners,
-            closed=True,
-            facecolor='magenta',
-            edgecolor='darkmagenta',
-            alpha=0.3,
-            linewidth=1.5,
-            zorder=20,
-            label='自车'
+            ego_corners, closed=True, facecolor='magenta', edgecolor='darkmagenta',
+            alpha=0.3, linewidth=2, zorder=20, label='自车'  # Label
         )
         ax.add_patch(ego_polygon)
 
-        # 添加自车前进方向箭头
-        arrow_length = veh_length * 0.8
-        arrow_dx = arrow_length * cos_phi
-        arrow_dy = arrow_length * sin_phi
-
-        ax.arrow(
-            ego_x, ego_y,
-            arrow_dx, arrow_dy,
-            head_width=0.8,
-            head_length=1.2,
-            fc='red',
-            ec='red',
-            alpha=0.8,
-            zorder=21
-        )
+        # 自车箭头 (不加图例)
+        ax.arrow(ego_x, ego_y, veh_length * 0.8 * np.cos(phi), veh_length * 0.8 * np.sin(phi),
+                 head_width=0.8, head_length=1.2, fc='red', ec='red', alpha=0.8, zorder=21)
 
         # --- 2. 绘制参考轨迹 (Global) ---
         if hasattr(self, 'ref_points') and self.ref_points is not None:
-            ax.plot(
-                self.ref_points[:, 0],
-                self.ref_points[:, 1],
-                'b--',
-                lw=1.5,
-                zorder=2,
-                label='参考轨迹'
-            )
+            ax.plot(self.ref_points[:, 0], self.ref_points[:, 1], 'b--', lw=2, zorder=2, label='全局轨迹')  # Label
 
-        # --- 3. 绘制规划轨迹 (Local / Planning) ---
+        # --- 3. 绘制规划轨迹 (Planning) ---
         traj_global = getattr(self, 'current_planning_traj', None)
         if traj_global is not None and len(traj_global) > 0:
-            ax.plot(
-                traj_global[:, 0],
-                traj_global[:, 1],
-                'pink',
-                marker='.',
-                markersize=4,
-                markeredgecolor='deeppink',
-                markeredgewidth=0.5,
-                linewidth=1.5,
-                alpha=0.8,
-                zorder=15,
-                label='规划轨迹'
-            )
+            ax.plot(traj_global[:, 0], traj_global[:, 1], 'pink', marker='.', markersize=7,
+                    markeredgecolor='deeppink', markeredgewidth=0.5, linewidth=2, alpha=0.8, zorder=15,
+                    label='规划轨迹')  # Label
 
         # --- 4. 绘制历史轨迹 ---
-        if hasattr(self, 'history_traj') and self.history_traj:
-            history_array = np.array(self.history_traj)
-            if len(history_array) > 1:
-                ax.plot(
-                    history_array[:, 0],
-                    history_array[:, 1],
-                    'gray',
-                    linestyle='-',
-                    linewidth=1.0,
-                    alpha=0.5,
-                    zorder=5,
-                    label='历史轨迹'
-                )
+        if hasattr(self, 'history_traj') and len(self.history_traj) > 1:
+            h_arr = np.array(self.history_traj)
+            # ax.plot(h_arr[:, 0], h_arr[:, 1], 'gray', ls='-', lw=1.0, alpha=0.5, zorder=5, label='历史轨迹') # 不需要
 
-        legend_labels = ['自车', '全局轨迹', '规划轨迹', '历史轨迹']
+        # --- 5. 绘制障碍物 (精简图例) ---
+        # 标志位，确保每种类型只添加一次图例
+        has_label_dynamic = False
+        has_label_static_cross = False
+        has_label_static_nocross = False
 
-        # --- 5. 绘制障碍物 (Dynamic & Static) ---
         if hasattr(self, 'obstacles'):
-            for i, obs in enumerate(self.obstacles):
-                # 判断障碍物类型
+            for obs in self.obstacles:
                 can_cross = getattr(obs, 'can_cross', False)
                 is_dynamic = getattr(obs, 'type', 'static') == 'dynamic'
 
-                # 设置颜色
+                # 确定样式和图例标签
+                label = None
                 if is_dynamic:
-                    color = 'red'  # 动态障碍物
-                    label_suffix = '动态'
+                    color = 'red'
+                    if not has_label_dynamic:
+                        label = '动态障碍物'
+                        has_label_dynamic = True
+                elif can_cross:
+                    color = 'lime'
+                    if not has_label_static_cross:
+                        label = '静态障碍物(可跨)'
+                        has_label_static_cross = True
                 else:
-                    if can_cross:
-                        color = 'lime'  # 可跨越的静态障碍物
-                        label_suffix = '静态(可跨)'
-                    else:
-                        color = 'gray'  # 不可跨越的静态障碍物
-                        label_suffix = '静态(不可跨)'
+                    color = 'gray'
+                    if not has_label_static_nocross:
+                        label = '静态障碍物(不可跨)'
+                        has_label_static_nocross = True
 
-                # 创建正确旋转的障碍物矩形
-                obs_cos_phi = np.cos(obs.phi)
-                obs_sin_phi = np.sin(obs.phi)
+                # 绘制
+                obs_corners = get_rotated_rect(obs.x, obs.y, obs.phi, obs.l, obs.w)
+                obs_poly = Polygon(obs_corners, closed=True, facecolor=color, edgecolor='black',
+                                   alpha=0.1, linewidth=2, zorder=10, label=label)  # 仅第一次有label
+                ax.add_patch(obs_poly)
 
-                obs_half_length = obs.l / 2
-                obs_half_width = obs.w / 2
-
-                obs_corners = np.array([
-                    [-obs_half_length, -obs_half_width],
-                    [obs_half_length, -obs_half_width],
-                    [obs_half_length, obs_half_width],
-                    [-obs_half_length, obs_half_width]
-                ])
-
-                obs_rotation_matrix = np.array([
-                    [obs_cos_phi, -obs_sin_phi],
-                    [obs_sin_phi, obs_cos_phi]
-                ])
-                obs_rotated_corners = obs_corners.dot(obs_rotation_matrix.T)
-
-                # 平移顶点到障碍物位置
-                obs_rotated_corners[:, 0] += obs.x
-                obs_rotated_corners[:, 1] += obs.y
-
-                obs_polygon = Polygon(
-                    obs_rotated_corners,
-                    closed=True,
-                    facecolor=color,
-                    edgecolor='black',
-                    alpha=0.1,
-                    linewidth=2,
-                    zorder=10,
-                    label=f'障碍物: {label_suffix}'
-                )
-                ax.add_patch(obs_polygon)
-                legend_labels.append(f'障碍物: {label_suffix}')
-
-                # 如果是动态障碍物，添加速度箭头
+                # 动态障碍物箭头
                 if is_dynamic and abs(obs.u) > 0.1:
-                    speed_arrow_length = obs.u * 0.5
-                    arrow_dx = speed_arrow_length * obs_cos_phi
-                    arrow_dy = speed_arrow_length * obs_sin_phi
-                    ax.arrow(
-                        obs.x, obs.y,
-                        arrow_dx, arrow_dy,
-                        head_width=0.5,
-                        head_length=0.8,
-                        fc='darkred',
-                        ec='darkred',
-                        alpha=0.6,
-                        zorder=11
-                    )
+                    ax.arrow(obs.x, obs.y, obs.u * 0.5 * np.cos(obs.phi), obs.u * 0.5 * np.sin(obs.phi),
+                             head_width=0.5, head_length=0.8, fc='darkred', ec='darkred', alpha=0.6, zorder=11)
 
-        # --- 6. 绘制贝塞尔引导线 ---
+        # --- 6. 绘制引导线 (合并图例) ---
+        has_label_guide = False
         if hasattr(self, 'guide_trajectories') and self.guide_trajectories:
             colors = ['cyan', 'orange', 'purple']
             for i, guide_traj in enumerate(self.guide_trajectories):
                 if len(guide_traj) > 1:
-                    color = colors[i % len(colors)]
-                    ax.plot(
-                        guide_traj[:, 0],
-                        guide_traj[:, 1],
-                        color=color,
-                        linestyle='--',
-                        linewidth=1.0,
-                        alpha=0.5,
-                        zorder=3,
-                        label=f'引导线{i + 1}'
-                    )
-                    legend_labels.append(f'引导线{i + 1}')
+                    label = '引导线' if not has_label_guide else None
+                    has_label_guide = True
 
-        # --- 7. 绘制贝塞尔曲线 ---
-        if hasattr(self, 'best_curve') and self.best_curve is not None:
-            try:
-                t_values = np.linspace(0, 1, 20)
-                curve_points = [self.best_curve.compute_point(t) for t in t_values]
-                if curve_points:
-                    cx = [p[0] for p in curve_points]
-                    cy = [p[1] for p in curve_points]
-                    ax.plot(
-                        cx, cy,
-                        'c--',
-                        linewidth=1.5,
-                        zorder=3,
-                        label='贝塞尔曲线'
-                    )
-                    legend_labels.append('贝塞尔曲线')
-            except:
-                pass
+                    ax.plot(guide_traj[:, 0], guide_traj[:, 1], color='cyan',
+                            ls='--', lw=2.0, alpha=0.5, zorder=3, label=label)
+
+        # --- 7. 绘制贝塞尔曲线 (合并图例) ---
+        # if hasattr(self, 'best_curve') and self.best_curve is not None:
+        #     # ... (省略具体计算，如有需要可保留)
+        #     ax.plot(cx, cy, 'c--', lw=2, zorder=3, label='贝塞尔曲线')
 
         # --- 8. 设置视野 ---
-        # 以自车为中心的视野
-        view_x_min = ego_x - 20
-        view_x_max = ego_x + 80
-        view_y_min = ego_y - 10
-        view_y_max = ego_y + 10
-
+        view_x_min, view_x_max = ego_x - 20, ego_x + 80
+        view_y_min, view_y_max = ego_y - 10, ego_y + 10
         ax.set_xlim(view_x_min, view_x_max)
         ax.set_ylim(view_y_min, view_y_max)
         ax.set_aspect('equal')
-
-        # --- 9. 添加文本信息 ---
-        ego_speed = self.state[3] * 3.6
-        title_text = f"时间: {self.t:.1f}s | 速度: {ego_speed:.1f} km/h"
-        # ax.set_title(title_text, fontsize=20, pad=10)
-        # 添加坐标轴标签
-        ax.set_xlabel(r'纵向位置 $p_x$ (m)', fontsize=20)
-        ax.set_ylabel(r'横向位置 $p_y$ (m)', fontsize=20)
-        ax.tick_params(labelsize=15)
+        ax.tick_params(labelsize=20)
         ax.tick_params(axis='x', direction='in')
         ax.tick_params(axis='y', direction='in')
-        # 添加网格
-        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        # --- 9. 设置坐标轴 ---
+        # ego_speed = self.state[3] * 3.6
+        # ax.set_title(f"时间: {self.t:.1f}s | 速度: {ego_speed:.1f} km/h", fontsize=14)
+        ax.set_xlabel(r'纵向位置 $p_x$ (m)', fontsize=20)
+        ax.set_ylabel(r'横向位置 $p_y$ (m)', fontsize=20)
+        # ax.grid(False, alpha=0.3, ls='--', lw=0.5)
 
-        # --- 10. 添加图例 ---
-        # 获取所有图例句柄和标签
-        handles, labels = ax.get_legend_handles_labels()
-
-        # 移除重复的标签
-        unique_labels = []
-        unique_handles = []
-        seen = set()
-
-        for handle, label in zip(handles, labels):
-            if label not in seen:
-                seen.add(label)
-                unique_labels.append(label)
-                unique_handles.append(handle)
-
-        # 限制图例数量，避免过多
-        if len(unique_labels) > 10:
-            unique_labels = unique_labels[:10]
-            unique_handles = unique_handles[:10]
-            unique_labels.append("...")
-            # 添加一个空句柄
-            from matplotlib.patches import Rectangle
-            empty_patch = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-            unique_handles.append(empty_patch)
-
-        # 创建图例
+        # --- 10. 创建图例 (自动去重) ---
+        # 因为我们在 plot/patch 时已经控制了 label 的唯一性，
+        # 所以直接调用 legend() 即可，它会自动忽略 label=None 的对象
         ax.legend(
-            unique_handles,
-            unique_labels,
-            loc='upper left',
-            bbox_to_anchor=(0, 1.4),  # 放在图表上方
-            ncol=5,  # 分3列显示
-            fontsize=12,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.45),  # 放在顶部居中
+            ncol=4,  # 一行4个，不够换行
+            fontsize=15,
+            frameon=False,
             framealpha=0.8,
             fancybox=False
         )
 
-        # --- 11. 确保图形正确渲染 ---
+        # --- 11. 布局调整 ---
         ax.figure.tight_layout()
-
 def env_creator(**kwargs):
     return SimuVeh3dofcontiBimodalDiffusion(**kwargs)
