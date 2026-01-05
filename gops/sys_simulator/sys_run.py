@@ -9102,7 +9102,7 @@ class EnhancedPolicyRunner(PolicyRunner):
 
         # Create additional directories if needed
         if self.save_screenshots:
-            self.screenshots_dir = os.path.join(self.save_path, "screenshots")
+            self.screenshots_dir = os.path.join(self.save_path, "screenshots_png")
             os.makedirs(self.screenshots_dir, exist_ok=True)
 
         if self.convert_to_gif:
@@ -9110,7 +9110,7 @@ class EnhancedPolicyRunner(PolicyRunner):
             os.makedirs(self.gif_dir, exist_ok=True)
 
     def run_an_episode(self, env, controller, init_info, is_opt, render=True):
-        """Override to capture screenshots during rendering"""
+        """Override to capture screenshots_png during rendering"""
         # 在方法开始处导入或定义必要的函数
         try:
             from gops.utils.common_utils import get_reference_from_info, get_robot_state_from_info
@@ -9212,8 +9212,11 @@ class EnhancedPolicyRunner(PolicyRunner):
                         frame_images.append(frame)
                         # Save individual screenshot
                         screenshot_path = os.path.join(
-                            self.screenshots_dir, f"frame_{step*env.dt:.1f}s.png")
+                            self.screenshots_dir, f"frame_{step*env.dt:.1f}s.pdf")
+                        screenshot_path_png = os.path.join(
+                            self.screenshots_dir, f"frame_{step * env.dt:.1f}s.png")
                         plt.imsave(screenshot_path, frame)
+                        plt.imsave(screenshot_path_png, frame)
                 except Exception as e:
                     print(f"Failed to capture screenshot at step {step}: {e}")
 
@@ -9513,7 +9516,7 @@ class EnhancedPolicyRunner(PolicyRunner):
                     f.write("\n## Screenshots\n")
                     screenshots = glob.glob(os.path.join(self.screenshots_dir, "*.png"))
                     if screenshots:
-                        # Show first few screenshots
+                        # Show first few screenshots_png
                         for i, screenshot in enumerate(screenshots[:5]):
                             rel_path = os.path.relpath(screenshot, self.save_path)
                             f.write(f"- Frame {i * self.screenshot_interval}: ![{rel_path}]({rel_path})\n")

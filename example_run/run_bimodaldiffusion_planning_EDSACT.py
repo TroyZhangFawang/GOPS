@@ -45,7 +45,7 @@ if __name__ == "__main__":
     # 使用增强的runner
     runner = EnhancedPolicyRunner(
         log_policy_dir_list=[result_path],
-        trained_policy_iteration_list=["350000"],
+        trained_policy_iteration_list=["450000"],
         is_init_info=True,
         init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num": 0, "u_num": 0, "ref_time": 0},
         save_render=True,
