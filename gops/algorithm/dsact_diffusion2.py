@@ -27,9 +27,6 @@ class ActionDistResult:
     def mode(self):
         return self.action
 
-# ==========================================
-# Diffusion 数学工具类 (改为 nn.Module 以支持自动设备管理)
-# ==========================================
 class DiffusionScheduler(nn.Module):
     def __init__(self, num_steps=100, beta_start=1e-4, beta_end=0.02):
         super().__init__()
@@ -59,10 +56,6 @@ class DiffusionScheduler(nn.Module):
         # 使用 self.betas.device 获取当前设备
         return torch.randint(0, self.num_steps, (batch_size,), device=self.betas.device).long()
 
-
-# ==========================================
-# 辅助类：Diffusion Policy 包装器
-# ==========================================
 class DiffusionPolicyWrapper(nn.Module):
     def __init__(self, mlp, scheduler, act_dim, act_max=1.0, act_min=-1.0):
         super().__init__()
@@ -111,10 +104,6 @@ class DiffusionPolicyWrapper(nn.Module):
 
         return x.clamp(self.act_min, self.act_max)
 
-
-# ==========================================
-# ApproxContainer (网络容器)
-# ==========================================
 class ApproxContainer(ApprBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -122,7 +111,7 @@ class ApproxContainer(ApprBase):
         self.diffusion_steps = kwargs.get("diffusion_steps", 20)
         self.scheduler = DiffusionScheduler(num_steps=self.diffusion_steps)
         policy_args = get_apprfunc_dict("policy", **kwargs)
-        mlp_policy = create_apprfunc(**policy_args)
+        policy = create_apprfunc(**policy_args)
 
         act_dim = kwargs["action_dim"]
         act_high = kwargs.get("action_high_limit", np.array([1.0]))
@@ -130,7 +119,7 @@ class ApproxContainer(ApprBase):
         act_max = float(np.max(act_high))
         act_min = float(np.min(act_low))
 
-        self.policy = DiffusionPolicyWrapper(mlp_policy, self.scheduler, act_dim, act_max, act_min)
+        self.policy = DiffusionPolicyWrapper(policy, self.scheduler, act_dim, act_max, act_min)
         self.policy_target = deepcopy(self.policy)
 
         q_args = get_apprfunc_dict("value", **kwargs)

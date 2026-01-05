@@ -20,6 +20,8 @@ __all__ = [
     "StochaPolicy",
     "EncodingStochaPolicy",
     "EncodingStochaPolicy2",
+    "DiffusionEncondingNet",
+    "DSACTCriticEncodingNet",
     "ActionValue",
     "ActionValueDis",
     "ActionValueDistri",
@@ -43,6 +45,217 @@ from gops.utils.diffusion_helpers import (
 )
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+import torch
+import torch.nn as nn
+import numpy as np
+import math
+
+
+# ==========================================
+# 1. 基础组件：时间步编码 (Sinusoidal Positional Embedding)
+# ==========================================
+class SinusoidalPosEmb(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        device = x.device
+        half_dim = self.dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
+        emb = x[:, None] * emb[None, :]
+        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
+        return emb
+
+
+# ==========================================
+# 2. 改造后的 Actor：Diffusion Noise Predictor
+# ==========================================
+class DiffusionEncondingNet(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+        obs_dim = kwargs["obs_dim"]
+        act_dim = kwargs["act_dim"]
+        hidden_sizes = kwargs["hidden_sizes"]  # e.g., [256, 256, 256]
+
+        # === A. 维度定义 (照搬你原来的逻辑) ===
+        self.ego_dim = 6
+        self.ref_dim = 20 * 6
+        self.obs_dim = 3 * 8
+        self.num_prompts = 3
+        self.points_per_prompt = 20
+
+        # === B. 状态编码器 (Encoders) ===
+        self.ref_encoder = nn.Sequential(nn.Linear(self.ref_dim, 128), nn.ReLU(), nn.Linear(128, 64))
+        self.obstacle_encoder = nn.Sequential(nn.Linear(self.obs_dim, 128), nn.ReLU(), nn.Linear(128, 64))
+        # 假设 PromptEncoder 是你自定义的类，这里保留接口
+        # self.prompt_encoder = PromptEncoder(input_dim=2, output_dim=32)
+        # 为了演示，我用 Linear 代替，请换回你自己的 PromptEncoder
+        self.prompt_encoder = nn.Sequential(nn.Linear(2, 32), nn.ReLU())
+
+        self.ego_encoder = nn.Sequential(nn.Linear(self.ego_dim, 64), nn.ReLU())
+
+        # 状态特征总维度: 64(ego) + 64(ref) + 64(obs) + 32*3(prompt) = 288
+        self.state_feat_dim = 64 + 64 + 64 + (32 * 3)
+
+        # === C. Diffusion 特有组件 ===
+        # 1. 时间步编码
+        self.time_dim = 32
+        self.time_mlp = nn.Sequential(
+            SinusoidalPosEmb(self.time_dim),
+            nn.Linear(self.time_dim, self.time_dim * 2),
+            nn.Mish(),
+            nn.Linear(self.time_dim * 2, self.time_dim),
+        )
+
+        # 2. 动作编码
+        self.action_mlp = nn.Sequential(nn.Linear(act_dim, 32), nn.Mish())
+
+        # === D. 主干网络 (Backbone) ===
+        # 输入 = 状态特征 + 时间特征 + 动作特征
+        input_dim = self.state_feat_dim + self.time_dim + 32
+
+        layers = []
+        last_dim = input_dim
+        for size in hidden_sizes:
+            layers.append(nn.Linear(last_dim, size))
+            layers.append(nn.Mish())  # Diffusion常用Mish激活函数
+            last_dim = size
+        layers.append(nn.Linear(last_dim, act_dim))  # 输出噪声，维度与 action 相同
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, obs, act, t):
+        """
+        obs: 原始观测 [B, obs_dim]
+        act: 加噪后的动作 (x_t) [B, act_dim]
+        t:   时间步 [B]
+        """
+        # 1. 状态编码 (照搬原逻辑)
+        ego = obs[:, :self.ego_dim]
+        ref = obs[:, self.ego_dim: self.ego_dim + self.ref_dim]
+        obst = obs[:, self.ego_dim + self.ref_dim: self.ego_dim + self.ref_dim + self.obs_dim]
+        prompts = obs[:, self.ego_dim + self.ref_dim + self.obs_dim:]
+
+        ego_feat = self.ego_encoder(ego)
+        ref_feat = self.ref_encoder(ref)
+        obs_feat = self.obstacle_encoder(obst)
+
+        prompts = prompts.reshape(-1, self.num_prompts, self.points_per_prompt, 2)
+        prompt_feats = []
+        for i in range(self.num_prompts):
+            # 注意处理 batch 维度，这里简单处理
+            p_feat = self.prompt_encoder(prompts[:, i, :, :])
+            # 如果 PromptEncoder 输出是 (B, N, D) 需要 flatten 或 pool，假设你原来的输出是 (B, 32)
+            if p_feat.dim() > 2: p_feat = p_feat.mean(dim=1)  # 简单示例
+            prompt_feats.append(p_feat)
+        prompt_combined = torch.cat(prompt_feats, dim=-1)
+
+        state_feat = torch.cat([ego_feat, ref_feat, obs_feat, prompt_combined], dim=-1)
+
+        # 2. 时间编码
+        time_feat = self.time_mlp(t)
+
+        # 3. 动作编码
+        act_feat = self.action_mlp(act)
+
+        # 4. 融合与输出
+        combined = torch.cat([state_feat, time_feat, act_feat], dim=-1)
+        noise_pred = self.net(combined)
+
+        return noise_pred
+
+
+# ==========================================
+# 3. 改造后的 Critic：支持编码的 DSACT Critic
+# ==========================================
+class DSACTCriticEncodingNet(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+        obs_dim = kwargs["obs_dim"]
+        act_dim = kwargs["act_dim"]
+        hidden_sizes = kwargs["hidden_sizes"]
+
+        # === 维度与编码器 (与 Actor 共享结构，但不共享权重) ===
+        # ... (这里省略重复定义的 self.ego_encoder 等，代码同上 Actor) ...
+        # 建议：为了代码整洁，可以将编码器部分封装成一个单独的 class StateEncoder(nn.Module)
+
+        # 简单起见，这里假设你已经复制了上面的编码器定义
+        self.ego_dim = 6
+        self.ref_dim = 20 * 6
+        self.obs_dim = 3 * 8
+        self.num_prompts = 3
+        self.points_per_prompt = 20
+        self.ref_encoder = nn.Sequential(nn.Linear(self.ref_dim, 128), nn.ReLU(), nn.Linear(128, 64))
+        self.obstacle_encoder = nn.Sequential(nn.Linear(self.obs_dim, 128), nn.ReLU(), nn.Linear(128, 64))
+        self.prompt_encoder = nn.Sequential(nn.Linear(2, 32), nn.ReLU())
+        self.ego_encoder = nn.Sequential(nn.Linear(self.ego_dim, 64), nn.ReLU())
+        self.state_feat_dim = 64 + 64 + 64 + (32 * 3)
+
+        # === Q 网络主干 ===
+        # 输入 = 状态特征 + 动作
+        input_dim = self.state_feat_dim + act_dim
+
+        # Mean Network
+        layers_mean = []
+        last_dim = input_dim
+        for size in hidden_sizes:
+            layers_mean.append(nn.Linear(last_dim, size))
+            layers_mean.append(nn.ReLU())
+            last_dim = size
+        layers_mean.append(nn.Linear(last_dim, 1))  # 输出 Q mean
+        self.mean_net = nn.Sequential(*layers_mean)
+
+        # Std Network (DSACT 特有)
+        layers_std = []
+        last_dim = input_dim
+        for size in hidden_sizes:
+            layers_std.append(nn.Linear(last_dim, size))
+            layers_std.append(nn.ReLU())
+            last_dim = size
+        layers_std.append(nn.Linear(last_dim, 1))  # 输出 Q std
+        self.std_net = nn.Sequential(*layers_std)
+
+        self.min_log_std = -5.0  # 防止除零
+        self.max_log_std = 2.0
+
+    def forward(self, obs, act):
+        # 1. 状态编码
+        ego = obs[:, :self.ego_dim]
+        ref = obs[:, self.ego_dim: self.ego_dim + self.ref_dim]
+        obst = obs[:, self.ego_dim + self.ref_dim: self.ego_dim + self.ref_dim + self.obs_dim]
+        prompts = obs[:, self.ego_dim + self.ref_dim + self.obs_dim:]
+
+        ego_feat = self.ego_encoder(ego)
+        ref_feat = self.ref_encoder(ref)
+        obs_feat = self.obstacle_encoder(obst)
+
+        prompts = prompts.reshape(-1, self.num_prompts, self.points_per_prompt, 2)
+        prompt_feats = []
+        for i in range(self.num_prompts):
+            # 注意：这里的 prompt_encoder 实现需要与你实际的维度匹配
+            p_feat = self.prompt_encoder(prompts[:, i, :, :])
+            if p_feat.dim() > 2: p_feat = p_feat.mean(dim=1)
+            prompt_feats.append(p_feat)
+        prompt_combined = torch.cat(prompt_feats, dim=-1)
+
+        state_feat = torch.cat([ego_feat, ref_feat, obs_feat, prompt_combined], dim=-1)
+
+        # 2. 拼接动作
+        combined = torch.cat([state_feat, act], dim=-1)
+
+        # 3. 输出
+        q_mean = self.mean_net(combined)
+        q_log_std = self.std_net(combined)
+
+        # 限制范围
+        q_log_std = torch.clamp(q_log_std, self.min_log_std, self.max_log_std)
+        q_std = q_log_std.exp()
+
+        # 返回拼接的 (mean, std) 以适配你的算法代码
+        return torch.cat([q_mean, q_std], dim=-1)
 
 
 class ObstacleEncoder(nn.Module):
@@ -423,7 +636,7 @@ class EncodingStochaPolicy2(nn.Module, Action_Distribution):
 
         # === 维度定义 ===
         self.ego_dim = 6
-        self.ref_dim = 20 * 4
+        self.ref_dim = 20 * 6
         self.obs_dim = 3 * 8
         # 注意：这里不需要定义 prompt_dim，因为我们后面是按 shape view 的
 
@@ -495,6 +708,8 @@ class EncodingStochaPolicy2(nn.Module, Action_Distribution):
         action_std = action_log_std.exp()
 
         return torch.cat((action_mean, action_std), dim=-1)
+
+
 class ActionValue(nn.Module, Action_Distribution):
     """
     Approximated function of action-value function.

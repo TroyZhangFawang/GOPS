@@ -1,69 +1,66 @@
 from collections import deque
 import numpy as np
 
+
 class PIDLonController(object):
 
-    def __init__(self):
+    def __init__(self, max_accel=3.0, dt=0.1):
         """
-        vehicle: actor to apply to local planner logic onto
-        K_P: Proportional term
-        K_D: Differential term
-        K_I: Integral term
-        dt: time differential in seconds
+        全 SI 单位制 (m/s)
         """
-        self._K_P = 0.25 / 3.6
-        self._K_D = 0  # .01
-        self._K_I = 0  # 0.012 #FIXME: To stop accmulate error when repectly require control signal in the same state.
-        self._dt = 0.1  # TODO: timestep
+        # --- 1. 参数调整建议 ---
+        # K_P: 建议 1.0 ~ 2.0。意思是每差 1m/s，多给 1m/s^2 的加速度
+        self._K_P = 1.5
+
+        # K_I: 建议 0.1 ~ 0.5。用于消除稳态误差(对抗风阻)
+        self._K_I = 0.2
+
+        # K_D: 速度控制通常不需要D，或者给很小(0.01)，否则信号由于噪声会抖动
+        self._K_D = 0.0
+
+        self._dt = dt
+        self._max_accel = max_accel
+
+        # 积分防饱和 (Anti-windup) 限制
+        self._integ_limit = max_accel
         self._integ = 0.0
         self._e_buffer = deque(maxlen=30)
 
-    def run_step(self, target_speed, current_speed, debug=False):
+    def run_step(self, target_speed, current_speed, target_accel=0.0):
         """
-        Execute one step of longitudinal control to reach a given target speed.
-
-        target_speed: target speed in Km/h
-        return: throttle control in the range [0, 1]
+        :param target_speed: m/s
+        :param current_speed: m/s
+        :param target_accel: m/s^2 (前馈量，从规划模块获取)
         """
+        return self._pid_control(target_speed, current_speed, target_accel)
 
-        return self._pid_control(target_speed, current_speed)
+    def _pid_control(self, target_speed, current_speed, target_accel):
+        # 1. 误差计算 (m/s)
+        error = target_speed - current_speed
 
-    def _pid_control(self, target_speed, current_speed):
-        """
-        Estimate the throttle of the vehicle based on the PID equations
+        # 2. 积分项 (带防饱和与重置逻辑)
+        # 如果误差方向改变，或者处于停车状态，重置积分
+        if error * self._integ < 0 or target_speed < 0.1:
+            self._integ = 0.0
 
-        :param target_speed:  target speed in Km/h
-        :param current_speed: current speed of the vehicle in Km/h
-        :return: throttle control in the range [-1, 1]
-        """
-        if target_speed == 0:
-            return -1
+        self._integ += error * self._dt
+        # 积分限幅
+        self._integ = np.clip(self._integ, -self._integ_limit, self._integ_limit)
 
-        target_speed = target_speed * 3.6
-        current_speed = current_speed * 3.6
+        self._e_buffer.append(error)
 
-        _e = (target_speed - current_speed)
-        self._integ += _e * self._dt
-        self._e_buffer.append(_e)
-
-        if current_speed < 2:
-            self._integ = 0
-
+        # 3. 微分项
         if len(self._e_buffer) >= 2:
-            _de = (self._e_buffer[-1] - self._e_buffer[-2]) / self._dt
-            _ie = self._integ
-
+            d_error = (self._e_buffer[-1] - self._e_buffer[-2]) / self._dt
         else:
-            _de = 0.0
-            _ie = 0.0
-        kp = self._K_P
-        ki = self._K_I
-        kd = self._K_D
+            d_error = 0.0
 
-        if target_speed < 5:
-            ki = 0
-            kd = 0
+        # 4. PID 计算
+        pid_output = (self._K_P * error) + (self._K_I * self._integ) + (self._K_D * d_error)
 
-        calculate_value = np.clip((kp * _e) + (kd * _de) + (ki * _ie), -1.0, 1.0)
-        return calculate_value
+        # 5. 【关键】加入前馈 (Feedforward)
+        # 最终输出 = PID反馈纠正 + 规划期望加速度
+        final_acc = pid_output + target_accel
 
+        # 6. 限幅
+        return np.clip(final_acc, -self._max_accel, self._max_accel)

@@ -70,8 +70,8 @@ class PurePursuitController(object):
         if _cross[2] < 0:
             _dot *= -1.0
 
-        lf = 1.2
-        lr = 1.95
+        lf = 1.06
+        lr = 1.85
         lwb = lf + lr
 
         v_rear_x = ego_x - v_vec[0] * lr / np.linalg.norm(v_vec)

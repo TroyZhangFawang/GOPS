@@ -2,14 +2,12 @@ import gym
 import numpy as np
 import math
 from gym import spaces
-from gops.env.env_ocp.pyth_base_env import PythBaseEnv
-from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData
-from gops.utils.math_utils import angle_normalize
-from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from gops.utils.planner_benchmark.control import SimpleController
-
+from gops.env.env_ocp.pyth_base_env import PythBaseEnv
+from gops.env.env_ocp.resources.ref_traj_data import MultiRefTrajData, MultiRoadSlopeData
+from gops.utils.math_utils import angle_normalize
 def ego_vehicle_coordinate_transform(
     ego_x: np.ndarray,
     ego_y: np.ndarray,
@@ -88,6 +86,113 @@ class BezierGenerator:
         curve = (1 - t) ** 2 * p0 + 2 * (1 - t) * t * p1 + t ** 2 * p2
         return curve
 
+class VelocityGenerator:
+    """
+    考虑曲率和车辆动力学约束的速度规划器
+    """
+
+    @staticmethod
+    def generate_profile(path_points, v_start, v_end, dt,
+                         max_lat_acc=2.5,  # 最大侧向加速度 [m/s^2] (越野建议 2.0-3.0)
+                         max_lon_acc=3.0,  # 最大纵向加速度 [m/s^2]
+                         max_lon_dec=3.0):  # 最大纵向减速度 [m/s^2]
+        """
+        输入:
+            path_points: (N, 2) [x, y]
+            v_start: 起始速度
+            v_end: 期望末端速度 (网络输出的意图)
+            dt: 采样时间间隔 (用于计算导数，但在规划中更多依赖路径长度)
+        输出:
+            traj_with_v: (N, 4) -> [x, y, phi, u]
+        """
+        # --- 1. 基础几何计算 (弧长 & 航向) ---
+        # 使用 gradient 替代 diff 可以保持数组长度不变，处理边界更平滑
+        x = path_points[:, 0]
+        y = path_points[:, 1]
+
+        # 一阶导数 (dx/dt, dy/dt 的近似，这里看作关于索引的微分)
+        dx = np.gradient(x)
+        dy = np.gradient(y)
+
+        # 计算航向角
+        phis = np.arctan2(dy, dx)
+        # 处理角度跳变 (例如从 3.14 跳到 -3.14)
+        phis = np.unwrap(phis)
+
+        # 计算路径各点间的距离
+        dists = np.sqrt(dx ** 2 + dy ** 2)
+        s_cum = np.cumsum(dists)  # 累计路程
+
+        # --- 2. 计算曲率 (Curvature) ---
+        # 二阶导数
+        ddx = np.gradient(dx)
+        ddy = np.gradient(dy)
+
+        # 曲率公式: k = |x'y'' - y'x''| / (x'^2 + y'^2)^(3/2)
+        # 添加 1e-6 防止分母为 0
+        curvature = np.abs(dx * ddy - dy * ddx) / (np.power(dx ** 2 + dy ** 2, 1.5) + 1e-6)
+
+        # --- 3. 计算速度约束 (Speed Limits) ---
+
+        # A. 侧向加速度约束: v <= sqrt(a_lat_max / k)
+        v_limit_lat = np.sqrt(max_lat_acc / (curvature + 1e-6))
+
+        # B. 绝对速度硬约束 (车辆物理极速)
+        max_hard_speed = 12.0
+        min_hard_speed = 8.0  # 防止停车
+        v_limit_lat = np.clip(v_limit_lat, min_hard_speed, max_hard_speed)
+
+        # C. 网络意图约束 (线性插值作为基础参考)
+        # 我们希望最终速度尽量接近 v_end，但中间要受物理限制
+        # 这里先生成一个线性的 profile 作为 Target
+        total_len = s_cum[-1]
+        if total_len < 1e-3:
+            s_ratio = np.zeros_like(s_cum)
+        else:
+            s_ratio = s_cum / total_len
+        v_ref_linear = v_start + (v_end - v_start) * s_ratio
+
+        # 初步合成：取 线性意图 和 曲率限制 的最小值
+        # 意思就是：想开快可以，但不能在弯道翻车
+        v_profile = np.minimum(v_ref_linear, v_limit_lat)
+
+        # --- 4. 纵向平滑 (关键步骤！) ---
+        # 仅仅取最小值是不够的，因为 v_limit_lat 可能会在入弯点突然下降。
+        # 车不可能瞬间减速。我们需要根据 max_lon_acc/dec 限制速度的变化率。
+        # 这种方法叫 "S-Curve" 或 "Forward-Backward Pass"
+
+        # (1) Forward Pass (处理加速限制):
+        # v[i] <= sqrt(v[i-1]^2 + 2 * a_acc * ds)
+        v_forward = np.zeros_like(v_profile)
+        v_forward[0] = v_start
+        for i in range(1, len(v_profile)):
+            ds = dists[i]
+            # 允许的最大速度 (根据动力加速)
+            v_allowable = np.sqrt(v_forward[i - 1] ** 2 + 2 * max_lon_acc * ds)
+            # 取 物理限制 和 当前规划值 的较小者
+            v_forward[i] = min(v_profile[i], v_allowable)
+
+        # (2) Backward Pass (处理减速限制):
+        # 这一步最重要！它保证了为了过后面的弯，现在就开始减速。
+        # v[i] <= sqrt(v[i+1]^2 + 2 * a_dec * ds)
+        v_final = np.zeros_like(v_forward)
+        v_final[-1] = v_forward[-1]  # 末端速度由 Forward 结果决定
+
+        for i in range(len(v_profile) - 2, -1, -1):
+            ds = dists[i + 1]
+            v_allowable = np.sqrt(v_final[i + 1] ** 2 + 2 * max_lon_dec * ds)
+            v_final[i] = min(v_forward[i], v_allowable)
+
+        # --- 5. 组合输出 ---
+        traj_with_v = np.stack([
+            x,
+            y,
+            phis,
+            v_final
+        ], axis=1)
+
+        return traj_with_v
+
 class VehicleDynamicsData:
     def __init__(self):
         self.vehicle_params = dict(
@@ -113,8 +218,9 @@ class VehicleDynamicsData:
         F_zf, F_zr = l_r * mass * g / (l_f + l_r), l_f * mass * g / (l_f + l_r)
         self.vehicle_params.update(dict(F_zf=F_zf, F_zr=F_zr))
 
-    def f_xu(self, states, actions, delta_t):
+    def f_xu(self, states, actions, road_info, delta_t):
         x, y, phi, u, v, w = states
+        theta_r, varphi_r = road_info
         steer, a_x = actions
         k_f = self.vehicle_params["k_f"]
         k_r = self.vehicle_params["k_r"]
@@ -122,16 +228,20 @@ class VehicleDynamicsData:
         l_r = self.vehicle_params["l_r"]
         m = self.vehicle_params["m"]
         I_z = self.vehicle_params["I_z"]
+        g = self.vehicle_params["g"]
         next_state = [
             x + delta_t * (u * np.cos(phi) - v * np.sin(phi)),
             y + delta_t * (u * np.sin(phi) + v * np.cos(phi)),
             phi + delta_t * w,
-            u + delta_t * a_x,
+            u + delta_t * (a_x - g * np.sin(theta_r)),
             (
                 m * v * u
                 + delta_t * (l_f * k_f - l_r * k_r) * w
                 - delta_t * k_f * steer * u
                 - delta_t * m * np.square(u) * w
+                # 假设坐标系为: x前, y左, z上。
+                # 如果 varphi_r > 0 代表车身向右倾斜(右低左高)，重力分力指向右侧(-y方向)
+                - delta_t * m * g * np.sin(varphi_r) * u
             )
             / (m * u - delta_t * (k_f + k_r)),
             (
@@ -144,7 +254,7 @@ class VehicleDynamicsData:
         next_state[2] = angle_normalize(next_state[2])
         return np.array(next_state, dtype=np.float32)
 
-class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
+class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
     metadata = {
         "render.modes": ["human", "rgb_array"],
     }
@@ -152,32 +262,42 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                  pre_horizon: int = 20,
                  path_para: Optional[Dict[str, Dict]] = None,
                  u_para: Optional[Dict[str, Dict]] = None,
+                 slope_para: Optional[Dict[str, Dict]] = None,
                  max_steer: float = np.pi / 6,
                  max_accel: float = 3.0,
-                 dynamic_obstacle_num: int = 1,
-                 static_obstacle_num: int = 2,
+                 dynamic_obstacle_num: int = 2,
+                 static_obstacle_num: int = 3,
                  d_pre: float = 20.0,  # 离障碍物多少远开始规划
                  lateral_sample: float = 3.5,  # 横向采样距离
                  forward_sample: float = 20.0,  # 纵向采样距离
+                 max_speed_dev: float = 1/3.6, # 最大允许偏离参考速度
                  **kwargs):
-        super().__init__(pre_horizon, path_para, u_para, **kwargs)
-        self.max_episode_steps = 151
-        self.controller = SimpleController()
-        self.is_adversary = kwargs.get("is_adversary", False)
-        self.is_constraint = kwargs.get("is_constraint", False)
-        # 控制模式开关, "planning": "control": 输入 [steer, acc] , 直接控制
+        work_space = kwargs.pop("work_space", None)
+        if work_space is None:
+            # initial range of [delta_x, delta_y, delta_phi, delta_u, v, w]
+            init_high = np.array([2, 1, np.pi / 6, 2, 0.1, 0.1], dtype=np.float32)
+            init_low = -init_high
+            work_space = np.stack((init_low, init_high))
+        super(SimuVeh3dofcontiBimodalDiffusion, self).__init__(work_space=work_space, **kwargs)
+        self.vehicle_dynamics = VehicleDynamicsData()
+        self.ref_traj = MultiRefTrajData(path_para, u_para)
+        self.state_dim = 6
+        self.pre_horizon = pre_horizon
+        self.dt = 0.1
+        self.max_episode_steps = 100
+        # 控制模式开关, "planning": 输出轨迹; "control": 输入 [steer, acc] , 直接控制
         self.control_mode = kwargs.get("control_mode", "planning")
         self.max_steer = max_steer
         self.max_accel = max_accel
         self.action_dim = 2
         # --- 1. 预测时域与动作空间 ---
-        self.pred_horizon = pre_horizon
         if self.control_mode == "planning":
             self.action_space = spaces.Box(
-                low=np.array([-lateral_sample], dtype=np.float32),
-                high=np.array([lateral_sample], dtype=np.float32),
+                low=np.array([-lateral_sample, -max_speed_dev], dtype=np.float32),
+                high=np.array([lateral_sample, max_speed_dev], dtype=np.float32),
                 dtype=np.float32
             )
+            self.controller = SimpleController(max_steer, max_accel)
         else:
             # SAC/PPO 输出直接控制量: [steer, acc]
             self.action_space = spaces.Box(
@@ -188,27 +308,29 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         # --- 2. 观测空间设计 (融合全局跟踪信息 + 引导信息) ---
         # A. 基础参考路径参数 (用于生成 ref_points)
         self.ref_horizon = pre_horizon
+        self.ref_traj = MultiRefTrajData(path_para, u_para)
+        self.road_slope = MultiRoadSlopeData(slope_para)
         # B. 障碍物参数
-        self.max_obs_num = dynamic_obstacle_num+static_obstacle_num  # 观测中最多包含的障碍物数量
+        self.max_obs_num = 3  # 观测中最多包含的障碍物数量
         self.dynamic_obstacle_num = dynamic_obstacle_num
         self.static_obstacle_num = static_obstacle_num
-        self.obs_feat_dim = 8  # [x, y, phi, u, l, w, type, dist]
+        self.obs_feat_dim = 8  # [x, y, phi, u, l, w, type, ttc]
         # C. 维度计算
         self.dim_ego = 6
-        self.dim_ref = self.ref_horizon * 4
+        self.dim_ref = self.ref_horizon * 6
         self.dim_obstacles = self.max_obs_num * self.obs_feat_dim
         self.perception_range = 60.0
         self.guide_traj_num = 3
         self.dim_prompts = self.guide_traj_num * self.ref_horizon * 2
         self.total_obs_dim = self.dim_ego + self.dim_ref + self.dim_obstacles + self.dim_prompts
-        obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
-                             1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
-        self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
             shape=(self.total_obs_dim,),
             dtype=np.float32
         )
+        obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
+                             1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
+        self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         # --- 3. 物理模型初始化 ---
         self.d_pre = d_pre  # 障碍物感知前瞻距离
         self.lateral_sample = lateral_sample  # 横向偏移量
@@ -224,21 +346,85 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         self.current_planning_traj = None
         self.history_traj = []
         self.seed()
+        self.state = None
+        self.path_num = None
+        self.u_num = None
+        self.t = None
+        self.ref_points = None
         self.info_dict = {
             "state": {"shape": (self.state_dim,), "dtype": np.float32},
             "ref_points": {"shape": (self.pre_horizon + 1, 4), "dtype": np.float32},
+            "slope_points": {"shape": (self.pre_horizon + 1, 2), "dtype": np.float32},
             "path_num": {"shape": (), "dtype": np.uint8},
             "u_num": {"shape": (), "dtype": np.uint8},
+            "slope_num": {"shape": (), "dtype": np.uint8},
             "ref_time": {"shape": (), "dtype": np.float32},
-            "ref": {"shape": (4,), "dtype": np.float32},
+            "ref": {"shape": (6,), "dtype": np.float32},
         }
 
     def reset(self,
               init_state: list = None,
               ref_time: float = None,
               ref_num: int = None,
+              slope_num: int = None,
               **kwargs) -> Tuple[np.ndarray, dict]:
-        super().reset(init_state, ref_time, ref_num, **kwargs)
+        if ref_time is not None:
+            self.t = ref_time
+        else:
+            self.t = 20.0 * self.np_random.uniform(0.0, 1.0)
+        if ref_num is None:
+            path_num = None
+            u_num = None
+            slope_num = None
+        else:
+            path_num = int(ref_num / 2)
+            u_num = int(ref_num % 2)
+            slope_num = int(ref_num % 2)
+
+        # If no ref_num, then randomly select path and speed
+        if path_num is not None:
+            self.path_num = path_num
+        else:
+            self.path_num = self.np_random.choice([0, 1, 2, 3,4 ])
+
+        if u_num is not None:
+            self.u_num = u_num
+        else:
+            self.u_num = 0#self.np_random.choice([0, 1])
+
+        if slope_num is not None:
+            self.slope_num = slope_num
+        else:
+            self.slope_num = 1#self.np_random.choice([0, 1])
+        ref_points = []
+        slope_points = []
+        for i in range(self.pre_horizon + 1):
+            ref_x = self.ref_traj.compute_x(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_y = self.ref_traj.compute_y(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_phi = self.ref_traj.compute_phi(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            ref_u = self.ref_traj.compute_u(
+                self.t + i * self.dt, self.path_num, self.u_num
+            )
+            road_longi = self.road_slope.compute_longislope(self.t + i * self.dt, self.slope_num)
+            road_lat = self.road_slope.compute_latslope(self.t + i * self.dt, self.slope_num)
+            ref_points.append([ref_x, ref_y, ref_phi, ref_u])
+            slope_points.append([road_longi, road_lat])
+        self.ref_points = np.array(ref_points, dtype=np.float32)
+        self.slope_points = np.array(slope_points, dtype=np.float32)
+
+        if init_state is not None:
+            delta_state = np.array(init_state, dtype=np.float32)
+        else:
+            delta_state = self.sample_initial_state()
+        self.state = np.concatenate(
+            (self.ref_points[0] + delta_state[:4], delta_state[4:])
+        )
         # 4. 生成越野特有元素
         self.obstacles = self._generate_offroad_obstacles()
         self.guide_trajectories = self._generate_guidance_prompts()
@@ -251,22 +437,19 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         self.info["TimeLimit.truncated"] = False
         return self._get_obs(), self.info
 
-    def _ego_to_global(self, points, vehicle_state):
-        """将局部坐标点转换为全局坐标"""
-        ego_x, ego_y, ego_phi = vehicle_state[0], vehicle_state[1], vehicle_state[2]
-        c, s = np.cos(ego_phi), np.sin(ego_phi)
-        x_global = points[:, 0] * c - points[:, 1] * s + ego_x
-        y_global = points[:, 0] * s + points[:, 1] * c + ego_y
-        return np.stack([x_global, y_global], axis=1)
-
     def step(self, action):
         if np.any(np.isnan(action)):
             print("【致命错误】Agent输出了 NaN Action!")
             action = np.zeros_like(action)
         if self.control_mode == "planning":
+            action = np.clip(action, self.action_space.low, self.action_space.high)
             # 1. 坐标系对齐：全部在 Ego Frame 下工作
-            ego_x, ego_y, ego_phi = self.state[0], self.state[1], self.state[2]
-
+            ego_x, ego_y, ego_phi, ego_u = self.state[0], self.state[1], self.state[2], self.state[3]
+            # 获取当前路段的参考速度
+            ref_v = self.ref_points[min(len(self.ref_points) - 1, int(self.pre_horizon / 2)), 3]
+            # 目标速度 = 参考速度 + 网络调整量
+            target_v = ref_v + action[1]
+            target_v = np.clip(target_v, 5.0, 15.0)  # 限制目标速度范围
             # 1. 寻找最近的威胁障碍物
             nearest_obs = None
             min_dist = float('inf')
@@ -288,7 +471,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                 # 终点 p2: 在障碍物后方，回归目标 y
                 p2 = np.array([nearest_obs.x + self.forward_sample + nearest_obs.l / 2, y_target])
                 # Global 坐标系轨迹
-                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pred_horizon + 1)
+                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pre_horizon + 1)
                 self.current_planning_traj = full_curve
             # === 情况 B: 无威胁，自由行驶 ===
             else:
@@ -299,8 +482,8 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                 )
                 # ==========================================
                 # 2. 确定基准点 (Residual Learning)
-                mid_idx = min(len(ref_ego_x) - 1, int(self.pred_horizon / 2))
-                end_idx = min(len(ref_ego_x) - 1, self.pred_horizon - 1)
+                mid_idx = min(len(ref_ego_x) - 1, int(self.pre_horizon / 2))
+                end_idx = min(len(ref_ego_x) - 1, self.pre_horizon - 1)
                 p1_base = np.array([ref_ego_x[mid_idx], ref_ego_y[mid_idx]])
                 p2_base = np.array([ref_ego_x[end_idx], ref_ego_y[end_idx]])
                 # ==========================================
@@ -309,25 +492,32 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                 p0 = np.array([0.0, 0.0])  # 【关键】P0 必须是局部原点
                 p1 = p1_base + np.array([0.0, action[0]])  # 动作是相对于基准的偏移
                 p2 = p2_base + np.array([0.0, action[0]])
-                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pred_horizon + 1)
+                bezier_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pre_horizon + 1)
                 # 立即转为 Global 轨迹 (仅用于 Reward 计算和 Render 绘图)
-                self.current_planning_traj = self._ego_to_global(
-                    full_curve[1:], self.state
+                full_curve = self._ego_to_global(
+                    bezier_curve[1:], self.state
                 )
+            self.current_planning_traj = VelocityGenerator.generate_profile(
+                full_curve,
+                v_start=ego_u,
+                v_end=target_v,
+                dt=self.dt
+            )
             # ==========================================
-            # 4. 追踪控制器 (使用局部坐标)
-            # real_action = self._tracking_controller(full_curve[1:])
-            real_action = self.controller.get_control(self.current_planning_traj, self.ref_points[0, 3], self.state[:3], self.state[3])
+            # 4. 追踪控制器,全局坐标系， current_planning_traj 包含[x, y, phi, u]
+            # real_action = self._tracking_controller(full_curve[1:],  self.current_planning_traj[1, 3])
+            real_action = self.controller.get_control(self.current_planning_traj[:, :2], self.current_planning_traj[1, 3], self.state[:3], self.state[3])
             reward = self._compute_reward(real_action)
-            _, _, _, _ = super().step(real_action)
+            self.state = self.vehicle_dynamics.f_xu(self.state, real_action, self.slope_points[1], self.dt)
         else:
+            action = np.clip(action, self.action_space.low, self.action_space.high)
             # --- 分支 B: SAC/PPO/DSACT Controller 模式 ---
-            steer = np.clip(action[0], -self.max_steer, self.max_steer)
-            acc = np.clip(action[1], -self.max_accel, self.max_accel)
-            real_action = np.array([steer, acc], dtype=np.float32)
             self.current_diffusion_traj = None  # 无轨迹可视化
-            _, _, _, _ = super().step(real_action)
-            reward = self._compute_reward(real_action)
+            self.state = self.vehicle_dynamics.f_xu(self.state, action, self.slope_points[1], self.dt)
+            reward = self._compute_reward(action)
+        self.t = self.t + self.dt
+        # 更新参考轨迹
+        self._update_ref_points()
         # 障碍物步进 (动态障碍物更新)
         self.step_self += 1
         for obs in self.obstacles:
@@ -344,7 +534,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         # 6. 终止条件
         done = self.judge_done()
         if done:
-            reward -= 10
+            reward = reward - 10
         # 7. 时间限制 (Truncated: 步数超限)
         is_truncated = self.step_self >= self.max_episode_steps
         if is_truncated:
@@ -380,7 +570,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
             ([ref_x_tf[0]*self.obs_scale[0], ref_y_tf[0]*self.obs_scale[1], ref_phi_tf[0]*self.obs_scale[2], ref_u_tf[0]*self.obs_scale[3]], self.state[4:])
         )
         # 3. Ref Preview Obs
-        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3]), 1)[1:].flatten()
+        ref_obs = np.stack((ref_x_tf*self.obs_scale[0], ref_y_tf*self.obs_scale[1], ref_phi_tf*self.obs_scale[2], ref_u_tf*self.obs_scale[3], self.slope_points[:, 0], self.slope_points[:, 1]), 1)[1:].flatten()
 
         # 4. Obstacle Obs
         obs_feats = []
@@ -455,7 +645,11 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
             self.ref_traj.compute_phi(future_t, self.path_num, self.u_num),
             self.ref_traj.compute_u(future_t, self.path_num, self.u_num),
         ], dtype=np.float32)
+        new_slope_point = np.array([self.road_slope.compute_longislope(self.t+self.pre_horizon*self.dt, self.slope_num),
+                                    self.road_slope.compute_latslope(self.t+self.pre_horizon*self.dt, self.slope_num)])
+
         self.ref_points[-1] = new_ref_point
+        self.slope_points[-1] = new_slope_point
 
     def _generate_offroad_obstacles_fix(self):
         obs_list = []
@@ -682,15 +876,20 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
                     # 权重建议：因为弧度值较小 (0.1~0.5)，且是 Sum，建议系数给大一点点
                     r_heading = -0.05 * np.sum(np.square(phi_error))
 
-            # --- 2. 任务奖励 ---
+            # 1. 效率奖励 (Efficiency Reward)
+            # 鼓励在安全的情况下开得快
+            r_velocity = 0.2 * self.state[3]
+            # 2. 侧向加速度惩罚 (Lateral Stability Reward) - 越野核心！
+            # a_lat = u^2 * curvature. 近似为 u * w (角速度)
+            # 惩罚高速过弯
             ego_u = self.state[3]
-            ref_u = self.ref_points[0, 3]
-            # 缩小了系数，避免数值过大掩盖几何奖励
-            r_velocity = -0.5 * np.square(ego_u - ref_u)
+            ego_w = self.state[5]
+            lat_acc = ego_u * ego_w
+            r_stability = -0.5 * (lat_acc ** 2)
 
             # --- 3. 自身碰撞检测
             r_collision = 0.0
-            t_steps = np.linspace(0, self.pred_horizon * self.dt, len(agent_planning_traj))
+            t_steps = np.linspace(0, self.pre_horizon * self.dt, len(agent_planning_traj))
 
             for obs in self.obstacles:
                 # 动态预测
@@ -719,10 +918,23 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
 
             # 生存奖励，保持正向激励
             r_living = 0.1
-
-            return r_velocity + r_guidance + r_heading + r_collision + r_living
+            # 4. 坡度奖励 (如果你的环境里有坡度信息)
+            # 坡度大时鼓励减速
+            r_slope = - 0.5 * (abs(self.slope_points[1, 0])+abs(self.slope_points[1, 1])) * ego_u
+            return r_velocity + r_guidance + r_heading + r_collision + r_living+r_stability+r_slope
         else:
-            return super().compute_reward(action)
+            x, y, phi, u, _, w = self.state
+            ref_x, ref_y, ref_phi, ref_u = self.ref_points[0]
+            steer, a_x = action
+            return -(
+                    0.04 * (x - ref_x) ** 2
+                    + 0.04 * (y - ref_y) ** 2
+                    + 0.02 * angle_normalize(phi - ref_phi) ** 2
+                    + 0.02 * (u - ref_u) ** 2
+                    + 0.01 * w ** 2
+                    + 0.01 * steer ** 2
+                    + 0.01 * a_x ** 2
+            )
 
     def _check_ego_collision(self):
         ego_x, ego_y = self.state[0], self.state[1]
@@ -740,7 +952,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         if traj_points is None or len(traj_points) == 0:
             return True
 
-        t_steps = np.linspace(0, self.pred_horizon * self.dt, len(traj_points))
+        t_steps = np.linspace(0, self.pre_horizon * self.dt, len(traj_points))
 
         for obs in self.obstacles:
             obs_future_x = obs.x + obs.u * np.cos(obs.phi) * t_steps
@@ -791,7 +1003,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         done = lat_error_done | heading_error_done | collision_done | dist_longi_done
         return bool(done)
 
-    def _tracking_controller(self, traj_ego):
+    def _tracking_controller(self, traj_ego, target_v):
         """
         鲁棒控制器 (Pure Pursuit + P-Speed)
         输入: traj_ego (N, 2) - 自车坐标系下的规划轨迹点 [x, y]
@@ -824,22 +1036,35 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         # 4. 纵向控制: 带有前馈的速度跟踪
         # 获取规划轨迹对应点的期望速度 (这里近似取全局参考线的速度)
         # 注意：这里假设 ref_points 依然是全局参考，且长度够长
-        ref_idx = min(target_idx, len(self.ref_points) - 1)
-        target_v = self.ref_points[ref_idx, 3]
+        # ref_idx = min(target_idx, len(self.ref_points) - 1)
 
         # P 控制器
         k_p_acc = 5.0
         acc = k_p_acc * (target_v - self.state[3])
         steer = np.clip(steer, -self.max_steer, self.max_steer)
         acc = np.clip(acc, -self.max_accel, self.max_accel)
+        print("target_speed",target_v, "current_speed", self.state[3], "acc",acc)
         return np.array([steer, acc], dtype=np.float32)
     @property
-    def info(self):
-        info = super().info
-        # info.update({
-        #     "is_success": self.is_success,
-        # })
-        return info
+    def info(self) -> dict:
+        return {
+            "state": self.state.copy(),
+            "ref_points": self.ref_points.copy(),
+            "slope_points": self.slope_points.copy(),
+            "path_num": self.path_num,
+            "u_num": self.u_num,
+            "slope_num": self.slope_num,
+            "ref": self.ref_points[0].copy(),
+            "ref_time": self.t,
+        }
+
+    def _ego_to_global(self, points, vehicle_state):
+        """将局部坐标点转换为全局坐标"""
+        ego_x, ego_y, ego_phi = vehicle_state[0], vehicle_state[1], vehicle_state[2]
+        c, s = np.cos(ego_phi), np.sin(ego_phi)
+        x_global = points[:, 0] * c - points[:, 1] * s + ego_x
+        y_global = points[:, 0] * s + points[:, 1] * c + ego_y
+        return np.stack([x_global, y_global], axis=1)
 
     def render_tracking_controller(self, mode='human'):
         import matplotlib.pyplot as plt
@@ -958,13 +1183,68 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         if hasattr(self, 'ref_points') and self.ref_points is not None:
             ax.plot(self.ref_points[:, 0], self.ref_points[:, 1], 'b--', lw=5, zorder=2, label='全局轨迹')  # Label
 
-        # --- 3. 绘制规划轨迹 (Planning) ---
-        traj_global = getattr(self, 'current_planning_traj', None)
-        if traj_global is not None and len(traj_global) > 0:
-            ax.plot(traj_global[:, 0], traj_global[:, 1], 'pink', marker='.', markersize=15,
-                    markeredgecolor='deeppink', markeredgewidth=0.5, linewidth=5, alpha=0.5, zorder=15,
-                    label='规划轨迹')  # Label
+            # --- 3. 绘制规划轨迹 (Planning) ---
+            # 替换原有的单一颜色绘制逻辑
+            traj_global = getattr(self, 'current_planning_traj', None)
+            if traj_global is not None and len(traj_global) > 0:
+                # 提取坐标
+                pts_x = traj_global[:, 0]
+                pts_y = traj_global[:, 1]
 
+                # 判断是否有速度维度 (N, 4)
+                if traj_global.shape[1] >= 4:
+                    pts_u = traj_global[:, 3]  # 第4列是速度
+
+                    # A. 绘制底层的细线 (表示连续性)
+                    ax.plot(pts_x, pts_y, color='pink', linewidth=4.0, alpha=0.5, zorder=14)
+
+                    # B. 绘制带颜色的散点 (颜色=速度)
+                    # vmin=0, vmax=10 根据你的最大期望速度设置，保证颜色不闪烁
+                    sc = ax.scatter(pts_x, pts_y, c=pts_u, cmap='jet', vmin=0, vmax=12.0,
+                                    s=30, edgecolors='none', zorder=15, label=None)
+
+                    ax.plot([], [],
+                            color='pink',  # 线条颜色：灰色 (对应你的底线)
+                            linewidth=4,  # 线条宽度
+                            linestyle='-',  # 实线
+                            marker='o',  # 点的形状：圆点
+                            markersize=15,  # 点的大小
+                            markerfacecolor='cyan',  # 点的颜色：选一个代表色(如青色或橙色)
+                            markeredgecolor='none',  # 去掉点的边框
+                            label='规划轨迹')  # 图例文字
+
+                    # C. 绘制 Colorbar (垂直放置在图框右侧外)
+                    try:
+                        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+                        # 使用 make_axes_locatable 自动分割坐标轴
+                        divider = make_axes_locatable(ax)
+
+                        # append_axes: 在右侧("right")添加一个宽 "2%" 的轴
+                        # pad=0.1: 与主图保持 0.1 inch 的间距
+                        cax = divider.append_axes("right", size="2%", pad=0.1)
+
+                        # 绘制 Colorbar
+                        cbar = plt.colorbar(sc, cax=cax, orientation="vertical")
+
+                        # 设置 Colorbar 的标签和样式
+                        cbar.set_label(r"速度 $(\mathrm{m/s})$", fontsize=25, labelpad=10)
+                        cbar.ax.tick_params(labelsize=21)
+
+                        # 强制设置刻度 (根据你的速度范围调整，例如 0~12)
+                        cbar.set_ticks([0, 3, 6, 9, 12])
+
+                    except ImportError:
+                        print("无法加载 axes_grid1，跳过 Colorbar 绘制")
+                    except Exception as e:
+                        # 捕获可能的布局错误 (例如多次调用导致的冲突)
+                        # print(f"Colorbar error: {e}")
+                        pass
+                else:
+                    # 兼容旧代码：如果没有速度信息，还是画粉色实线
+                    ax.plot(pts_x, pts_y, 'pink', marker='.', markersize=15,
+                            markeredgecolor='deeppink', markeredgewidth=0.5, linewidth=5, alpha=0.5, zorder=15,
+                            label='规划轨迹')
         # --- 4. 绘制历史轨迹 ---
         if hasattr(self, 'history_traj') and self.history_traj:
             history_array = np.array(self.history_traj)
@@ -1037,15 +1317,45 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         #     # ... (省略具体计算，如有需要可保留)
         #     ax.plot(cx, cy, 'c--', lw=2, zorder=3, label='贝塞尔曲线')
 
-        # --- 8. 设置视野 ---
-        view_x_min, view_x_max = ego_x - 20, ego_x + 60
-        view_y_min, view_y_max = ego_y - 10, ego_y + 10
-        ax.set_xlim(view_x_min, view_x_max)
-        ax.set_ylim(view_y_min, view_y_max)
-        ax.set_aspect('equal')
-        y_ticks = [ego_y - 10, ego_y, ego_y + 10]
+        # # --- 8. 设置视野 ---
+        # view_x_min, view_x_max = ego_x - 20, ego_x + 60
+        # view_y_min, view_y_max = ego_y - 10, ego_y + 10
+        # ax.set_xlim(view_x_min, view_x_max)
+        # ax.set_ylim(view_y_min, view_y_max)
+        # ax.set_aspect('equal')
+        # --- 8. 设置视野与动态刻度 (Core Modification) ---
+
+        # A. 确定 Y 轴范围和刻度 (3个数, 间隔10m)
+        # 逻辑: 中间是 ego_y, 上下各 10m
+        y_center = ego_y
+        y_min, y_max = y_center - 10, y_center + 10
+        # 强制设置 3 个刻度点
+        y_ticks = [y_center - 10, y_center, y_center + 10]
+
+        ax.set_ylim(y_min, y_max)
         ax.set_yticks(y_ticks)
-        ax.set_yticklabels(['-10', '0', '10'])
+
+        # B. 确定 X 轴范围和刻度 (5个数, 4等分, 间隔20m)
+        # 逻辑: 视野跨度 80m (4 * 20m), 使得 ego 在左侧 1/4 处
+        x_start = ego_x - 21
+        x_end = ego_x + 59
+        # 生成 5 个等间距的点: start, start+20, start+40, start+60, start+80
+        x_ticks = np.linspace(x_start, x_end, 5)
+
+        ax.set_xlim(x_start, x_end)
+        ax.set_xticks(x_ticks)
+
+        # C. 设置刻度显示格式 (避免出现长小数)
+        from matplotlib.ticker import FormatStrFormatter
+        # '%.0f' 表示只显示整数，如果你需要一位小数改成 '%.1f'
+        ax.xaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+        ax.yaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+
+        # D. 设置长宽比
+        ax.set_aspect('equal')
+        # y_ticks = [ego_y - 10, ego_y, ego_y + 10]
+        # ax.set_yticks(y_ticks)
+        # ax.set_yticklabels(['-10', '0', '10'])
         ax.tick_params(labelsize=28)
         ax.tick_params(axis='x', direction='in')
         ax.tick_params(axis='y', direction='in')
@@ -1061,7 +1371,7 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
         # 所以直接调用 legend() 即可，它会自动忽略 label=None 的对象
         ax.legend(
             loc='upper center',
-            bbox_to_anchor=(0.47, 1.46),  # 放在顶部居中
+            bbox_to_anchor=(0.54, 1.46),  # 放在顶部居中
             ncol=4,  # 一行4个，不够换行
             fontsize=21,
             frameon=False,
@@ -1070,5 +1380,6 @@ class SimuVeh3dofcontiBimodalDiffusion(SimuVeh3dofconti):
 
         # --- 11. 布局调整 ---
         ax.figure.tight_layout()
+
 def env_creator(**kwargs):
     return SimuVeh3dofcontiBimodalDiffusion(**kwargs)

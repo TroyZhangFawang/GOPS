@@ -11,13 +11,12 @@ VehicleState = TypeVar("VehicleState")
 
 class SimpleController(object):
 
-    def __init__(self):
-        self._lon_controller = PIDLonController()
+    def __init__(self, _max_steer, _max_accel):
+        self._lon_controller = PIDLonController(_max_accel)
         self._lat_controller = PurePursuitController()
-
-        self._max_brake = 0.5
-        self._max_throt = 0.75
-        self._max_steer = 0.8
+        self._max_dccel = -_max_accel
+        self._max_accel = _max_accel
+        self._max_steer = _max_steer
 
     def get_control(self, trajectory_array:np.ndarray, target_speed, current_pose, current_speed):
         '''
@@ -27,11 +26,12 @@ class SimpleController(object):
         :param current_speed:
         :return:
         '''
+
         acc = self._lon_controller.run_step(target_speed, current_speed)
         steering = self._lat_controller.run_step(np.asarray(trajectory_array), current_pose, current_speed)
-
-        acc = np.clip(acc, -self._max_brake, self._max_throt).item()
+        acc = np.clip(acc, self._max_dccel, self._max_accel).item()
         steering = np.clip(steering, -self._max_steer, self._max_steer).item()
+        # print("target_speed",target_speed, "current_speed", current_speed,"acc",acc)
         return np.array([steering, acc])
 
     def get_fallback_control(self, brake=None):
@@ -41,7 +41,7 @@ class SimpleController(object):
         :param brake: amount of brake to apply
         :return: control
         '''
-        acc = -self._max_brake if brake is None else -brake
+        acc = -self._max_dccel if brake is None else -brake
         steering = 0.0
 
         return acc, steering
@@ -63,6 +63,7 @@ class SimpleController(object):
     #     acc, steering = self.get_control_(traj_arr, target_speed, ego_pose, current_speed)
     #
     #     return acc, steering
+
 if __name__ == '__main__':
     ctl = SimpleController()
     a, st =  ctl.get_control(np.array([[0,0],[1,1]]), 10, [0,0,0], 10)

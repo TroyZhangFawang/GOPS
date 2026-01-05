@@ -79,7 +79,7 @@ class BaseSampler(metaclass=ABCMeta):
             # ref: https://stackoverflow.com/questions/5558418/list-of-dicts-to-from-dict-of-lists
             self.info = [dict(zip(self.info, t)) for t in zip(*self.info.values())] if self.info else [
                                                                                                           {}] * self.num_envs
-        self.controller = SimpleController()
+        self.controller = SimpleController(0.5, 3.0)
         self.kwargs = kwargs
         # self.env.close()
     def load_state_dict(self, state_dict):

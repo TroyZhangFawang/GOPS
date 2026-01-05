@@ -21,9 +21,9 @@ if __name__ == "__main__":
     parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning")
     parser.add_argument("--control_mode", type=str, default="planning")
     # 【关键】算法名改为自动注册生成的 CamelCase 名字
-    parser.add_argument("--algorithm", type=str, default="DSACTDiffusion")
+    parser.add_argument("--algorithm", type=str, default="DSACTDiffusion2")
     parser.add_argument("--enable_cuda", default=False, help="Enable CUDA")
-    parser.add_argument("--seed", default=3328005365, help="Seed")
+    parser.add_argument("--seed", default=12345, help="Seed")
 
     # 2. 环境参数
     parser.add_argument("--action_type", type=str, default="continu")
@@ -34,15 +34,14 @@ if __name__ == "__main__":
     # 3. Parameters for approximate function (Networks)
 
     # Value Network (Critic) - 使用普通 MLP
-    parser.add_argument("--value_func_name", type=str, default="ActionValue")
+    parser.add_argument("--value_func_name", type=str, default="DSACTCriticEncodingNet")
     parser.add_argument("--value_func_type", type=str, default="MLP")
     parser.add_argument("--value_hidden_sizes", type=list, default=[256, 256, 256])
     parser.add_argument("--value_hidden_activation", type=str, default="relu")
     parser.add_argument("--value_output_activation", type=str, default="linear")
 
-
-    parser.add_argument("--policy_func_type", type=str, default="diffusion")  # 对应注册时的 name
-    parser.add_argument("--policy_func_name", type=str, default="mlp")
+    parser.add_argument("--policy_func_name", type=str, default="DiffusionEncondingNet")
+    parser.add_argument("--policy_func_type", type=str, default="MLP")
     parser.add_argument("--policy_hidden_sizes", type=list, default=[256, 256, 256])
     parser.add_argument("--policy_hidden_activation", type=str, default="relu")
     parser.add_argument("--policy_output_activation", type=str, default="linear")
