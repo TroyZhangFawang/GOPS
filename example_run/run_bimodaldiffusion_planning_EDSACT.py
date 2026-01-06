@@ -30,7 +30,7 @@ except ImportError as e:
 
 # 主执行代码
 if __name__ == "__main__":
-    result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260105-142556"
+    result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260106-103832"
 
     # 确保路径存在
     if not os.path.exists(result_path):
@@ -45,11 +45,11 @@ if __name__ == "__main__":
     # 使用增强的runner
     runner = EnhancedPolicyRunner(
         log_policy_dir_list=[result_path],
-        trained_policy_iteration_list=["50000"],
+        trained_policy_iteration_list=["100000"],
         is_init_info=True,
         init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num": 0, "u_num": 0, "ref_time": 0},
         save_render=True,
-        legend_list=[],
+        legend_list=["EDSACT"],
         use_opt=False,
         opt_args={
             "opt_controller_type": "MPC",
@@ -67,7 +67,6 @@ if __name__ == "__main__":
         constrained_env=False,
         is_tracking=True,
         dt=0.1,
-
         # 增强功能
         save_screenshots=True,  # 保存截图
         screenshot_interval=5,  # 每5步保存一次

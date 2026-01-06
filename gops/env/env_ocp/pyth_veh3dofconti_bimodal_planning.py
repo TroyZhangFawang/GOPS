@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import gym
 import numpy as np
 from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
-from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
-from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
-from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+# from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
+# from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
+# from gops.utils.planner_benchmark.elements.vehicle import VehicleState
 import numpy as np
 import matplotlib.font_manager as fm
 try:

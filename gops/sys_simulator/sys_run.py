@@ -109,7 +109,7 @@ class PolicyRunner:
         opt_args: Optional[dict] = None,
         save_opt: bool = True,
         constrained_env: bool = False,
-        is_tracking: bool = False,
+        is_tracking: bool = True,
         use_dist: bool = False,
         dt: float = None,
         obs_noise_type: str = None,
@@ -9091,7 +9091,26 @@ class PlanningMPCRunner(PlanningBaseBenchmark):
 class EnhancedPolicyRunner(PolicyRunner):
     """Enhanced PolicyRunner with video screenshot and GIF conversion功能"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self,
+
+                 save_render: bool = False,
+                 plot_range: list = None,
+                 is_init_info: bool = False,
+                 init_info: dict = None,
+                 legend_list: list = None,
+                 use_opt: bool = False,
+                 load_opt_path: Optional[str] = None,
+                 opt_args: Optional[dict] = None,
+                 save_opt: bool = True,
+                 constrained_env: bool = False,
+                 is_tracking: bool = True,
+                 use_dist: bool = False,
+                 dt: float = None,
+                 obs_noise_type: str = None,
+                 obs_noise_data: list = None,
+                 action_noise_type: str = None,
+                 action_noise_data: list = None,
+                 *args, **kwargs):
         # Extract custom parameters first
         self.save_screenshots = kwargs.pop('save_screenshots', False)
         self.screenshot_interval = kwargs.pop('screenshot_interval', 10)  # Capture every N steps
@@ -9099,6 +9118,9 @@ class EnhancedPolicyRunner(PolicyRunner):
         self.gif_fps = kwargs.pop('gif_fps', 10)
 
         super().__init__(*args, **kwargs)
+        self.legend_list = legend_list
+        self.is_tracking = is_tracking
+
 
         # Create additional directories if needed
         if self.save_screenshots:
@@ -9111,16 +9133,6 @@ class EnhancedPolicyRunner(PolicyRunner):
 
     def run_an_episode(self, env, controller, init_info, is_opt, render=True):
         """Override to capture screenshots_png during rendering"""
-        # 在方法开始处导入或定义必要的函数
-        try:
-            from gops.utils.common_utils import get_reference_from_info, get_robot_state_from_info
-        except ImportError:
-            # 如果无法导入，定义简化版本
-            def get_reference_from_info(info):
-                return []
-
-            def get_robot_state_from_info(info):
-                return []
 
         state_list = []
         action_list = []

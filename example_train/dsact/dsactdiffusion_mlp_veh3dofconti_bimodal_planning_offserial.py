@@ -18,17 +18,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # 1. 环境设置
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodal_planning")
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning")
     # 【关键】算法名改为自动注册生成的 CamelCase 名字
     parser.add_argument("--algorithm", type=str, default="DSACTDiffusion2")
     parser.add_argument("--enable_cuda", default=False, help="Enable CUDA")
-    parser.add_argument("--seed", default=3328005365, help="Seed")
+    parser.add_argument("--seed", default=12345, help="Seed")
 
     # 2. 环境参数
     parser.add_argument("--action_type", type=str, default="continu")
     parser.add_argument("--is_render", type=bool, default=False)
     parser.add_argument("--pred_horizon", type=int, default=20)
-
     ################################################
     # 3. Parameters for approximate function (Networks)
 

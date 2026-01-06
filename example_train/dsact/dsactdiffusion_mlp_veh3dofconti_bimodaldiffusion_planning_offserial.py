@@ -24,10 +24,9 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", type=str, default="DSACTDiffusion2")
     parser.add_argument("--enable_cuda", default=False, help="Enable CUDA")
     parser.add_argument("--seed", default=12345, help="Seed")
-
+    parser.add_argument("--is_render", type=bool, default=False, help="Draw environment animation")
     # 2. 环境参数
     parser.add_argument("--action_type", type=str, default="continu")
-    parser.add_argument("--is_render", type=bool, default=False)
     parser.add_argument("--pred_horizon", type=int, default=20)
 
     ################################################
@@ -58,7 +57,7 @@ if __name__ == "__main__":
     ################################################
     # 4. Parameters for trainer
     parser.add_argument("--trainer", type=str, default="off_serial_trainer")
-    parser.add_argument("--max_iteration", type=int, default=100000)
+    parser.add_argument("--max_iteration", type=int, default=1000000)
     parser.add_argument("--ini_network_dir", type=str, default=None)
     # 4.1. Parameters for off_serial_trainer
     parser.add_argument(
@@ -86,7 +85,7 @@ if __name__ == "__main__":
     # 6. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
     parser.add_argument("--num_eval_episode", type=int, default=10)
-    parser.add_argument("--eval_interval", type=int, default=2500)
+    parser.add_argument("--eval_interval", type=int, default=1000)
     parser.add_argument("--eval_save", type=str, default=False, help="save evaluation data")
 
     ################################################
