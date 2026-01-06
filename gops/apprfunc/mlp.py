@@ -636,12 +636,12 @@ class EncodingStochaPolicy2(nn.Module, Action_Distribution):
 
         # === 维度定义 ===
         self.ego_dim = 6
-        self.ref_dim = 20 * 6
+        self.ref_dim = 40 * 6
         self.obs_dim = 3 * 8
         # 注意：这里不需要定义 prompt_dim，因为我们后面是按 shape view 的
 
         self.num_prompts = 3
-        self.points_per_prompt = 20
+        self.points_per_prompt = 40
         # 计算剩下的维度给 Prompt
         self.known_dim = self.ego_dim + self.ref_dim + self.obs_dim
 
