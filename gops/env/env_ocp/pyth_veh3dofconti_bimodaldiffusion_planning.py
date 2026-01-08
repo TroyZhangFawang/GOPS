@@ -244,7 +244,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         "render.modes": ["human", "rgb_array"],
     }
     def __init__(self,
-                 pre_horizon: int = 40,
+                 pre_horizon: int = 30,
                  path_para: Optional[Dict[str, Dict]] = None,
                  u_para: Optional[Dict[str, Dict]] = None,
                  slope_para: Optional[Dict[str, Dict]] = None,
@@ -252,7 +252,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                  max_accel: float = 3.0,
                  dynamic_obstacle_num: int = 3,
                  static_obstacle_num: int = 5,
-                 d_pre: float = 20.0,  # 离障碍物多少远开始规划
+                 d_pre: float = 30.0,  # 离障碍物多少远开始规划
                  lateral_sample: float = 3.5,  # 横向采样距离
                  forward_sample: float = 40.0,  # 纵向采样距离
                  max_speed_dev: float = 2, # 最大允许偏离参考速度
@@ -269,7 +269,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         self.state_dim = 6
         self.pre_horizon = pre_horizon
         self.dt = 0.1
-        self.max_episode_steps = 201
+        self.max_episode_steps = 101
         # 控制模式开关, "planning": 输出轨迹; "control": 输入 [steer, acc] , 直接控制
         self.control_mode = kwargs.get("control_mode", "planning")
         self.max_steer = max_steer
@@ -513,15 +513,15 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
             # C2. 计算纵向障碍物限速
             # 如果路径前方有障碍物，这个 profile 会在障碍物前降为 0
-            v_limit_obs = self._calculate_lon_safety_profile(full_curve, self.obstacles)
+            # v_limit_obs = self._calculate_lon_safety_profile(full_curve, self.obstacles)
 
             # C3. 最终融合：取所有限制的最小值
             # 逻辑：Min(网络意图, 曲率限制, 障碍物刹车限制)
             final_v_profile = np.minimum(raw_target_vs, v_limit_curve)
-            final_v_profile = np.minimum(final_v_profile, v_limit_obs)  # 加入障碍物限制
+            # final_v_profile = np.minimum(final_v_profile, v_limit_obs)  # 加入障碍物限制
 
             # C4. 物理极速硬截断
-            final_v_profile = np.clip(final_v_profile, 1.0, 15.0)
+            final_v_profile = np.clip(final_v_profile, 0.0, 15.0)
 
             # 4. 组合最终轨迹 (x, y, phi, u)
             phis = np.arctan2(dy, dx)
@@ -533,13 +533,6 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 phis,
                 final_v_profile  # <--- 这就是包含了地形、意图和安全的最终速度
             ], axis=1)
-            # self.current_planning_traj = VelocityGenerator.generate_profile(
-            #     full_curve,
-            #     v_start=ego_u,
-            #     v_end=target_v,
-            #     dt=self.dt
-            # )
-            # ==========================================
             # 4. 追踪控制器,全局坐标系， current_planning_traj 包含[x, y, phi, u]
             # real_action = self._tracking_controller(full_curve[1:],  self.current_planning_traj[1, 3])
             lookahead_time = 0.1  # 预瞄 1.0 秒
@@ -587,12 +580,12 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         # 6. 终止条件
         done = self.judge_done()
         if done:
-            reward = reward - 100
+            reward = reward - 500
         # 7. 时间限制 (Truncated: 步数超限)
         is_truncated = self.step_self >= self.max_episode_steps
         if is_truncated:
             self.info["TimeLimit.truncated"] = True
-            reward += 100.0  # 存活奖励
+            reward += 500.0  # 存活奖励
             done = True
         else:
             self.info["TimeLimit.truncated"] = False
@@ -873,12 +866,12 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
     def _compute_reward(self, action):
         if self.control_mode == "planning":
             if self.current_planning_traj is None:
-                return -1.0
+                return -10.0
 
             agent_planning_traj = self.current_planning_traj
 
             # --- 1. 智能引导奖励 (Smart Guidance + Heading Alignment) ---
-            max_guide_score = float('inf')
+            max_guide_score =  -float('inf')
             valid_guide_found = False
             best_guide_traj = None  # [新增] 用于存储匹配到的最佳引导线
             ego_pos = self.state[:2]
@@ -886,13 +879,13 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             for i, guide_traj in enumerate(self.guide_trajectories):
                 # --- A. 安全性检查 ---
                 # 假设 guide_traj 长度足够长
-                if self._check_traj_collision(guide_traj, margin=1.5):
+                if self._check_traj_collision(guide_traj, margin=0.5):
                     continue
 
                 valid_guide_found = True
 
                 # --- B. 评分机制 ---
-                start_dist = np.linalg.norm(guide_traj[0, :2] - ego_pos)
+                start_dist = np.linalg.norm(guide_traj[:5, :2] - ego_pos)
 
                 # 基础分：距离越近分越高
                 score = -start_dist
@@ -901,18 +894,19 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                     max_guide_score = score
                     best_guide_traj = guide_traj
                     current_best_idx = i  # [记录] 记下这条线的 ID
-            r_consistency = 0.0
 
-            # 只有当上一帧有记录，且当前也找到了有效线时才计算
-            if self.last_best_guide_idx != -1 and current_best_idx != -1:
-                if current_best_idx == self.last_best_guide_idx:
-                    # 情况 A: 保持在同一条线 -> 给一点点奖励鼓励稳定
-                    r_consistency = 0.1
-                else:
-                    # 情况 B: 发生了切换 (Switching) -> 给惩罚
-                    # 这个惩罚不能太大，否则遇到障碍物它也不敢换道
-                    # 也不能太小，否则它会左右横跳
-                    r_consistency = -0.5
+
+            # r_consistency = 0.0
+            # # 只有当上一帧有记录，且当前也找到了有效线时才计算
+            # if self.last_best_guide_idx != -1 and current_best_idx != -1:
+            #     if current_best_idx == self.last_best_guide_idx:
+            #         # 情况 A: 保持在同一条线 -> 给一点点奖励鼓励稳定
+            #         r_consistency = 0.1
+            #     else:
+            #         # 情况 B: 发生了切换 (Switching) -> 给惩罚
+            #         # 这个惩罚不能太大，否则遇到障碍物它也不敢换道
+            #         # 也不能太小，否则它会左右横跳
+            #         r_consistency = -0.5
 
                     # [关键] 更新状态供下一帧使用
             self.last_best_guide_idx = current_best_idx
@@ -921,13 +915,13 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             r_heading = 0.0
             if not valid_guide_found:
                 # 完蛋了，所有引导线前面都有障碍物 (死局)
-                r_guidance = -20.0  # 重罚
+                r_guidance = -0.0  # 重罚
             elif best_guide_traj is not None:
                 # 截取长度对齐
                 min_len = min(len(agent_planning_traj), len(best_guide_traj))
                 # 位置偏差
                 diff_vec = agent_planning_traj[:min_len, :2] - best_guide_traj[:min_len, :2]
-                cum_dist = np.sum(np.linalg.norm(diff_vec, axis=1))
+                cum_dist = np.sum(np.linalg.norm(diff_vec, axis=1)**2)
 
                 # 航向偏差
                 agent_diff = np.diff(agent_planning_traj[:min_len, :2], axis=0)
@@ -940,35 +934,36 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 # --- 奖励赋值 ---
                 # 1. 引导奖励：不仅看距离，还要看是否在向正确的方向靠拢
                 # 系数给大一点，强迫 Agent 放弃自己的短视想法
-                r_guidance = -0.5 * cum_dist
+                r_guidance = -0.01 * cum_dist
                 # 2. 航向奖励
                 r_heading = -0.1 * np.sum(np.square(phi_error))
 
             # 1. 效率奖励 (Efficiency Reward)
             # 如果前方很近有障碍物，降低对速度的要求
             # 简单做法：计算与最近前方障碍物的距离
-            min_front_dist = float('inf')
-            for obs in self.obstacles:
-                # 简单筛选前方障碍物
-                if 0 < obs.x - self.state[0] < 40 and abs(obs.y - self.state[1]) < 3.0:
-                    dist = np.linalg.norm([obs.x - self.state[0], obs.y - self.state[1]])
-                    if dist < min_front_dist:
-                        min_front_dist = dist
-
-            # 动态调整期望速度权重
-            if min_front_dist < 15.0:
-                # 如果前方15米有障碍物，速度奖励降权，或者不惩罚低速
-                r_velocity = 0.0
-            else:
-                # 前方开阔，鼓励加速
-                r_velocity = 0.1 * self.state[3]
+            # min_front_dist = float('inf')
+            # for obs in self.obstacles:
+            #     # 简单筛选前方障碍物
+            #     if 0 < obs.x - self.state[0] < 40 and abs(obs.y - self.state[1]) < 3.0:
+            #         dist = np.linalg.norm([obs.x - self.state[0], obs.y - self.state[1]])
+            #         if dist < min_front_dist:
+            #             min_front_dist = dist
+            #
+            # # 动态调整期望速度权重
+            # if min_front_dist < 15.0:
+            #     # 如果前方15米有障碍物，速度奖励降权，或者不惩罚低速
+            #     r_velocity = 0.0
+            # else:
+            #     # 前方开阔，鼓励加速
+            #     r_velocity = 0.1 * self.state[3]
+            r_velocity = 0.1 * self.state[3]
             # 2. 侧向加速度惩罚 (Lateral Stability Reward) - 越野核心！
             # a_lat = u^2 * curvature. 近似为 u * w (角速度)
             # 惩罚高速过弯
             ego_u = self.state[3]
-            ego_w = self.state[5]
-            lat_acc = ego_u * ego_w
-            r_stability = -0.5 * (lat_acc ** 2)
+            # ego_w = self.state[5]
+            # lat_acc = ego_u * ego_w
+            # r_stability = -0.5 * (lat_acc ** 2)
 
             # --- 3. 自身碰撞检测
             r_collision = 0.0
@@ -983,7 +978,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 dists = np.linalg.norm(agent_planning_traj[:, :2] - obs_future_traj, axis=1)
 
                 # 势场半径
-                base_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 1.0
+                base_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 0.5
                 safety_buffer = 0.0
                 if obs.type == "dynamic":
                     safety_buffer = 0.5 * abs(obs.u - self.state[3])
@@ -994,28 +989,28 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 if np.any(in_field_mask):
                     intrusions = safe_threshold - dists[in_field_mask]
                     # 系数 1.1 配合平方项
-                    r_collision -= np.sum(np.square(intrusions))* 2.0
+                    r_collision -= np.sum(np.square(intrusions))*2.0
             # [B] 真实物理碰撞惩罚
             if self._check_ego_collision():
-                r_collision -= 10.0
+                r_collision -= 500.0
 
             # 4. 坡度奖励 (如果你的环境里有坡度信息)
             # 坡度大时鼓励减速
-            r_slope = - 0.5 * (abs(self.ref_points[1, 4])+abs(self.ref_points[1, 5])) * ego_u
-            current_slope = self.ref_points[0, 4]  # 纵坡
-            v = self.state[3]
-
-            # 下坡(slope < 0)且超速 -> 重罚
-            if current_slope < -0.1 and v > self.ref_points[1, 3]:
-                r_slope_safety = -1.0 * (v - 10.0) ** 2
-            # 上坡(slope > 0)且龟速 -> 惩罚 (鼓励加油)
-            elif current_slope > 0.1 and v < self.ref_points[1, 3]-3:
-                r_slope_safety = -0.5 * (self.ref_points[1, 3]-3 - v) ** 2
-            else:
-                r_slope_safety = 0.0
+            # r_slope = - 0.5 * (abs(self.ref_points[1, 4])+abs(self.ref_points[1, 5])) * ego_u
+            # current_slope = self.ref_points[0, 4]  # 纵坡
+            # v = self.state[3]
+            #
+            # # 下坡(slope < 0)且超速 -> 重罚
+            # if current_slope < -0.1 and v > self.ref_points[1, 3]:
+            #     r_slope_safety = -1.0 * (v - 10.0) ** 2
+            # # 上坡(slope > 0)且龟速 -> 惩罚 (鼓励加油)
+            # elif current_slope > 0.1 and v < self.ref_points[1, 3]-3:
+            #     r_slope_safety = -0.5 * (self.ref_points[1, 3]-3 - v) ** 2
+            # else:
+            #     r_slope_safety = 0.0
             # 惩罚相邻关键点之间的剧烈跳变
-            diffs = np.diff(self.speed_deltas)
-            r_speed_smooth = -0.05 * np.sum(np.square(diffs))
+            # diffs = np.diff(self.speed_deltas)
+            # r_speed_smooth = -0.05 * np.sum(np.square(diffs))
             # === 边界惩罚 ===
             # 计算自车相对于参考线的横向偏差
             ref_y = self.ref_points[0, 1]
@@ -1029,7 +1024,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 # 比如 6.0m -> (1.0)^2 * 1.0 = -1.0
                 # 比如 7.0m -> (2.0)^2 * 1.0 = -4.0
                 r_boundary = -1.0 * ((lat_dev - SAFE_ZONE) ** 2)
-            return r_consistency+r_velocity + r_guidance + r_heading + r_collision +r_stability+r_slope+r_speed_smooth+r_slope_safety+r_boundary
+            return r_velocity + r_guidance + r_heading + r_collision +r_boundary#+r_stability+r_slope+r_speed_smooth+r_slope_safety +r_consistency+
         else:
             x, y, phi, u, _, w = self.state
             ref_x, ref_y, ref_phi, ref_u = self.ref_points[0]
@@ -1072,7 +1067,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 dists = np.linalg.norm(traj_points[:, :2] - obs_future_traj, axis=1)
 
                 # 动态安全阈值
-                base_threshold = self.veh_width / 2.0 + obs.w / 2.0 + 0.5 + margin
+                base_threshold = self.veh_width / 2.0 + obs.w / 2.0 +  margin
                 # 如果是动态障碍物，增加额外的纵向安全距离 (Longitudinal Safety Buffer)
                 # 这就是防止周车撞我的关键！即使横向没撞，如果纵向太近也不行。
                 safety_buffer = 0.0
