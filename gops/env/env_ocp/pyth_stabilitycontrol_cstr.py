@@ -52,7 +52,7 @@ class VehicleDynamicsData:
             C_slip3=8.885 * 1.525 * 1.062e+04/4,  # N
             C_slip4=8.885 * 1.525 * 1.062e+04/4,  # N
             K_varphi=(569 / 3.14 * 180 + 510 / 3.14 * 180) * 2,  # roll stiffness of suspension [N-m/rad] 原参数(569 / 3.14 * 180 + 510 / 3.14 * 180) * 4
-            C_varphi=30000,  # Roll damping of the suspension [N-m-s/rad] 原参数0
+            C_varphi=0,  # Roll damping of the suspension [N-m-s/rad] 原参数0
             mu_road=0.85,  # road Adhesion coefficient
         )
 
@@ -196,9 +196,9 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
     def __init__(
         self,
         pre_horizon: int = 30,
-        min_torque: float = 0.0,
+        min_torque: float = -298.0,
         max_torque: float = 298.0,
-        max_steer: float = 0.5,
+        max_steer: float = 0.3,
         max_delta_torque: float = 10.0,
         max_delta_steer: float = 0.03,
         path_para: Optional[Dict[str, Dict]] = None,
@@ -243,6 +243,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
 
         self.dt = 0.01
         self.max_episode_steps = 2000
+        self.current_step = 0
 
         self.state = None
         self.ref_x = None
@@ -450,20 +451,20 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         # r_action_str = np.sum((self.action[4:]) ** 2)
         r_action_Qdot = (action[0]/100) ** 2+(action[1]/100) ** 2+(action[2]/100) ** 2+(action[3]/100) ** 2
         r_action_strdot = (action[4]/0.02) ** 2
-        return self.I_rollover
-        # return -(
-        #         0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
-        #         + 0.07 * (vx - ref_vx) ** 2
-        #         + 0.02 * angle_normalize(phi - ref_phi) ** 2
-        #         + 0.01 * (phi_dot - phi_dot_ref) ** 2
-        #         + 0.01 * self.I_rollover ** 2
-        #         # + 0.01 * r_action_Q
-        #         # + 0.01 * r_action_str
-        #         + 0.01 * r_action_Qdot
-        #         + 0.01 * r_action_strdot
-        #         # + 0.01 * r_slip
-        #         # + 0.5 * (beta - beta_ref) ** 2
-        # )
+        # return self.I_rollover
+        return -(
+                0.04 * ((px - ref_x) ** 2 + (py - ref_y) ** 2)
+                + 0.07 * (vx - ref_vx) ** 2
+                + 0.02 * angle_normalize(phi - ref_phi) ** 2
+                + 0.01 * (phi_dot - phi_dot_ref) ** 2
+                + 0.01 * self.I_rollover ** 2
+                # + 0.01 * r_action_Q
+                # + 0.01 * r_action_str
+                + 0.01 * r_action_Qdot
+                + 0.01 * r_action_strdot
+                # + 0.01 * r_slip
+                # + 0.5 * (beta - beta_ref) ** 2
+        )
 
     def judge_done(self) -> bool:
         done = (abs(self.state[0]-self.ref_points[0, 0]) > 5 # delta_x
@@ -489,7 +490,7 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         return constraint
 
     def load_carsim_env(self):
-        self.carsim_env = gym.make("pyth_stabilitycontrol")
+        self.carsim_env = gym.make("pyth_stabilitycontrol_cstr")
 
     def reset_carsim(self,
             init_state: Optional[Sequence] = None,
@@ -553,13 +554,17 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.ref_points[1, 4:] = info["slope_points"]
         self.slope_points[1] = info["slope_points"]
         self.I_rollover = 0
+        self.current_step = 0
         return self.get_obs(), self.info
 
     def step_carsim(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
+        self.current_step += 1
         action = np.clip(action, self.action_space.low, self.action_space.high)
         reward = self.compute_reward(action)
         action_psc = self.state[8:13] + action
         action_psc = np.clip(action_psc, self.action_psc_space.low, self.action_psc_space.high)
+        steer_rad = action_psc[4]
+        action_psc[4] = steer_rad / 3.14 * 180 * 18
         self.state, _, _, info = self.carsim_env.step(action_psc)
         self.t = self.t + self.dt
 
@@ -596,7 +601,14 @@ class FourwdstabilitycontrolCstr(PythBaseEnv):
         self.done = self.judge_done()
         if self.done:
             reward = reward - 1000
-        return self.get_obs(), self.I_rollover, self.done, self.info
+        current_info = self.info
+
+        # 2. 修改这个局部字典
+        if self.current_step >= self.max_episode_steps:
+            current_info["TimeLimit.truncated"] = True
+        else:
+            current_info["TimeLimit.truncated"] = False
+        return self.get_obs(), reward, self.done, current_info
 
     def get_ternimated(self):
         self.carsim_env.get_ternimated()

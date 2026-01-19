@@ -29,14 +29,13 @@ def read_path(root_path):
 def model_compare_4wisd(env_id):
     run_step = 2000
     delta_t = 0.01
-    model_mechnical = gym.make(env_id, disable_env_checker=True)
-    state, _ = model_mechnical.reset()
+    model_mechnical = gym.make(env_id)
+    state, info = model_mechnical.reset()
 
     # state
     model_self = create_env(env_id)
     # 4dof
-    state_python = state[:8]
-    print(state[22:])
+    state_python = state
     step_sim = 0
     vx_self = []
     vx_carsim = []
@@ -89,7 +88,7 @@ def model_compare_4wisd(env_id):
     lateral_slope = []
 
     for i in range(run_step):
-        road_info = state[31:33]
+        road_info = info['slope_points']
 
         drive_torque = 183.475 * np.sin(np.pi * 2 / 500 * i) + 114.525
         # if i< 4000 :
@@ -140,7 +139,7 @@ def model_compare_4wisd(env_id):
         
 
         # delta_w4_self.append(control[4])
-        ax_self.append(state[21])
+        ax_self.append(state[18])
 
         # -------------------------------
         x_carsim.append(state[0])
@@ -155,16 +154,14 @@ def model_compare_4wisd(env_id):
         Qw2_carsim.append(state[9])
         Qw3_carsim.append(state[10])
         Qw4_carsim.append(state[11])
-        delta_w1_carsim.append(state[12])
-        delta_w2_carsim.append(state[13])
-        delta_w3_carsim.append(state[14])
-        delta_w4_carsim.append(state[15])
+        delta_w1_carsim.append(state[12]/18)
+
         # kappa1_carsim = (state[3] - state[30]) / max(state[3], state[30])
         # kappa_1_carsim.append(state[16])
         # kappa_2_carsim.append(state[17])
         # kappa_3_carsim.append(state[18])
         # kappa_4_carsim.append(state[19])
-        ax_carsim.append(state[21])
+        ax_carsim.append(state[18])
         longi_slope.append(road_info[0])
         lateral_slope.append(road_info[1])
         step_sim += 1
@@ -201,12 +198,10 @@ def model_compare_4wisd(env_id):
          'delta_w1_self': delta_w1_self,
 
          })
-    picture_dir = "plot_4wisd_test/"
+    picture_dir = "plot_4wisd_test_260113/"
     os.makedirs(picture_dir, exist_ok=True)
-    data_result.to_csv('./plot_4wisd_test/result_4wisd_test.csv', encoding='gbk')
+    data_result.to_csv('./plot_4wisd_test_260113/result_4wisd_test.csv', encoding='gbk')
     # '--------------------出图-----------------------'
-    picture_dir = "plot_4wisd_test/"
-    os.makedirs(picture_dir, exist_ok=True)
     # f9 = plt.figure("-kappa1", figsize=(8, 5))
     # ax = f9.add_axes([0.1, 0.11, 0.87, 0.86])  # [left, bottom, width, height]
     # l1, = plt.plot(np.arange(0, run_step, 1) * delta_t, kappa_1_self, lw=2, color="darkviolet")
@@ -502,7 +497,7 @@ def model_compare_4wisd(env_id):
     # plt.show()
 
 if __name__ == '__main__':
-    model_compare_4wisd(env_id='pyth_stabilitycontrol')
+    model_compare_4wisd(env_id='pyth_stabilitycontrol_cstr')
     # root_path = "C:/Users/Troy.Z/Desktop/steering wheel angle.csv"
     # re = read_path(root_path)
     # x = re[:, 0]
