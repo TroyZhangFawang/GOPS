@@ -319,8 +319,11 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             shape=(self.total_obs_dim,),
             dtype=np.float32
         )
-        obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
-                             1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
+        # obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
+        #                      1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
+        obs_scale_default = [1 / 20, 1 / 5, 1.0, 1 / 10,
+                             1 / 20, 1 / 5, 1.0, 1 / 10,  # ref points 同样缩放
+                             1 / 50, 1 / (max_accel * 10), 1 / 10]  # 其他
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         # --- 3. 物理模型初始化 ---
         self.d_planning = d_planning  # 障碍物感知前瞻距离
@@ -449,6 +452,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         if np.any(np.isnan(action)):
             print("【致命错误】Agent输出了 NaN Action!")
             action = np.zeros_like(action)
+
 
         if self.control_mode == "planning":
             action = np.clip(action, self.action_space.low, self.action_space.high)
@@ -598,15 +602,12 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             #
             # # 计算奖励 (此时 self.state 已经是完美执行后的状态了)
             # reward = self._compute_reward(real_action)
-
         else:
-            action = np.clip(action, self.action_space.low, self.action_space.high)
+            real_action = np.clip(action, self.action_space.low, self.action_space.high)
             # --- 分支 B: SAC/PPO/DSACT Controller 模式 ---
             self.current_diffusion_traj = None  # 无轨迹可视化
-            self.state = self.vehicle_dynamics.f_xu(self.state, action, self.ref_points[1,4:], self.dt)
-            reward = self._compute_reward(action)
-
-        # self.t = self.t + self.dt
+            self.state = self.vehicle_dynamics.f_xu(self.state, real_action, self.ref_points[1,4:], self.dt)
+            reward = self._compute_reward(real_action)
         # === 自适应时间步进 ===
         # 障碍物步进 (动态障碍物更新)
         self.step_self += 1
@@ -618,6 +619,8 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 obs.y = obs.dynamic_data.y
                 obs.phi = obs.dynamic_data.phi
                 obs.u = obs.dynamic_data.u
+        # self.t = self.t + self.dt
+
         # 根据自车实际行驶距离，计算在参考轨迹上的投影时间流逝
         # 这样，如果车停了，参考点也会停下来等车
         dist_traveled = self.state[3] * self.dt
@@ -640,7 +643,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         current_info = self.info
         if is_truncated:
             current_info["TimeLimit.truncated"] = True
-            reward += 200.0  # 存活奖励
+            reward += 100.0  # 存活奖励
             done = True
         else:
             current_info["TimeLimit.truncated"] = False
@@ -649,14 +652,6 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         self.history_traj.append(self.state[:2])
         if len(self.history_traj) > self.max_episode_steps: self.history_traj.pop(0)
 
-        if np.isnan(reward) or np.isinf(reward):
-            print("Warning: Reward is NaN/Inf! Resetting to -10.0")
-            # reward = -10.0  # 兜底防止崩盘
-
-        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
-            print("Warning: Obs contains NaN/Inf!")
-            # obs = np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0)
-        # --- 在 step 函数末尾，return 之前，加入数据记录 ---
         self._log_step_data()
         return obs, reward, done, current_info
 
@@ -683,7 +678,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         # 只有在视野内的障碍物才值得关注
 
         for obs in self.obstacles:
-            if obs.can_cross != True:
+            if not obs.can_cross:
                 d = np.sqrt((obs.x - self.state[0]) ** 2 + (obs.y - self.state[1]) ** 2)
                 if d < self.perception_range and obs.x > self.state[0] and abs(obs.y - self.state[1]) < 3.5:
                     dists.append((d, obs))
@@ -712,8 +707,8 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                     ttc = d / (abs(u_rel) + 1e-5)
                 ttc = np.clip(ttc, 0, 10.0)
                 # [x, y, phi, u, l, w, type, dist]
-                base_feat = [ox_tf[0]/self.perception_range, oy_tf[0]/self.perception_range, ophi_tf[0]*self.obs_scale[2],
-                        u_rel*self.obs_scale[3], obs.l*self.obs_scale[2], obs.w*self.obs_scale[2], 0.0 if obs.type=="static" else 1.0, ttc*self.obs_scale[2]]
+                base_feat = [ox_tf[0]/self.perception_range, oy_tf[0]*self.obs_scale[1], ophi_tf[0]*self.obs_scale[2],
+                        u_rel*self.obs_scale[3], obs.l*self.obs_scale[2], obs.w*self.obs_scale[2], 1.0 if obs.type=="static" else 0.0, ttc*self.obs_scale[2]]
 
                 # --- B. 未来轨迹预测特征 (核心修改) ---
                 pred_feats = []
@@ -758,12 +753,46 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 self.state[0], self.state[1], self.state[2],
                 traj[:, 0], traj[:, 1], np.zeros(len(traj))
             )
-            prompt_feats.append(np.stack([px_tf*self.obs_scale[0], py_tf*self.obs_scale[1]], axis=1).flatten())
+            prompt_feats.append(np.stack([px_tf/self.perception_range, py_tf*self.obs_scale[1]], axis=1).flatten())
 
+        # 修改填充逻辑：
         while len(prompt_feats) < self.guide_traj_num:
-            # 不可跨越，补充一维0
-            prompt_feats.append(np.zeros(self.ref_horizon * 2))
+            # 填充一个极远的轨迹 (比如在 y=100m 处)，让 Agent 绝对不想去
+            dummy_traj = np.zeros((self.ref_horizon, 2))
+            dummy_traj[:, 1] = 50.0  # y = 10.0m (路外)
+            # 记得缩放
+            dummy_flat = dummy_traj.flatten()
+            dummy_flat[0::2] *= self.obs_scale[0]  # x
+            dummy_flat[1::2] *= self.obs_scale[1]  # y
+            prompt_feats.append(dummy_flat)
         prompt_obs = np.concatenate(prompt_feats)
+        # prompt_feats = [np.zeros(self.ref_horizon * 2, dtype=np.float32) for _ in range(3)]
+        # for traj in self.guide_trajectories:
+        #     # 判断这条线是左中右哪条？
+        #     # 取终点 y 值 (局部坐标系下)
+        #     # 先转局部
+        #     px_tf, py_tf, _ = ego_vehicle_coordinate_transform(
+        #         self.state[0], self.state[1], self.state[2],
+        #         traj[:, 0], traj[:, 1], np.zeros(len(traj))
+        #     )
+        #
+        #     mean_y = np.mean(py_tf)
+        #
+        #     slot_idx = -1
+        #     if mean_y < -1.0:
+        #         slot_idx = 0  # Right
+        #     elif mean_y > 1.0:
+        #         slot_idx = 2  # Left
+        #     else:
+        #         slot_idx = 1  # Center
+        #
+        #     # 填入对应槽位
+        #     prompt_feats[slot_idx] = np.stack([
+        #         px_tf / self.perception_range,
+        #         py_tf * self.obs_scale[1]
+        #     ], axis=1).flatten()
+        #
+        # prompt_obs = np.concatenate(prompt_feats)
 
         return np.concatenate((ego_obs, ref_obs, obstacle_obs, prompt_obs))
 
@@ -944,39 +973,13 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             #     print(r_collision_traj)
             # 获取侵入量 (Violation)
             # 正值表示危险，负值表示安全
-            violation = self._check_ego_collision(return_cost=True)
-            # --- Soft Barrier Penalty (核心修改) ---
-            # 设定一个“关注范围” (Attention Region)
-            # 例如：当 violation > -3.0 (即距离障碍物 3米以内) 时开始给压力
-
-            # 归一化因子：控制惩罚上升的陡峭程度
-            # 这种设计下：
-            # violation = -5.0 -> punish ≈ 0
-            # violation = -1.0 -> punish ≈ 0.5 (开始警告)
-            # violation =  0.0 -> punish = 1.0 (进入 Buffer)
-            # violation >  0.0 -> punish > 1.0 (撞击)
-
-            # 使用你提供的公式变体:
-            # punish = tanh(violation + offset) + 1
-            # 使得在很远的地方 punish 为 0，靠近时平滑上升
-
-            # 1. 裁剪一下，太远了就不算了，防止 exp 溢出或梯度消失
-            # 我们只关心 violation > -2.0 的情况
-            effective_violation = max(violation, -3)
-
-            # 2. 计算惩罚项 (范围 0 ~ 2.0)
-            # 当 violation = -2 时，tanh(-2 + 2) = 0 -> punish = 0
-            # 当 violation = 0 时，tanh(0 + 2) = 0.96 -> punish ≈ 1.0
-            r_collision_risk = np.tanh(effective_violation + 3)
-
-            # 如果真的撞了 (violation > 0)，额外叠加线性惩罚
-            if violation > 0:
-                r_collision_risk += violation * 20.0  # 撞得越深罚得越重
-
-            # 3. 加权 (系数根据需要调整，建议给大一点)
-            r_collision_cost = -20.0 * r_collision_risk
+            violation = - self._check_ego_collision()
+            collision_bound = 0.5
+            dis_to_tanh = np.maximum(8 - 8 * violation / collision_bound, 0)
+            punish_dis = np.tanh(dis_to_tanh - 4) + 1
+            r_collision_cost = -20.0 * punish_dis
             # if r_collision_cost != 0:
-            #     r_collision_cost = 0
+
             # --- 6. 坡度安全奖励 ---
             # 坡度大时鼓励减速
             current_slope = self.ref_points[0, 4]  # 纵坡
@@ -1157,33 +1160,46 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 max_score = -dist
                 best_guide = guide
 
-        # 2. Global Path Bonus (鼓励走中线/跨越)
+        # 2. Global Path Bonus
         r_global_bonus = 0.0
         if best_guide is not None:
-            ref_end = self.ref_points[self.ref_horizon, :2]
-            guide_end = best_guide[-1, :2]
-            # 如果选中的引导线终点和全局参考线终点很近，说明选了全局路
-            if np.linalg.norm(ref_end - guide_end) < 1.0:
-                r_global_bonus = 2.0  # 给糖吃！
+            r_global_bonus = 2.0
 
         # 3. Guidance Tracking Cost (走得直不直)
         r_guidance = 0.0
         if best_guide is not None:
             min_len = min(len(self.current_planning_traj), len(best_guide))
             err = np.mean(np.linalg.norm(self.current_planning_traj[:min_len, :2] - best_guide[:min_len], axis=1))
-            r_guidance = -0.5 * err
+            r_guidance = -2.5 * err
 
         # 4. Collision Costs
         # 预测轨迹风险
-        traj_risk = self._check_traj_collision(self.current_planning_traj, margin=0.0, return_cost=True)
+        # traj_risk = self._check_traj_collision(self.current_planning_traj, margin=self.safe_dist2obs, return_cost=True)
+        # # Soft Barrier
+        # r_col_traj = -20.0 * np.tanh(max(traj_risk, -3.0) + 3.0)
+        # # r_col_traj = -20.0 * np.tanh(max(traj_risk, -1.0) + 1.0)  # 修改偏移量
+        # if traj_risk > 0: r_col_traj -= traj_risk * 50.0  # Hard penalty
+
+
+        # 4. Collision Costs
+        # 预测轨迹风险
+        traj_risk = - self._check_traj_collision(self.current_planning_traj, margin=self.safe_dist2obs, return_cost=True)
         # Soft Barrier
-        r_col_traj = -20.0 * np.tanh(max(traj_risk, -3.0) + 3.0)
-        if traj_risk > 0: r_col_traj -= traj_risk * 50.0  # Hard penalty
+        collision_bound_traj = 0.1
+        dis_to_tanh_traj = np.maximum(8 - 8 * traj_risk / collision_bound_traj, 0)
+        punish_dis_traj = np.tanh(dis_to_tanh_traj - 4) + 1
+        r_col_traj = -20.0 * punish_dis_traj
 
         # 真实碰撞风险
-        ego_risk = self._check_ego_collision(return_cost=True)
-        r_col_ego = -20.0 * np.tanh(max(ego_risk, -3.0) + 3.0)
-        if ego_risk > 0: r_col_ego -= 200.0
+        # ego_risk = self._check_ego_collision(return_cost=True)
+        # r_col_ego = -20.0 * np.tanh(max(ego_risk, -0.5) + 0.5)
+        # if ego_risk > 0: r_col_ego -= 200.0
+
+        ego_risk = - self._check_ego_collision(return_cost=True)
+        collision_bound = 0.5
+        dis_to_tanh = np.maximum(8 - 8 * ego_risk / collision_bound, 0)
+        punish_dis = np.tanh(dis_to_tanh - 4) + 1
+        r_col_ego = -20.0 * punish_dis
 
         # 5. Efficiency & Smoothness
         # 改为正向激励，防止 Agent 自杀
@@ -1360,7 +1376,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             obs_x = obs.x + obs.u * np.cos(obs.phi) * t_steps
             obs_y = obs.y + obs.u * np.sin(obs.phi) * t_steps
             # 动态障碍物给予更大的横向安全边界 (防止贴太近)
-            safety_buffer = 1.2
+            safety_buffer = 1.5
         else:
             # 静态位置：保持不动
             obs_x = np.full_like(t_steps, obs.x)
@@ -1795,10 +1811,10 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 if return_cost:
                     # 【关键修改】计算 Reward 时，使用固定 Buffer
                     # 强迫 Agent 无论速度多少，都要保持 2.0m 的绝对距离
-                    safety_buffer = 2.0
+                    safety_buffer = 0.2
                 else:
                     # 计算 Done 时，使用相对速度 Buffer (保留物理合理性)
-                    safety_buffer = 0.5 * abs(obs.u - self.state[3])
+                    safety_buffer = 0.1 * abs(obs.u - self.state[3])
 
             current_violation = (r_ego + r_obs + self.safe_dist2obs + safety_buffer) - min_dist_pair
 
@@ -1878,7 +1894,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             safety_buffer = 0.0
             if obs.type == "dynamic":
                 # 动态障碍物额外加一点 buffer
-                safety_buffer = 0.5 * abs(obs.u - self.state[3])
+                safety_buffer = 0.1 * abs(obs.u - self.state[3])
 
             safe_threshold = base_threshold + safety_buffer
 
@@ -1901,7 +1917,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
         # 如果没有不可跨越的障碍物，给一个默认的安全值
         if global_max_violation == -np.inf:
-            global_max_violation = -1.0
+            global_max_violation = -5.0
 
         # --- 5. 返回结果 ---
         if return_cost:
