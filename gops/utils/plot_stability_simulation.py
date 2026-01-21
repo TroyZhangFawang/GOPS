@@ -412,18 +412,18 @@ def TAR_with_error_bands(args):
     ax_para = default_cfg["ax_para"]
     dir = '../../results/pyth_stabilitycontrol_cstr/hyper_ablation/'
     # data_result_1 = pd.DataFrame(pd.read_csv(dir + "/csv/Loss_loss_actor-20000.csv"))
-    data_result_1 = pd.DataFrame(pd.read_csv(dir + "TFMPC128-42025-08-31-21-53-08/data/Loss_Actor loss-RL iter.csv"))
+    data_result_1 = pd.DataFrame(pd.read_csv(dir + "TFMPC128-42025-08-31-21-53-08/data/Evaluation_1. TAR-RL iter.csv"))
     # data_result_1 = pd.DataFrame(pd.read_csv(dir + "FHADP2Lagrangian_250108-085550/data/FHADP2Lagrangian_250108-085550.csv"))
-    data_result_2 = pd.DataFrame(pd.read_csv(dir + "TFMPC128-42025-09-01-12-40-57/data/Loss_Actor loss-RL iter.csv"))
-    data_result_3 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-22025-08-31-23-46-03/data/Loss_Actor loss-RL iter.csv"))
-    data_result_4 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-22025-09-01-12-41-09/data/Loss_Actor loss-RL iter.csv"))
-    data_result_5 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-42025-08-31-23-46-14/data/Loss_Actor loss-RL iter.csv"))
-    data_result_6 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-42025-09-01-15-52-38/data/Loss_Actor loss-RL iter.csv"))
-    data_result_7 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-82025-08-31-23-46-24/data/Loss_Actor loss-RL iter.csv"))
-    data_result_8 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-82025-09-01-15-52-41/data/Loss_Actor loss-RL iter.csv"))
-    data_result_9 = pd.DataFrame(pd.read_csv(dir + "TFMPC512-4-3e-52025-08-31-15-12-42/data/Loss_Actor loss-RL iter.csv"))
-    data_result_10 = pd.DataFrame(pd.read_csv(dir + "TFMPC512-4-3e-52025-09-01-15-52-44/data/Loss_Actor loss-RL iter.csv"))
-    # data_result_11 = pd.DataFrame(pd.read_csv(dir + "old/TFMPC128-42025-08-28-18-01-18/data/Loss_Actor loss-RL iter.csv"))
+    data_result_2 = pd.DataFrame(pd.read_csv(dir + "TFMPC128-42025-09-01-12-40-57/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_3 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-22025-08-31-23-46-03/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_4 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-22025-09-01-12-41-09/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_5 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-42025-08-31-23-46-14/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_6 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-42025-09-01-15-52-38/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_7 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-82025-08-31-23-46-24/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_8 = pd.DataFrame(pd.read_csv(dir + "TFMPC256-82025-09-01-15-52-41/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_9 = pd.DataFrame(pd.read_csv(dir + "TFMPC512-4-3e-52025-08-31-15-12-42/data/Evaluation_1. TAR-RL iter.csv"))
+    data_result_10 = pd.DataFrame(pd.read_csv(dir + "TFMPC512-4-3e-52025-09-01-15-52-44/data/Evaluation_1. TAR-RL iter.csv"))
+    # data_result_11 = pd.DataFrame(pd.read_csv(dir + "old/TFMPC128-42025-08-28-18-01-18/data/Evaluation_1. TAR-RL iter.csv"))
 
     # data_result_4 = pd.DataFrame(pd.read_csv(dir + "1209-123707-Np50-3la-50000it/csv/Loss_loss_actor-20000.csv"))
     # data_result_5 = pd.DataFrame(pd.read_csv(dir + "1210-205615-Np50-3la-50000it/csv/Loss_loss_actor-20000.csv"))
@@ -448,15 +448,16 @@ def TAR_with_error_bands(args):
     line_4 = sns.lineplot(x="Step", y="Value", data=data_set4, errorbar=('ci', 95), lw=2, label='256-8')  #,hue="region", style="event"
     line_5 = sns.lineplot(x="Step", y="Value", data=data_set5, errorbar=('ci', 95), lw=2, label='512-4') #,hue="region", style="event"
 
-    plt.ylabel("Policy loss", fontsize=12)
-    plt.xlabel("Iteration", fontsize=12)
-    plt.tick_params(labelsize=12)
+    plt.ylabel("总平均回报", fontproperties=zhfont1 ,fontsize=18, labelpad=-1.0)
+    plt.xlabel("训练迭代次数", fontproperties=zhfont1 ,fontsize=18)
+    plt.tick_params(labelsize=18)
+    plt.ticklabel_format(axis='x', style='sci', scilimits=(0, 0))
     # plt.grid(axis='both', ls='-.')
-    plt.legend(prop={'size': 11}, loc='best', ncol=2)
+    plt.legend(prop={'size': 15}, loc='best', ncol=2)
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
     plt.subplots_adjust(bottom=0.31)
     plt.rcParams['axes.unicode_minus'] = False
-    plt.savefig(os.path.join(dir, "-Loss_with_error_bands.pdf"))
+    plt.savefig(os.path.join(dir, "-Tar_with_error_bands_ch.pdf"))
     plt.show()
 
 if __name__ == "__main__":
@@ -483,7 +484,7 @@ if __name__ == "__main__":
     # parser.add_argument("--y_label", type=str, default=r"Computation time $/\mathrm{ms}$")  #
     # parser.add_argument("--y_label", type=str, default=r"Constraint $|\dot\phi|$")  #
     # parser.add_argument("--y_label", type=str, default=r"Constraint $|\beta|$")  #
-    parser.add_argument("--y_label", type=str, default=r"Roll index $I_{\rm rs}$")#
+    # parser.add_argument("--y_label", type=str, default=r"Roll index $I_{\rm rs}$")#
 
     # parser.add_argument("--x_label", type=str, default=r"$p_{\rm x,tt}\ /\mathrm{m}$")
     # parser.add_argument("--y_label", type=str, default=r"$p_{\rm y,tt}\ /\mathrm{m}$")
@@ -558,15 +559,15 @@ if __name__ == "__main__":
         data_csv = read_csv_line1(read_path, args["line_num"])
         read_datax = read_csv_line1(read_path_datax, args["line_num"])
 
-    if args["x_label"] == r"Time $/\mathrm{s}$" or args["x_label"] == r"时间 $/\mathrm{s}$":
-        plot_Timevs_(data_csv, args)
-    elif args["x_label"] == r"State Pos X $p_{\rm x,tt}\ /\mathrm{m}$" or r"State Pos X $p_{\rm x,tl}\ /\mathrm{m}$"\
-            or r"横向位置 X $p_{\rm x,tt}\ /\mathrm{m}$"or r"横向位置 X $p_{\rm x,tl}\ /\mathrm{m}$" or r"Pos $p_{\rm x}\ /\mathrm{m}$":
-        plot_stateXvs_(read_datax, data_csv, args)
-    else:
-        print("please set the x label")
+    # if args["x_label"] == r"Time $/\mathrm{s}$" or args["x_label"] == r"时间 $/\mathrm{s}$":
+    #     plot_Timevs_(data_csv, args)
+    # elif args["x_label"] == r"State Pos X $p_{\rm x,tt}\ /\mathrm{m}$" or r"State Pos X $p_{\rm x,tl}\ /\mathrm{m}$"\
+    #         or r"横向位置 X $p_{\rm x,tt}\ /\mathrm{m}$"or r"横向位置 X $p_{\rm x,tl}\ /\mathrm{m}$" or r"Pos $p_{\rm x}\ /\mathrm{m}$":
+    #     plot_stateXvs_(read_datax, data_csv, args)
+    # else:
+    #     print("please set the x label")
 
     # read_upper_loss = args["figures_root"] + "loss upper.csv"
     # data_csv = read_csv_line1(read_upper_loss, args["line_num"])
     # plot_upperloss(data_csv, args)
-    # TAR_with_error_bands(args)
+    TAR_with_error_bands(args)
