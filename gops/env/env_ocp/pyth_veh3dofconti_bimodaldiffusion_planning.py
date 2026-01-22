@@ -319,11 +319,11 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             shape=(self.total_obs_dim,),
             dtype=np.float32
         )
-        # obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
-        #                      1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
-        obs_scale_default = [1 / 20, 1 / 5, 1.0, 1 / 10,
-                             1 / 20, 1 / 5, 1.0, 1 / 10,  # ref points 同样缩放
-                             1 / 50, 1 / (max_accel * 10), 1 / 10]  # 其他
+        obs_scale_default = [1 / 100, 1 / 100, 1 / 10,
+                             1 / 100, 1 / 100, 1 / 10, 1 / 10, 1 / 50, 1 / (max_accel * 100), 1 / 10]
+        # obs_scale_default = [1 / 20, 1 / 5, 1.0, 1 / 10,
+        #                      1 / 20, 1 / 5, 1.0, 1 / 10,  # ref points 同样缩放
+        #                      1 / 50, 1 / (max_accel * 10), 1 / 10]  # 其他
         self.obs_scale = np.array(kwargs.get('obs_scale', obs_scale_default))
         # --- 3. 物理模型初始化 ---
         self.d_planning = d_planning  # 障碍物感知前瞻距离
@@ -453,108 +453,85 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             print("【致命错误】Agent输出了 NaN Action!")
             action = np.zeros_like(action)
 
-
         if self.control_mode == "planning":
             action = np.clip(action, self.action_space.low, self.action_space.high)
-            # 1. 坐标系对齐：全部在 Ego Frame 下工作
+
+            # --- 1. 先更新障碍物 (Physics t -> t+1) ---
+            self.step_self += 1
+            for obs in self.obstacles:
+                if obs.type == "dynamic" and obs.dynamic_data:
+                    obs.dynamic_data.step()
+                    obs.x, obs.y, obs.phi, obs.u = obs.dynamic_data.x, obs.dynamic_data.y, obs.dynamic_data.phi, obs.dynamic_data.u
+            lateral_action = action[0]
+            # --- 2. 规划轨迹 (Planner) - 以路为本 (Lane-Centric) ---
+            # A. 提取自车状态
             ego_x, ego_y, ego_phi, ego_u = self.state[0], self.state[1], self.state[2], self.state[3]
             self.speed_deltas = action[1:]
 
-            # 1. 寻找最近的威胁障碍物
-            nearest_obs = None
-            min_dist = float('inf')
-            for obs in self.obstacles:
-                # 计算到障碍物的距离
-                dist = np.linalg.norm([obs.x - ego_x, obs.y - ego_y])
-                # 判定条件：
-                # 1. 距离在感知范围内 (d_planning) 2. 障碍物在车前方 (简单判断 x)
-                if dist < self.d_planning and obs.x > ego_x:
-                    if dist < min_dist:
-                        min_dist = dist
-                        nearest_obs = obs
-            # 2. 对轨迹规划
-            # === 情况 A: 存在威胁障碍物 ===
-            if nearest_obs is not None:
-                y_target = nearest_obs.y + action[0]
-                p0 = np.array([ego_x, ego_y])
-                # 控制点 p1: 在障碍物横向截面处
-                p1 = np.array([nearest_obs.x, y_target])
-                # 终点 p2: 在障碍物后方，回归目标 y
-                p2 = np.array([nearest_obs.x + self.forward_sample + nearest_obs.l / 2, y_target])
-                # Global 坐标系轨迹
-                full_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pre_horizon + 1)
-                # self.current_planning_traj = full_curve
-            # === 情况 B: 无威胁，自由行驶 ===
-            else:
-                # 获取全局参考路径在 Ego 系下的投影 (作为基准)
-                ref_ego_x, ref_ego_y, _ = ego_vehicle_coordinate_transform(
-                    ego_x, ego_y, ego_phi,
-                    self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2]
-                )
-                # ==========================================
-                # 2. 确定基准点 (Residual Learning)
-                mid_idx = min(len(ref_ego_x) - 1, int(self.pre_horizon / 2))
-                end_idx = min(len(ref_ego_x) - 1, self.pre_horizon - 1)
-                p1_base = np.array([ref_ego_x[mid_idx], ref_ego_y[mid_idx]])
-                p2_base = np.array([ref_ego_x[end_idx], ref_ego_y[end_idx]])
-                # ==========================================
-                # 3. 生成局部轨迹 (Ego Frame)
-                # ==========================================
-                p0 = np.array([0.0, 0.0])  # 【关键】P0 必须是局部原点
-                p1 = p1_base + np.array([0.0, action[0]])  # 动作是相对于基准的偏移
-                p2 = p2_base + np.array([0.0, action[0]])
-                bezier_curve = BezierGenerator.generate(p0, p1, p2, num_points=self.pre_horizon + 1)
-                # 立即转为 Global 轨迹
-                full_curve = self._ego_to_global(
-                    bezier_curve, self.state
-                )
-            # 3. 速度规划
-            # A. 速度插值：将 5 个关键点扩展为 20 个点 (pre_horizon)
-            # 使用简单的线性插值或三次样条插值
+            # B. 坐标转换：将全局参考线转到 Ego 坐标系
+            # 这一步是为了方便贝塞尔曲线的生成 (起点归零)
+            ref_ego_x, ref_ego_y, _ = ego_vehicle_coordinate_transform(
+                ego_x, ego_y, ego_phi,
+                self.ref_points[:, 0], self.ref_points[:, 1], self.ref_points[:, 2]
+            )
+            # C. 确定贝塞尔曲线的控制点 (基于参考线)
+            # 我们不再关心障碍物在哪里，只关心 Agent 想去哪里 (lateral_action)
+            # 假设 p0 是自车当前位置 (在局部坐标系下是 0,0)
+
+            # 选取参考线上的锚点 (Anchor Points)
+            # mid_idx 对应控制点 P1 的纵向位置，end_idx 对应终点 P2 的纵向位置
+            mid_idx = min(len(ref_ego_x) - 1, int(self.pre_horizon / 2))
+            end_idx = min(len(ref_ego_x) - 1, self.pre_horizon - 1)
+            # 基准点 (Base Points) 在参考线上
+            p1_base = np.array([ref_ego_x[mid_idx], ref_ego_y[mid_idx]])
+            p2_base = np.array([ref_ego_x[end_idx], ref_ego_y[end_idx]])
+
+            # D. 应用 Action 生成最终控制点
+            # 这里的 action[0] 明确定义为：相对于参考路径的横向偏移
+            # p0 = [0, 0]
+            # p1 = 参考线中点 + 偏移
+            # p2 = 参考线终点 + 偏移
+
+            # 注意：这里的加法是简化的 (直接加在 y 上)。
+            # 在局部坐标系下，如果参考线主要是纵向的，这样做没问题。
+            # 如果想要更精确，应该沿着法向加，但在 Ego Frame 下 ref_y 已经包含了弯道信息，直接加 action[0] 通常足够用于局部规划。
+
+            p1_target = p1_base + np.array([0.0, lateral_action])
+            p2_target = p2_base + np.array([0.0, lateral_action])
+
+            # E. 生成局部轨迹 -> 转回全局
+            full_curve_ego = BezierGenerator.generate(np.zeros(2), p1_target, p2_target,
+                                                      num_points=self.pre_horizon + 1)
+            full_curve_global = self._ego_to_global(full_curve_ego, self.state)
+
+            # --- 3. 速度规划 (保持不变) ---
             t_knots = np.linspace(0, 1, self.num_speed_points)
             t_query = np.linspace(0, 1, self.pre_horizon + 1)
 
-            # 插值得到每个点的 delta_v
-            delta_v_profile = np.interp(t_query, t_knots, self.speed_deltas)
-
-            # B. 叠加到全局参考速度
-            # 假设 self.ref_points 是全局参考
-            # 注意：取对应时间步的参考速度，而不是只取第0个
+            # 基础速度 + 动作增量
             base_ref_vs = self.ref_points[:self.pre_horizon + 1, 3]
-            raw_target_vs = base_ref_vs + delta_v_profile
+            target_v = base_ref_vs + np.interp(t_query, t_knots, self.speed_deltas)
 
-            # C. 速度物理安全约束
-            # 就算网络想飞，物理也不允许。我们计算几何路径的曲率限制。
-            # C1. 计算曲率
-            dx = np.gradient(full_curve[:, 0])
-            dy = np.gradient(full_curve[:, 1])
+            # 物理约束 (曲率限速)
+            dx = np.gradient(full_curve_global[:, 0])
+            dy = np.gradient(full_curve_global[:, 1])
             ddx = np.gradient(dx)
             ddy = np.gradient(dy)
-            curvature = np.abs(dx * ddy - dy * ddx) / (np.power(dx ** 2 + dy ** 2, 1.5) + 1e-6)
+            curv = np.abs(dx * ddy - dy * ddx) / (np.power(dx ** 2 + dy ** 2, 1.5) + 1e-6)
+            v_limit_curve = np.sqrt(self.max_lat_acc / (curv + 1e-6))
 
-            # C2. 计算侧向加速度限制速度
-            v_limit_curve = np.sqrt(self.max_lat_acc / (curvature + 1e-6))
+            # 融合限速
+            final_v = np.clip(np.minimum(target_v, v_limit_curve), 0.0, 15.0)
 
-            # C2. 计算纵向障碍物限速
-            # 如果路径前方有障碍物，这个 profile 会在障碍物前降为 0
-            # v_limit_obs = self._calculate_lon_safety_profile(full_curve, self.obstacles)
-
-            # C3. 最终融合：取所有限制的最小值
-            # 逻辑：Min(网络意图, 曲率限制, 障碍物刹车限制)
-            final_v_profile = np.minimum(raw_target_vs, v_limit_curve)
-            # final_v_profile = np.minimum(final_v_profile, v_limit_obs)  # 加入障碍物限制
-
-            # C4. 物理极速硬截断
-            final_v_profile = np.clip(final_v_profile, 0.0, 15.0)
-
-            # 4. 组合最终轨迹 (x, y, phi, u)
+            # --- 4. 组合最终规划轨迹 ---
             phis = np.arctan2(dy, dx)
-            phis = np.unwrap(phis)
+            # phis = np.unwrap(phis) # arctan2 出来通常不需要 unwrap，除非跨越 +-pi
+
             self.current_planning_traj = np.stack([
-                full_curve[:, 0],
-                full_curve[:, 1],
+                full_curve_global[:, 0],
+                full_curve_global[:, 1],
                 phis,
-                final_v_profile  # <--- 这就是包含了地形、意图和安全的最终速度
+                final_v
             ], axis=1)
 
             # ==========================================
@@ -569,7 +546,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             # 获取较远处的规划速度
             preview_target_v = self.current_planning_traj[target_idx, 3]
             real_action = self.controller.get_control(self.current_planning_traj[:, :2], preview_target_v, self.state[:3], self.state[3])
-            reward = self._compute_reward(real_action)
+
             self.state = self.vehicle_dynamics.f_xu(self.state, real_action, self.ref_points[1,4:], self.dt)
             # ----------  完美执行 ----------
             # next_pt = self.current_planning_traj[1]
@@ -602,23 +579,25 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             #
             # # 计算奖励 (此时 self.state 已经是完美执行后的状态了)
             # reward = self._compute_reward(real_action)
+
         else:
             real_action = np.clip(action, self.action_space.low, self.action_space.high)
             # --- 分支 B: SAC/PPO/DSACT Controller 模式 ---
             self.current_diffusion_traj = None  # 无轨迹可视化
             self.state = self.vehicle_dynamics.f_xu(self.state, real_action, self.ref_points[1,4:], self.dt)
-            reward = self._compute_reward(real_action)
+            # reward = self._compute_reward(real_action)
+        reward = self._compute_reward(real_action)
         # === 自适应时间步进 ===
         # 障碍物步进 (动态障碍物更新)
-        self.step_self += 1
-        for obs in self.obstacles:
-            if obs.type == "dynamic" and obs.dynamic_data is not None:
-                obs.dynamic_data.step()
-                # 同步回 Obstacle 对象
-                obs.x = obs.dynamic_data.x
-                obs.y = obs.dynamic_data.y
-                obs.phi = obs.dynamic_data.phi
-                obs.u = obs.dynamic_data.u
+        # self.step_self += 1
+        # for obs in self.obstacles:
+        #     if obs.type == "dynamic" and obs.dynamic_data is not None:
+        #         obs.dynamic_data.step()
+        #         # 同步回 Obstacle 对象
+        #         obs.x = obs.dynamic_data.x
+        #         obs.y = obs.dynamic_data.y
+        #         obs.phi = obs.dynamic_data.phi
+        #         obs.u = obs.dynamic_data.u
         # self.t = self.t + self.dt
 
         # 根据自车实际行驶距离，计算在参考轨迹上的投影时间流逝
@@ -748,24 +727,78 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
         # 5. Prompts Obs
         prompt_feats = []
+
+        # 定义三个槽位的默认无效轨迹 (Fallback to Out-of-Bound)
+        # Slot 0: Right (y = -10.0)
+        # Slot 1: Center (y = -10.0 or +10.0, 只要离谱就行)
+        # Slot 2: Left  (y = +10.0)
+
+        # 为了方便网络理解，无效值最好统一设为一个极其显著的值，比如 0.0 (如果做了归一化处理需小心)
+        # 最稳妥的方法：直接全填 0，但是加一个 "Validity Bit" (有效位)。
+        # 但为了不改动网络结构，我们用 "将轨迹推到路外" 的方法。
+
+        # 预设 3 个空槽位
+        slots = [None, None, None]
+        # Slot 0: Right (-lateral), Slot 1: Center (0.0), Slot 2: Left (+lateral)
+
+        # 遍历生成的有效轨迹，把它们归位
         for traj in self.guide_trajectories:
+            # 转换到局部坐标系
             px_tf, py_tf, _ = ego_vehicle_coordinate_transform(
                 self.state[0], self.state[1], self.state[2],
                 traj[:, 0], traj[:, 1], np.zeros(len(traj))
             )
-            prompt_feats.append(np.stack([px_tf/self.perception_range, py_tf*self.obs_scale[1]], axis=1).flatten())
 
-        # 修改填充逻辑：
-        while len(prompt_feats) < self.guide_traj_num:
-            # 填充一个极远的轨迹 (比如在 y=100m 处)，让 Agent 绝对不想去
-            dummy_traj = np.zeros((self.ref_horizon, 2))
-            dummy_traj[:, 1] = 50.0  # y = 10.0m (路外)
-            # 记得缩放
-            dummy_flat = dummy_traj.flatten()
-            dummy_flat[0::2] *= self.obs_scale[0]  # x
-            dummy_flat[1::2] *= self.obs_scale[1]  # y
-            prompt_feats.append(dummy_flat)
-        prompt_obs = np.concatenate(prompt_feats)
+            # 判断这条线属于哪个槽位？根据局部 y 的均值判断
+            mean_y = np.mean(py_tf)
+
+            if mean_y < -1.5:  # 右车道
+                slots[0] = (px_tf, py_tf)
+            elif mean_y > 1.5:  # 左车道
+                slots[2] = (px_tf, py_tf)
+            else:  # 中车道
+                slots[1] = (px_tf, py_tf)
+
+        # 填充 Observation
+        final_prompts_flat = []
+
+        for i, track_data in enumerate(slots):
+            if track_data is not None:
+                # 有效轨迹：正常归一化
+                px, py = track_data
+                feat = np.stack([
+                    px / self.perception_range,
+                    py * self.obs_scale[1]
+                ], axis=1).flatten()
+            else:
+                # 无效轨迹：填入特定值让网络知道"此路不通"
+                # 策略：填入全 0，但是因为我们有3个槽位，网络会学到：
+                # 如果槽位2是全0 -> 中间不可走。
+                # 注意：如果你的 obs_scale[1] 是 1/5，那么 y=0 就是 0。
+                # 所以这里填 0 会被误认为是路中心！
+
+                # 【关键修正】：填入一个代表"不存在"的值
+                # 建议：y 填入一个边界值，比如 +/- 2.0 (归一化后是 +/- 0.4)
+                # 或者更简单：如果轨迹点全是 0，网络可能能识别，
+                # 但更强效的是把 y 设为 -10.0 (路外)
+
+                dummy_x = np.linspace(0, 1, self.ref_horizon)  # x 正常往前
+
+                if i == 0:
+                    dummy_y = -20.0  # 右槽位无效 -> 设为极右
+                elif i == 1:
+                    dummy_y = 20.0  # 中槽位无效 -> 设为极远(比如天上)或者极左
+                else:
+                    dummy_y = 20.0  # 左槽位无效 -> 设为极左
+
+                feat = np.stack([
+                    dummy_x,  # x 归一化后 0~1
+                    np.full_like(dummy_x, dummy_y) * self.obs_scale[1]  # y 归一化
+                ], axis=1).flatten()
+
+            final_prompts_flat.append(feat)
+
+        prompt_obs = np.concatenate(final_prompts_flat)
         # prompt_feats = [np.zeros(self.ref_horizon * 2, dtype=np.float32) for _ in range(3)]
         # for traj in self.guide_trajectories:
         #     # 判断这条线是左中右哪条？
@@ -942,42 +975,18 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             # --- 5. 非碰撞奖励-------
             # violation > 0: 撞了
             # violation = -2.0: 离障碍物边界还有 2米
-            traj_violation = self._check_traj_collision(
-                agent_planning_traj,
-                margin=0.0,  # 这里的margin给0，让网络自己学距离
-                return_cost=True
-            )
+            # Soft Barrier
+            collision_bound_traj = 0.1
+            dis_to_tanh_traj = np.maximum(8 - 8 * traj_risk / collision_bound_traj, 0)
+            punish_dis_traj = np.tanh(dis_to_tanh_traj - 4) + 1
+            r_col_traj = -20.0 * punish_dis_traj
 
-            # 2. 设计 Soft Barrier Reward
-            # 逻辑：
-            # 当 violation < -3.0 (非常远) -> 惩罚 ≈ 0
-            # 当 violation = -1.0 (靠近了) -> 惩罚开始增加
-            # 当 violation > 0.0 (撞了)   -> 惩罚巨大
-
-            # 裁剪一下，防止太远的地方产生微小梯度干扰
-            # 只关注 3米以内的风险
-            effective_violation = max(traj_violation, -3)
-
-            # 使用 tanh 平滑过渡
-            # tanh(x + 3) 使得 -3 时为 0，0 时为 0.99
-            r_collision_risk = np.tanh(effective_violation + 3)
-
-            # 如果真的预测会撞上 (violation > 0)，额外叠加重罚
-            if traj_violation > 0:
-                r_collision_risk += traj_violation * 20.0  # 线性增加，撞得越深罚得越重
-
-            # 3. 最终加权
-            # 给一个较大的系数，比如 -20
-            r_collision_traj = -2.0 * r_collision_risk
-            # if r_collision_traj != 0:
-            #     print(r_collision_traj)
-            # 获取侵入量 (Violation)
-            # 正值表示危险，负值表示安全
-            violation = - self._check_ego_collision()
+            ego_risk = - self._check_ego_collision(return_cost=True)
             collision_bound = 0.5
-            dis_to_tanh = np.maximum(8 - 8 * violation / collision_bound, 0)
+            dis_to_tanh = np.maximum(8 - 8 * ego_risk / collision_bound, 0)
             punish_dis = np.tanh(dis_to_tanh - 4) + 1
-            r_collision_cost = -20.0 * punish_dis
+            r_col_ego = -20.0 * punish_dis
+
             # if r_collision_cost != 0:
 
             # --- 6. 坡度安全奖励 ---
@@ -1007,7 +1016,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             if lat_dev > self.max_road_width - 1.0:
                 # 二次惩罚：越远扣得越狠
                 r_boundary = -1.5 * ((lat_dev - (self.max_road_width - 1.0)) ** 2)
-            return r_efficiency + r_guidance + r_heading + r_collision_cost+r_collision_traj +r_boundary+r_speed_smooth+r_consistency+r_slope_safety+r_global_bonus#+r_stability
+            return r_efficiency + r_guidance + r_heading + r_col_traj+r_col_ego +r_boundary+r_speed_smooth+r_consistency+r_slope_safety+r_global_bonus#+r_stability
         else:
             x, y, phi, u, _, w = self.state
             ref_x, ref_y, ref_phi, ref_u = self.ref_points[0]
@@ -1098,18 +1107,19 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
             # --- 5. 碰撞惩罚 (Collision) ---
             # 预测轨迹风险
-            traj_violation = self._check_traj_collision(
-                agent_planning_traj, margin=0.0, return_cost=True
-            )
-            r_collision_traj = -5.0 * np.tanh(max(traj_violation, -3.0) + 3.0)
-            if traj_violation > 0:
-                r_collision_traj -= traj_violation * 20.0  # 撞实了重罚
+            traj_risk = - self._check_traj_collision(self.current_planning_traj, margin=self.safe_dist2obs,
+                                                     return_cost=True)
+            # Soft Barrier
+            collision_bound_traj = 0.1
+            dis_to_tanh_traj = np.maximum(8 - 8 * traj_risk / collision_bound_traj, 0)
+            punish_dis_traj = np.tanh(dis_to_tanh_traj - 4) + 1
+            r_col_traj = -20.0 * punish_dis_traj
 
-            # 实时碰撞风险
-            ego_violation = self._check_ego_collision(return_cost=True)
-            r_collision_ego = -5.0 * np.tanh(max(ego_violation, -3.0) + 3.0)
-            if ego_violation > 0:
-                r_collision_ego -= 200.0  # 发生事故重罚
+            ego_risk = - self._check_ego_collision(return_cost=True)
+            collision_bound = 0.5
+            dis_to_tanh = np.maximum(8 - 8 * ego_risk / collision_bound, 0)
+            punish_dis = np.tanh(dis_to_tanh - 4) + 1
+            r_col_ego = -20.0 * punish_dis
 
             # --- 6. 其他约束 ---
             # 道路边界
@@ -1138,8 +1148,8 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                     r_global_bonus +
                     r_guidance +
                     r_heading +
-                    r_collision_traj +
-                    r_collision_ego +
+                    r_col_traj +
+                    r_col_ego +
                     r_boundary +
                     r_speed_smooth +
                     r_stability
@@ -1163,7 +1173,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         # 2. Global Path Bonus
         r_global_bonus = 0.0
         if best_guide is not None:
-            r_global_bonus = 2.0
+            r_global_bonus = 0.1
 
         # 3. Guidance Tracking Cost (走得直不直)
         r_guidance = 0.0
