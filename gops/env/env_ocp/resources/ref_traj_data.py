@@ -54,7 +54,7 @@ DEFAULT_PATH_PARAM = {
     "straight_lane": {"A": 0.0, "T": 100.0, },
     "u_turn": {"r": 50.0, "l1": 100.0,  "l2": 100.0},
     "figure_eight": {"a": 80.0, "b":80, "omega1":np.pi/100, "omega2":np.pi*2/100}, #李萨如曲线
-    "rtk_path": {"root": "/home/bit/Troy/1_code/GOPS/gops/env/env_ocp/resources/mainroad627.csv"}, #rtk 录点轨迹
+    "rtk_path": {"file_name": "mainroad627.csv"}, #rtk 录点轨迹
 }
 
 DEFAULT_SPEED_PARAM = {
@@ -336,10 +336,10 @@ class FigureEightRefTrajData(RefTrajData):
 
 @dataclass
 class RTKRefTrajData(RefTrajData):
-      root: str  # 轨迹存放目录
+      file_name: str  # 轨迹存放目录
       def __post_init__(self):
           current_dir = os.path.dirname(os.path.abspath(__file__))
-          csv_path = os.path.join(current_dir, "mainroad627.csv")
+          csv_path = os.path.join(current_dir, self.file_name)
           data_result = pd.DataFrame(pd.read_csv(csv_path, header=None))
           # data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
           raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
