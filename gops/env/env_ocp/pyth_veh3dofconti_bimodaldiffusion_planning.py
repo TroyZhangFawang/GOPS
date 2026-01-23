@@ -255,7 +255,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                  max_steer: float = np.pi / 6,
                  max_accel: float = 3.0,
                  dynamic_obstacle_num: int =2,
-                 static_obstacle_num: int = 3,
+                 static_obstacle_num: int = 4,
                  d_planning: float = 20.0,  # 离障碍物多少远开始规划
                  lateral_sample: float = 3.5,  # 横向采样距离
                  forward_sample: float = 20.0,  # 纵向采样距离
@@ -273,7 +273,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         self.state_dim = 6
         self.pre_horizon = pre_horizon
         self.dt = 0.1
-        self.max_episode_steps = 100
+        self.max_episode_steps = 151
         # 控制模式开关, "planning": 输出轨迹; "control": 输入 [steer, acc] , 直接控制
         self.control_mode = kwargs.get("control_mode", "planning")
         self.max_steer = max_steer
@@ -516,10 +516,13 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             ddy = np.gradient(dy)
             curv = np.abs(dx * ddy - dy * ddx) / (np.power(dx ** 2 + dy ** 2, 1.5) + 1e-6)
             v_limit_curve = np.sqrt(self.max_lat_acc / (curv + 1e-6))
-
+            # C2. 计算纵向障碍物限速
+            # 如果路径前方有障碍物，这个 profile 会在障碍物前降为 0
+            v_limit_obs = self._calculate_lon_safety_profile(full_curve_global, self.obstacles)
             # 融合限速
-            final_v = np.clip(np.minimum(target_v, v_limit_curve), 0.0, 15.0)
-
+            final_v_profile = np.minimum(target_v, v_limit_curve)
+            final_v_profile = np.minimum(final_v_profile, v_limit_obs)  # 加入障碍物限制
+            final_v = np.clip(final_v_profile, 0.0, 15.0)
             # --- 4. 组合最终规划轨迹 ---
             phis = np.arctan2(dy, dx)
             # phis = np.unwrap(phis) # arctan2 出来通常不需要 unwrap，除非跨越 +-pi
@@ -755,11 +758,119 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
         self.ref_points[-1] = new_ref_point
 
-    def _compute_reward_new(self, action):
+    def _compute_reward_old(self, action):
         if self.control_mode == "planning":
             if self.current_planning_traj is None:
                 return -10.0
+            agent_planning_traj = self.current_planning_traj[:, :2]
 
+
+            # --- 1. 择优：选择最佳引导线 (Best Guide Selection) ---
+            min_tracking_err = float('inf')
+            best_guide_traj = None
+
+            # 遍历所有可选的引导线
+            for i, guide_traj in enumerate(self.guide_trajectories):
+                # A. 安全性检查 (预测轨迹是否撞动态障碍物)
+                if self._check_traj_collision(guide_traj, margin=1.5, return_cost=False):
+                    continue
+
+                # B. 评分机制 (几何距离)
+                # 取引导线的中点来衡量距离，比起点更准
+                n_steps = min(len(agent_planning_traj), len(guide_traj))
+
+                # 核心修正：直接比较两条轨迹的形状相似度
+                diff = agent_planning_traj[:n_steps] - guide_traj[:n_steps]
+                mean_err = np.mean(np.linalg.norm(diff, axis=1))
+
+                if mean_err < min_tracking_err:
+                    min_tracking_err = mean_err
+                    best_guide_traj = guide_traj
+
+            # --- 2. 基础引导奖励 ---
+            # 如果所有路都被堵死 (best_guide is None)，给巨大惩罚
+            if best_guide_traj is None:
+                r_guidance = -10.0
+                r_global_bonus = 0.0
+                r_heading = 0.0
+            else:
+                # 奖励就是负的最小误差
+                r_guidance = -1.0 * min_tracking_err
+                ref_end = self.ref_points[self.ref_horizon - 1, :2]
+                guide_end = best_guide_traj[-1, :2]
+
+                # B. 航向偏差奖励 (Heading Error)
+                guide_diff = np.diff(best_guide_traj[:n_steps, :2], axis=0)
+                agent_phi = self.current_planning_traj[:n_steps-1, 2]
+                guide_phi = np.arctan2(guide_diff[:, 1], guide_diff[:, 0])
+                phi_error = angle_normalize(agent_phi - guide_phi)
+                r_heading = -0.1 * np.mean(np.square(phi_error))
+                # C. 航向偏差奖励 (Heading Error)
+                r_global_bonus = 0.0
+                # 检查终点距离 (容差 1.0m)
+                if np.linalg.norm(ref_end - guide_end) < 1.0:
+                    r_global_bonus = 2.0
+
+            # --- 4. 效率与生存 (Efficiency & Alive) ---
+            #始终给效率分，鼓励往前走
+            r_efficiency = 0.2 * self.state[3]
+
+            # 给生存分，防止因为害怕扣分而自杀
+            r_alive = 0.5
+
+            # --- 5. 碰撞惩罚 (Collision) ---
+            # 预测轨迹风险
+            traj_risk = - self._check_traj_collision(self.current_planning_traj, margin=self.safe_dist2obs,
+                                                     return_cost=True)
+            # Soft Barrier
+            collision_bound_traj = 0.1
+            dis_to_tanh_traj = np.maximum(8 - 8 * traj_risk / collision_bound_traj, 0)
+            punish_dis_traj = np.tanh(dis_to_tanh_traj - 4) + 1
+            r_col_traj = -20.0 * punish_dis_traj
+
+            ego_risk = - self._check_ego_collision(return_cost=True)
+            collision_bound = 0.5
+            dis_to_tanh = np.maximum(8 - 8 * ego_risk / collision_bound, 0)
+            punish_dis = np.tanh(dis_to_tanh - 4) + 1
+            r_col_ego = -20.0 * punish_dis
+
+            # --- 6. 其他约束 ---
+            # 道路边界
+            ref_y = self.ref_points[0, 1]
+            ego_y = self.state[1]
+            lat_dev = abs(ego_y - ref_y)
+            r_boundary = 0.0
+            if lat_dev > self.max_road_width - 1.0:
+                r_boundary = -1.5 * ((lat_dev - (self.max_road_width - 1.0)) ** 2)
+
+            # 平滑性
+            diffs = np.diff(self.current_planning_traj[:, 3])
+            r_speed_smooth = -0.05 * np.sum(np.square(diffs))
+
+            # 稳定性 (侧向加速度)
+            ego_u = self.state[3]
+            ego_w = self.state[5]
+            lat_acc = ego_u * ego_w
+            r_stability = -0.01 * (lat_acc ** 2)
+
+            total_reward = (
+                    r_efficiency +
+                    r_alive +
+                    r_global_bonus +
+                    r_guidance +
+                    r_heading +
+                    r_col_traj +
+                    r_col_ego +
+                    r_boundary +
+                    r_speed_smooth +
+                    r_stability
+            )
+            return total_reward
+
+    def _compute_reward(self, action):
+        if self.control_mode == "planning":
+            if self.current_planning_traj is None:
+                return -10.0
             agent_planning_traj = self.current_planning_traj
             ego_pos = self.state[:2]
 
@@ -878,7 +989,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             )
 
             return total_reward
-    def _compute_reward(self, action):
+    def _compute_reward_new(self, action):
         if self.current_planning_traj is None: return -1.0
 
         # 获取 Agent 规划的轨迹 (只取 x,y 坐标)
@@ -962,7 +1073,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             delta_t = self.np_random.uniform(3, 8)  # 稍微放宽范围
 
             delta_lon = 1.0 * self.np_random.uniform(-1, 1)
-            delta_lat = 1.0 * self.np_random.uniform(-2.0, 2.0)  # 限制在路宽范围内
+            delta_lat = 1.0 * self.np_random.uniform(-5.0, 5.0)  # 限制在路宽范围内
             delta_phi = 1.0 * self.np_random.uniform(0, np.pi)
             dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
@@ -983,7 +1094,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             static_obs_phi = self.ref_traj.compute_phi(self.t + delta_t, self.path_num, self.u_num)
 
             delta_lon = 1.0 * self.np_random.uniform(-2, 2)
-            delta_lat = 1.0 * self.np_random.uniform(-3.0, 3.0)
+            delta_lat = 1.0 * self.np_random.uniform(-6.0, 6.0)
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
             static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num) + delta_lat
 
@@ -1028,7 +1139,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         ))
         return obs_list
 
-    def _generate_guidance_prompts_(self):
+    def _generate_guidance_prompts(self):
         """
         生成 3 条引导轨迹 [Slot 0: 右, Slot 1: 中, Slot 2: 左]。
         策略：
@@ -1131,7 +1242,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
 
         return fixed_traj_list
 
-    def _generate_guidance_prompts(self):
+    def _generate_guidance_prompts_(self):
         """
         生成 3 条引导轨迹 [Slot 0: 右, Slot 1: 中, Slot 2: 左]。
         策略：
@@ -1555,8 +1666,9 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         # 简单的碰撞检测：检查路径点是否在障碍物范围内
         # 为了效率，这里简化为点到圆心的距离检查，你也可以用更精确的矩形检测
         for obs in obstacles:
-            # 只考虑前方的障碍物
-            if obs.x < self.state[0] - 2.0:
+
+            # 只考虑前方的障碍物 和不可跨越障碍
+            if obs.x < self.state[0] - 2.0 or obs.can_cross:
                 continue
 
             # 计算路径所有点到该障碍物的距离
@@ -1781,7 +1893,12 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         legend_handles = []
         # 用于记录已添加的图例标签，防止重复
         added_labels = set()
+        ego_x, ego_y, phi = self.state[:3]
 
+        view_x_min = ego_x - 21
+        view_x_max = ego_x + 59
+        view_y_min = ego_y - 10
+        view_y_max = ego_y + 10
         # --- 1. 绘制自车 (Ego) ---
         ego_x, ego_y, phi = self.state[:3]
         ego_corners = get_rotated_rect(ego_x, ego_y, phi, veh_length, veh_width)
@@ -1802,7 +1919,8 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         # 自车箭头
         ax.arrow(ego_x, ego_y, veh_length * 0.8 * np.cos(phi), veh_length * 0.8 * np.sin(phi),
                  head_width=0.8, head_length=1.2, fc='red', ec='red', alpha=0.8, zorder=21)
-
+        # 自车速度显示 (可选，如果你也想看自车速度)
+        # ax.text(ego_x, ego_y, f"{self.state[3]:.1f}m/s", color='white', fontsize=10, ha='center', va='center', zorder=22, fontweight='bold')
         # --- 2. 绘制参考轨迹 (Global) ---
         if hasattr(self, 'ref_points') and self.ref_points is not None:
             # 2.1 绘制全局轨迹
@@ -2007,7 +2125,27 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 if is_dynamic and abs(obs.u) > 0.1:
                     ax.arrow(obs.x, obs.y, obs.u * 0.5 * np.cos(obs.phi), obs.u * 0.5 * np.sin(obs.phi),
                              head_width=0.5, head_length=0.8, fc='darkred', ec='darkred', alpha=0.6, zorder=z_order + 1)
+                    # 【新增】绘制速度文本
+                    # 2. 绘制跟随旋转的车速文字
+                    if (view_x_min <= obs.x <= view_x_max) and (view_y_min <= obs.y <= view_y_max):
+                        # --- [关键步骤 A] 将弧度转为角度 ---
+                        rotate_deg = np.rad2deg(obs.phi)
 
+                        # --- [关键步骤 B] 优化阅读方向 (可选) ---
+                        # 如果不加这段，车头朝左时文字会倒立。
+                        # 加了这段，文字始终平行于车身，但字是正的。
+                        # 将角度归一化到 0-360
+                        norm_deg = rotate_deg % 360
+                        if 90 < norm_deg < 270:
+                            rotate_deg += 180
+
+                        ax.text(obs.x, obs.y, f"{obs.u:.1f} m/s",
+                                color='black', fontsize=9,
+                                ha='center', va='center',
+                                fontweight='bold',
+                                zorder=z_order + 2,
+                                rotation=rotate_deg,  # <--- 关键参数：传入角度
+                                rotation_mode='anchor')  # <--- 确保绕中心点旋转
         # --- 6. 绘制引导线 ---
         if hasattr(self, 'guide_trajectories') and self.guide_trajectories:
             for i, guide_traj in enumerate(self.guide_trajectories):
@@ -2021,19 +2159,11 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                         added_labels.add('引导线')
 
         # --- 8. 设置视野与动态刻度 ---
-        # A. Y轴
-        y_center = ego_y
-        y_min, y_max = y_center - 10, y_center + 10
-        y_ticks = [y_center - 10, y_center, y_center + 10]
-        ax.set_ylim(y_min, y_max)
-        ax.set_yticks(y_ticks)
+        ax.set_ylim(view_y_min, view_y_max)
+        ax.set_yticks([ego_y - 10, ego_y, ego_y + 10])
 
-        # B. X轴
-        x_start = ego_x - 21
-        x_end = ego_x + 59
-        x_ticks = np.linspace(x_start, x_end, 5)
-        ax.set_xlim(x_start, x_end)
-        ax.set_xticks(x_ticks)
+        ax.set_xlim(view_x_min, view_x_max)
+        ax.set_xticks(np.linspace(view_x_min, view_x_max, 5))
 
         # C. 格式化
         from matplotlib.ticker import FormatStrFormatter

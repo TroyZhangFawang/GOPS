@@ -59,7 +59,7 @@ DEFAULT_PATH_PARAM = {
 
 DEFAULT_SPEED_PARAM = {
     "constant": {"u": 10, },
-    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 15.0,},
+    "sine": {"A": 3.0, "omega": 2 * np.pi / 10, "phi": 0.0, "b": 10.0,},
 }
 
 DEFAULT_SLOPE_PARAM = {
@@ -338,10 +338,12 @@ class FigureEightRefTrajData(RefTrajData):
 class RTKRefTrajData(RefTrajData):
       root: str  # 轨迹存放目录
       def __post_init__(self):
-          data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
+          current_dir = os.path.dirname(os.path.abspath(__file__))
+          csv_path = os.path.join(current_dir, "mainroad627.csv")
+          data_result = pd.DataFrame(pd.read_csv(csv_path, header=None))
+          # data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
           raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
           raw_y = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
-
           # 3. 应用Savitzky-Golay平滑滤波
           window_size = 15  # 滑动窗口大小(奇数)
           poly_order = 3  # 多项式阶数

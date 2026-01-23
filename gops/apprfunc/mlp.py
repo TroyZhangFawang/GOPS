@@ -647,18 +647,18 @@ class EncodingStochaPolicy2(nn.Module, Action_Distribution):
 
         # 1. Encoders (保持维度匹配)
         self.ref_encoder = nn.Sequential(
-            nn.Linear(self.ref_dim, 128), nn.ReLU(), nn.Linear(128, 64)
+            nn.Linear(self.ref_dim, 256), nn.ReLU(), nn.Linear(256, 128)
         )
         self.obstacle_encoder = nn.Sequential(
-            nn.Linear(self.obs_dim, 128), nn.ReLU(), nn.Linear(128, 64)
+            nn.Linear(self.obs_dim, 256), nn.ReLU(), nn.Linear(256, 128)
         )
         self.prompt_encoder = PromptEncoder(input_dim=2, output_dim=32)
         self.ego_encoder = nn.Sequential(
-            nn.Linear(self.ego_dim, 64), nn.ReLU()
+            nn.Linear(self.ego_dim, 128), nn.ReLU()
         )
 
         # 5. 融合维度: 64*3 + 32*3 = 288
-        total_feat_dim = 64 + 64 + 64 + (32 * 3)
+        total_feat_dim = 128 + 128 + 128 + (32 * 3)
 
         # 策略头
         # 使用正交初始化 (Orthogonal Initialization) 有助于 RL 收敛
