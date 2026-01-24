@@ -9107,6 +9107,7 @@ class EnhancedPolicyRunner(PolicyRunner):
                  obs_noise_data: list = None,
                  action_noise_type: str = None,
                  action_noise_data: list = None,
+                 fixed_seed: int = 2024,
                  *args, **kwargs):
 
         # Extract custom parameters first
@@ -9114,11 +9115,15 @@ class EnhancedPolicyRunner(PolicyRunner):
         self.screenshot_interval = kwargs.pop('screenshot_interval', 10)
         self.convert_to_gif = kwargs.pop('convert_to_gif', False)
         self.gif_fps = kwargs.pop('gif_fps', 10)
-
+        self.fixed_seed = fixed_seed
         super().__init__(*args, **kwargs)
         self.legend_list = legend_list
         self.is_tracking = is_tracking
         self.current_env = None  # 用于存储当前运行的环境实例
+
+        self.env_storage = {}  # 存储 {算法名: env实例}
+        self.frame_storage = {}  # 存储 {算法名: frame列表}
+        self.current_alg_idx = 0  # 当前运行算法的索引
 
         # Create additional directories if needed
         if self.save_screenshots:
@@ -9131,11 +9136,15 @@ class EnhancedPolicyRunner(PolicyRunner):
 
     def run_an_episode(self, env, controller, init_info, is_opt, render=True):
         """Override to capture screenshots and store env"""
+        if self.legend_list and self.current_alg_idx < len(self.legend_list):
+            current_alg_name = self.legend_list[self.current_alg_idx]
+        else:
+            current_alg_name = f"Algo_{self.current_alg_idx}"
 
-        # [关键修改] 保存环境实例，以便后续绘图读取 log_data
-        self.current_env = env
+            # 保存环境实例到字典
+        self.env_storage[current_alg_name] = env
+        current_seed = self.fixed_seed
 
-        # ... (以下保持原有逻辑不变) ...
         state_list = []
         action_list = []
         reward_list = []
@@ -9148,6 +9157,9 @@ class EnhancedPolicyRunner(PolicyRunner):
 
         # For screenshot capture
         frame_images = []
+        if hasattr(env, 'seed'):
+            env.seed(current_seed)
+        np.random.seed(current_seed)
 
         obs, info = env.reset(**init_info)
         state = env.state
@@ -9231,9 +9243,9 @@ class EnhancedPolicyRunner(PolicyRunner):
                     if frame is not None:
                         frame_images.append(frame)
                         screenshot_path = os.path.join(
-                            self.screenshots_dir, f"frame_{step * env.dt:.1f}s.pdf")
+                            self.screenshots_dir, f"frame_{current_alg_name}_{step * env.dt:.1f}s.pdf")
                         screenshot_path_png = os.path.join(
-                            self.screenshots_dir, f"frame_{step * env.dt:.1f}s.png")
+                            self.screenshots_dir, f"frame_{current_alg_name}_{step * env.dt:.1f}s.png")
                         plt.imsave(screenshot_path, frame)
                         plt.imsave(screenshot_path_png, frame)
                 except Exception as e:
@@ -9252,11 +9264,16 @@ class EnhancedPolicyRunner(PolicyRunner):
                         env.render()
                     except:
                         pass
+        if self.save_screenshots or self.convert_to_gif:
+            self.frame_storage[current_alg_name] = frame_images
 
-        if self.convert_to_gif and frame_images:
-            self._create_gif_from_frames(frame_images)
+            # [修改 5] 索引递增，指向下一个算法
+        self.current_alg_idx += 1
 
-        self._convert_existing_videos_to_gif()
+        # if self.convert_to_gif and frame_images:
+        #     self._create_gif_from_frames(frame_images)
+        #
+        # self._convert_existing_videos_to_gif()
 
         eval_dict = {
             "reward_list": reward_list,
@@ -9279,7 +9296,7 @@ class EnhancedPolicyRunner(PolicyRunner):
 
         return eval_dict, tracking_dict
 
-    def _plot_tracking_analysis(self):
+    def _plot_tracking_analysis(self, env, suffix=""):
         """
         绘制仿真结果：轨迹对比图 + 跟踪误差图
         使用 self.current_env.log_data，并保存到 self.save_path
@@ -9398,25 +9415,35 @@ class EnhancedPolicyRunner(PolicyRunner):
         plt.tight_layout()
 
         # 4. 保存图片
-        save_path = os.path.join(self.save_path, 'tracking_analysis_chinese.png')
-        print(f"Saving tracking analysis plot to: {save_path}")
-        plt.savefig(save_path, dpi=default_cfg["dpi"], bbox_inches='tight')
+        save_path = os.path.join(self.save_path, f'tracking_analysis_{suffix}.png')
+        print(f"Saving plot to: {save_path}")
+        plt.savefig(save_path, bbox_inches='tight')
         plt.close(fig)
 
     def run(self):
         """Override run method to include post-processing and plotting"""
         try:
+            self.current_alg_idx = 0
+            self.env_storage = {}
+            self.frame_storage = {}
             # 1. 运行仿真 (使用父类的私有方法，确保数据生成)
             self._PolicyRunner__run_data()
-
             # 2. 转换视频
-            self._PolicyRunner__save_mp4_as_gif()
+            self._convert_existing_videos_to_gif()
 
             # 3. 绘制默认图 (GOPS 基类方法)
             self.draw()
 
-            # 4. [新增] 绘制我们的高级分析图 (此时 self.current_env 已经在 run_an_episode 中被赋值)
-            self._plot_tracking_analysis()
+            for alg_name, env_instance in self.env_storage.items():
+                print(f"Processing results for: {alg_name}")
+
+                # 绘制分析图
+                self._plot_tracking_analysis(env_instance, suffix=alg_name)
+
+                # 生成 GIF
+                if self.convert_to_gif and alg_name in self.frame_storage:
+                    frames = self.frame_storage[alg_name]
+                    self._create_gif_from_frames(frames, suffix=alg_name)
 
             # 5. 生成总结报告
             self._generate_summary_report()
@@ -9429,23 +9456,27 @@ class EnhancedPolicyRunner(PolicyRunner):
 
             # 尝试备用方案
             print("\nTrying alternative approach...")
-            self._run_manual_simulation()
 
-    def _create_gif_from_frames(self, frames):
-        """Create GIF from captured frames"""
+    def _create_gif_from_frames(self, frames, suffix=""):
+        """Create GIF from captured frames with suffix"""
         if not frames:
             return
         try:
-            gif_path = os.path.join(self.gif_dir, "simulation.gif")
+            # [修改] 文件名增加后缀
+            gif_name = f"simulation_{suffix}.gif" if suffix else "simulation.gif"
+            gif_path = os.path.join(self.gif_dir, gif_name)
+
             with imageio.get_writer(gif_path, mode='I', fps=self.gif_fps) as writer:
                 for frame in frames:
                     writer.append_data(frame)
             print(f"Created GIF: {gif_path}")
-            small_gif_path = os.path.join(self.gif_dir, "simulation_small.gif")
+
+            # Small GIF
+            small_gif_name = f"simulation_small_{suffix}.gif" if suffix else "simulation_small.gif"
+            small_gif_path = os.path.join(self.gif_dir, small_gif_name)
             self._create_optimized_gif(frames, small_gif_path)
         except Exception as e:
-            print(f"Failed to create GIF: {e}")
-
+            print(f"Failed to create GIF for {suffix}: {e}")
     def _create_optimized_gif(self, frames, output_path, max_size=(640, 480)):
         """Create optimized GIF with reduced size"""
         try:
@@ -9511,113 +9542,6 @@ class EnhancedPolicyRunner(PolicyRunner):
         except Exception as e:
             print(f"Failed to generate summary report: {e}")
 
-
-    def _run_manual_simulation(self):
-        """手动运行仿真的备用方案"""
-        try:
-            import torch
-            import json
-            from gops.env.env_ocp.pyth_veh3dofconti_bimodaldiffusion_planning import env_creator
-            from gops.create_pkg.create_env_model import create_env_model
-            from gops.create_pkg.create_alg import create_alg
-
-            # 获取第一个策略路径
-            result_path = self.log_policy_dir_list[0]
-
-            # 创建环境
-            env = env_creator(
-                pre_horizon=20,
-                max_steer=np.pi / 6,
-                max_accel=3.0,
-                dynamic_obstacle_num=2,
-                static_obstacle_num=3,
-                control_mode="planning"
-            )
-
-            # 加载配置
-            with open(os.path.join(result_path, "config.json"), 'r') as f:
-                args = json.load(f)
-
-            # 创建网络
-            networks = create_alg(**args)
-
-            # 加载训练好的模型
-            model_path = os.path.join(result_path, "apprfunc", f"apprfunc_{self.trained_policy_iteration_list[0]}.pkl")
-            networks.load_state_dict(torch.load(model_path))
-
-            # 使用初始化信息
-            init_state = self.init_info.get("init_state", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            ref_num = self.init_info.get("ref_num", 0)
-            ref_time = self.init_info.get("ref_time", 0)
-
-            # 运行仿真
-            obs, _ = env.reset(init_state=init_state, ref_num=ref_num, ref_time=ref_time)
-            frames = []
-            rewards = []
-
-            for step in range(200):  # 最多200步
-                # 获取动作
-                batch_obs = torch.from_numpy(np.expand_dims(obs, axis=0).astype("float32"))
-                logits = networks.policy(batch_obs)
-                action_distribution = networks.create_action_distributions(logits)
-                action = action_distribution.mode()
-                action = action.detach().numpy()[0]
-                # 执行动作
-                obs, reward, done, info = env.step(action)
-                rewards.append(reward)
-
-                # 渲染并保存帧
-                try:
-                    frame = env.render(mode='rgb_array')
-                    if frame is not None:
-                        frames.append(frame)
-                        print(f"Step {step}: captured frame {frame.shape}")
-                except Exception as e:
-                    print(f"Step {step}: render error - {e}")
-
-                if done:
-                    print(f"Episode terminated at step {step}")
-                    break
-
-            # 保存结果
-            print(f"Simulation completed: {len(frames)} frames captured, total reward: {sum(rewards):.2f}")
-
-            # 保存为GIF
-            if frames:
-                gif_dir = os.path.join(self.save_path, "manual_gifs")
-                os.makedirs(gif_dir, exist_ok=True)
-
-                gif_path = os.path.join(gif_dir, "manual_simulation.gif")
-                with imageio.get_writer(gif_path, mode='I', fps=10) as writer:
-                    for frame in frames:
-                        writer.append_data(frame)
-                print(f"Manual simulation saved as {gif_path}")
-
-                # 也保存为视频
-                self._save_frames_as_video(frames, os.path.join(gif_dir, "manual_simulation.mp4"))
-
-            # 保存奖励数据
-            if rewards:
-                reward_path = os.path.join(self.save_path, "manual_rewards.txt")
-                with open(reward_path, 'w') as f:
-                    for i, r in enumerate(rewards):
-                        f.write(f"Step {i}: {r:.4f}\n")
-                    f.write(f"\nTotal: {sum(rewards):.4f}\n")
-                print(f"Rewards saved to {reward_path}")
-
-                if hasattr(self, 'gif_dir') and os.path.exists(self.gif_dir):
-                    f.write("\n## Generated GIFs\n")
-                    gifs = glob.glob(os.path.join(self.gif_dir, "*.gif"))
-                    for gif in gifs:
-                        rel_path = os.path.relpath(gif, self.save_path)
-                        f.write(f"- [{os.path.basename(gif)}]({rel_path})\n")
-
-            print(f"Summary report generated: {report_path}")
-        except Exception as e:
-            print(f"Manual simulation also failed: {e}")
-            import traceback
-            traceback.print_exc()
-
     def _save_frames_as_video(self, frames, output_path):
         """将帧保存为视频文件"""
         try:
@@ -9650,45 +9574,45 @@ class EnhancedPolicyRunner(PolicyRunner):
             print(f"Failed to save video: {e}")
 
     def _generate_summary_report(self):
-        """Generate a summary report with links to videos/GIFs"""
+        """Generate a summary report with links to videos/GIFs and PLOTS"""
         try:
             report_path = os.path.join(self.save_path, "simulation_summary.md")
-
-            with open(report_path, 'w') as f:
+            with open(report_path, 'w', encoding='utf-8') as f:  # 建议指定 encoding
                 f.write("# Simulation Summary Report\n\n")
                 f.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Environment: {self.env_id}\n")
-                f.write(f"Algorithm: {self.algorithm_list[0] if self.algorithm_list else 'Unknown'}\n\n")
 
-                # Check for generated files
+                # [修改] 遍历所有算法生成报告
+                # 如果没有 legend_list, 尝试从 env_storage 的 keys 获取
+                algs = self.legend_list if self.legend_list else list(self.env_storage.keys())
+
+                for alg_name in algs:
+                    f.write(f"\n## Algorithm: {alg_name}\n")
+
+                    # Analysis Plot Section
+                    plot_file = f'tracking_analysis_{alg_name}.png'
+                    if os.path.exists(os.path.join(self.save_path, plot_file)):
+                        f.write(f"### 轨迹与控制分析 ({alg_name})\n")
+                        f.write(f"![Analysis]({plot_file})\n")
+
+                    # GIFs Section
+                    if self.convert_to_gif:
+                        gif_file = f"simulation_{alg_name}.gif"
+                        if os.path.exists(os.path.join(self.gif_dir, gif_file)):
+                            f.write(f"### Simulation GIF ({alg_name})\n")
+                            # Markdown显示GIF，这里用相对路径
+                            rel_gif_path = os.path.join("gifs", gif_file)
+                            f.write(f"![GIF]({rel_gif_path})\n")
+
+                # Videos Section (Common)
                 if os.path.exists(os.path.join(self.save_path, "videos")):
-                    f.write("## Generated Videos\n")
+                    f.write("\n## Generated Videos (MP4)\n")
                     videos = glob.glob(os.path.join(self.save_path, "videos", "*.mp4"))
                     for video in videos:
                         rel_path = os.path.relpath(video, self.save_path)
                         f.write(f"- [{os.path.basename(video)}]({rel_path})\n")
 
-                if hasattr(self, 'gif_dir') and os.path.exists(self.gif_dir):
-                    f.write("\n## Generated GIFs\n")
-                    gifs = glob.glob(os.path.join(self.gif_dir, "*.gif"))
-                    for gif in gifs:
-                        rel_path = os.path.relpath(gif, self.save_path)
-                        f.write(f"- [{os.path.basename(gif)}]({rel_path})\n")
-
-                if hasattr(self, 'screenshots_dir') and os.path.exists(self.screenshots_dir):
-                    f.write("\n## Screenshots\n")
-                    screenshots = glob.glob(os.path.join(self.screenshots_dir, "*.png"))
-                    if screenshots:
-                        # Show first few screenshots_png
-                        for i, screenshot in enumerate(screenshots[:5]):
-                            rel_path = os.path.relpath(screenshot, self.save_path)
-                            f.write(f"- Frame {i * self.screenshot_interval}: ![{rel_path}]({rel_path})\n")
-
-            print(f"Summary report generated: {report_path}")
-
         except Exception as e:
             print(f"Failed to generate summary report: {e}")
-
 
 class DisturbanceObserver:
     """非线性扰动观测器 (NDO) - 带低通滤波"""

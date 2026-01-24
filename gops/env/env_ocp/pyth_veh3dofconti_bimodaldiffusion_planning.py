@@ -440,10 +440,19 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         self.step_self = 0
         self.last_best_guide_idx = -1
         # 重置记录
-        self.log_data = {key: [] for key in self.log_data}
-        # 记录初始点
+        if not hasattr(self, 'log_data'):
+            # 定义你需要记录的所有字段
+            self.log_data = {'actual_x': [], 'actual_y': [], 'ref_x': [], 'ref_y': [],
+                             'actual_u': [], 'ref_u': [], 'err_lat': [], 'err_phi': []}
+        else:
+            # 清空列表
+            for key in self.log_data:
+                self.log_data[key] = []
+
+            # 记录初始点
         self._log_step_data()
         return self._get_obs(), self.info
+
 
     def step(self, action):
         if np.any(np.isnan(action)):
@@ -906,7 +915,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                 guide_end = best_guide_traj[-1, :2]
                 # 如果选中的线终点接近全局参考线终点，说明选了中线
                 if np.linalg.norm(ref_end - guide_end) < 1.0:
-                    r_global_bonus = 2.0  # 【修复】给正向奖励！不要去乘负数！
+                    r_global_bonus = 2.0
 
             # --- 3. 计算各项奖励 ---
             r_guidance = 0.0
@@ -973,7 +982,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             ego_u = self.state[3]
             ego_w = self.state[5]
             lat_acc = ego_u * ego_w
-            r_stability = -0.01 * (lat_acc ** 2)
+            r_stability = -0.1 * (lat_acc ** 2)
 
             total_reward = (
                     r_efficiency +
@@ -1070,8 +1079,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             dynamic_delta = 0.0
 
         for i_dynamic in range(self.dynamic_obstacle_num):
-            delta_t = self.np_random.uniform(3, 8)  # 稍微放宽范围
-
+            delta_t = self.np_random.uniform(3, 10)  # 稍微放宽范围
             delta_lon = 1.0 * self.np_random.uniform(-1, 1)
             delta_lat = 1.0 * self.np_random.uniform(-5.0, 5.0)  # 限制在路宽范围内
             delta_phi = 1.0 * self.np_random.uniform(0, np.pi)
@@ -2054,7 +2062,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
                         cbar = plt.colorbar(sc, cax=cax, orientation="vertical")
                         cbar.set_label(r"速度 $(\mathrm{m/s})$", fontsize=25, labelpad=10)
                         cbar.ax.tick_params(labelsize=21)
-                        cbar.set_ticks([0, 3, 6, 9, 12])
+                        cbar.set_ticks([0, 3, 6, 9, 12, 15])
                     except:
                         pass
                 else:

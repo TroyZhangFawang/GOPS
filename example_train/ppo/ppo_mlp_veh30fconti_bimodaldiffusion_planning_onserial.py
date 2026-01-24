@@ -6,8 +6,9 @@
 #  Lab Leader: Prof. Shengbo Eben Li
 #  Email: lisb04@gmail.com
 #
-#  Description: example for dsac-t + humanoidconti + mlp + offserial
-#  Update Date: 2021-03-05, Wenxuan Wang: create example
+#  Description: example for ppo + pendulum+ mlp + on_serial
+#  Update Date: 2021-06-11, Li Jie: create example
+
 
 import argparse
 import os
@@ -24,18 +25,17 @@ from gops.utils.plot_evaluation import plot_all
 from gops.utils.tensorboard_setup import start_tensorboard, save_tb_to_csv
 
 
-
 if __name__ == "__main__":
-# Parameters Setup
+    # Parameters Setup
     parser = argparse.ArgumentParser()
 
     ################################################
     # Key Parameters for users
-    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning")
-    parser.add_argument("--control_mode", type=str, default="planning")
-    parser.add_argument("--algorithm", type=str, default="DSACT", help="RL algorithm")
-    parser.add_argument("--enable_cuda", default=True, help="Enable CUDA")
+    parser.add_argument("--env_id", type=str, default="pyth_veh3dofconti_bimodaldiffusion_planning", help="id of environment")
+    parser.add_argument("--algorithm", type=str, default="PPO", help="RL algorithm")
+    parser.add_argument("--enable_cuda", default=True, help="Disable CUDA")
     parser.add_argument("--seed", default=12345, help="Global seed")
+
     ################################################
     # 1. Parameters for environment
     parser.add_argument("--reward_scale", type=float, default=1, help="reward scale factor")
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--value_func_name",
         type=str,
-        default="ActionValueDistri",
+        default="StateValue",
         help="Options: StateValue/ActionValue/ActionValueDis/ActionValueDistri",
     )
     parser.add_argument("--value_func_type", type=str, default="MLP", help="Options: MLP/CNN/CNN_SHARED/RNN/POLY/GAUSS")
@@ -63,11 +63,12 @@ if __name__ == "__main__":
         "--policy_func_name",
         type=str,
         default="EncodingStochaPolicy2",
-        help="Options: None/DetermPolicy/FiniteHorizonPolicy/StochaPolicy/EncodingStochaPolicy2",
+        help="Options: None/DetermPolicy/FiniteHorizonPolicy/StochaPolicy",
     )
     parser.add_argument(
         "--policy_func_type", type=str, default="MLP", help="Options: MLP/CNN/CNN_SHARED/RNN/POLY/GAUSS"
     )
+    parser.add_argument("--policy_std_type", type=str, default="parameter")
     parser.add_argument(
         "--policy_act_distribution",
         type=str,
@@ -83,70 +84,82 @@ if __name__ == "__main__":
     parser.add_argument("--policy_max_log_std", type=int, default=0.5)
 
     ################################################
-    # 3. Parameters for RL algorithm
-    parser.add_argument("--value_learning_rate", type=float, default=0.0001)
-    parser.add_argument("--policy_learning_rate", type=float, default=0.0001)
-    parser.add_argument("--alpha_learning_rate", type=float, default=0.0003)
-    # special parameter
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--auto_alpha", type=bool, default=True)
-    parser.add_argument("--alpha", type=float, default=0.2)
-    parser.add_argument("--delay_update", type=int, default=2)
+    # 3. Parameters for algorithm
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="3e-4 in the paper")
 
     ################################################
     # 4. Parameters for trainer
     parser.add_argument(
         "--trainer",
         type=str,
-        default="off_serial_trainer",
+        default="on_serial_trainer",
         help="Options: on_serial_trainer, on_sync_trainer, off_serial_trainer, off_async_trainer",
     )
     # Maximum iteration number
     parser.add_argument("--max_iteration", type=int, default=500000)
+    trainer_type = parser.parse_known_args()[0].trainer
     parser.add_argument(
         "--ini_network_dir",
         type=str,
         default=None
     )
-    trainer_type = parser.parse_known_args()[0].trainer
 
-    # 4.1. Parameters for off_serial_trainer
+    # 4.1. Parameters for on_serial_trainer
+    parser.add_argument("--num_repeat", type=int, default=10)
+    parser.add_argument("--num_mini_batch", type=int, default=25)
+    parser.add_argument("--mini_batch_size", type=int, default=80)
     parser.add_argument(
-        "--buffer_name", type=str, default="replay_buffer", help="Options:replay_buffer/prioritized_replay_buffer"
+        "--num_epoch",
+        type=int,
+        default=parser.parse_known_args()[0].num_repeat * parser.parse_known_args()[0].num_mini_batch,
+        help="# 50 gradient step per sample",
     )
-    # Size of collected samples before training
-    parser.add_argument("--buffer_warm_size", type=int, default=10000)
-    # Max size of reply buffer
-    parser.add_argument("--buffer_max_size", type=int, default=2*500000)
-    # Batch size of replay samples from buffer
-    parser.add_argument("--replay_batch_size", type=int, default=256)
-    # Period of sampling
-    parser.add_argument("--sample_interval", type=int, default=1)
 
     ################################################
     # 5. Parameters for sampler
-    parser.add_argument("--sampler_name", type=str, default="off_sampler", help="Options: on_sampler/off_sampler")
+    parser.add_argument("--sampler_name", type=str, default="on_sampler")
     # Batch size of sampler for buffer store
-    parser.add_argument("--sample_batch_size", type=int, default=20)
-    # Add noise to action for better exploration
-    parser.add_argument("--noise_params", type=dict, default=None)
+    parser.add_argument(
+        "--sample_batch_size", type=int, default=2000, help="Batch size of sampler for buffer store = 1024",
+    )
+    assert (
+        parser.parse_known_args()[0].num_mini_batch * parser.parse_known_args()[0].mini_batch_size
+        == parser.parse_known_args()[0].sample_batch_size
+    ), "sample_batch_size error"
+    # Add noise to actions for better exploration
+    parser.add_argument(
+        "--noise_params", type=dict, default=None, help="Add noise to actions for exploration",
+    )
 
     ################################################
-    # 6. Parameters for evaluator
+    # 6. Parameters for buffer
+    parser.add_argument(
+        "--buffer_name", type=str, default="replay_buffer", help="Options:replay_buffer/prioritized_replay_buffer"
+    )
+    parser.add_argument("--buffer_warm_size", type=int, default=1000)
+    parser.add_argument("--buffer_max_size", type=int, default=1000000)
+
+    ################################################
+    # 7. Parameters for evaluator
     parser.add_argument("--evaluator_name", type=str, default="evaluator")
     parser.add_argument("--num_eval_episode", type=int, default=10)
-    parser.add_argument("--eval_interval", type=int, default=1000)
+    parser.add_argument("--eval_interval", type=int, default=25)
     parser.add_argument("--eval_save", type=str, default=False, help="save evaluation data")
 
     ################################################
-    # 7. Data savings
-    #parser.add_argument("--save_folder", type=str, default= "/home/wangwenxuan/gops_idp/gops/results/DSAC2/humanoid_r_0.2_sb_20_si_1_2")
-    parser.add_argument("--save_folder", type=str, default= None)
+    # 8. Data savings
+    parser.add_argument("--save_folder", type=str, default=None)
     # Save value/policy every N updates
-    parser.add_argument("--apprfunc_save_interval", type=int, default=50000)
+    parser.add_argument(
+        "--apprfunc_save_interval", type=int, default=50000,
+    )
     # Save key info every N updates
-    parser.add_argument("--log_save_interval", type=int, default=10000)
+    parser.add_argument(
+        "--log_save_interval",
+        type=int,
+        default=10000,
+        help="Save gradient time/critic loss/actor loss/average value every N updates",
+    )
 
     ################################################
     # Get parameter dictionary
@@ -157,6 +170,16 @@ if __name__ == "__main__":
     # start_tensorboard(args["save_folder"])
     # Step 1: create algorithm and approximate function
     alg = create_alg(**args)
+    alg.set_parameters(
+        {
+            "loss_coefficient_value": 0.25,
+            "loss_coefficient_entropy": 0.0,
+            "schedule_adam": "None",
+            "schedule_clip": "None",
+            "loss_value_clip": False,
+            "loss_value_norm": False,
+        }
+    )
     # Step 2: create sampler in trainer
     sampler = create_sampler(**args)
     # Step 3: create buffer in trainer
