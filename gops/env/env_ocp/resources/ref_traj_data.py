@@ -64,7 +64,7 @@ DEFAULT_SPEED_PARAM = {
 
 DEFAULT_SLOPE_PARAM = {
     "constant": {"longi_slope": 0.05, "lat_slope": 0.05},
-    "sine": {"A": 0.05, "omega": 2 * np.pi / 5, "phi": 0.0, "b": 0.0,},
+    "sine": {"A": 0.26, "omega": 2 * np.pi / 5, "phi": 0.0, "b": 0.0,},
 }
 
 class MultiRefTrajData:

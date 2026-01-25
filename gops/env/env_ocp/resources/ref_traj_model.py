@@ -8,7 +8,7 @@
 #
 #  Description: reference trajectory for model environment
 #  Update: 2022-11-16, Yujie Yang: create reference trajectory
-
+import os
 from abc import ABCMeta, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
@@ -367,9 +367,11 @@ class FigureEightRefTrajModel(RefTrajModel):
 
 @dataclass
 class RTKRefTrajModel(RefTrajModel):
-    root: str
+    file_name: str
     def __post_init__(self):
-        data_result = pd.DataFrame(pd.read_csv(self.root, header=None))
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(current_dir, self.file_name)
+        data_result = pd.DataFrame(pd.read_csv(csv_path, header=None))
         raw_x = np.array(data_result.iloc[1::5, 0], dtype='float32')  # x
         raw_y = np.array(data_result.iloc[1::5, 1], dtype='float32')  # y
 

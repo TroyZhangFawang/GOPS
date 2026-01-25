@@ -173,7 +173,7 @@ class PolicyRunner:
         self.save_path = os.path.join(
             path,
             self.env_id,
-            algs_name + self.env_id,
+            algs_name,
             datetime.datetime.now().strftime("%y%m%d-%H%M%S"),
         )
         os.makedirs(self.save_path, exist_ok=True)
@@ -9095,10 +9095,7 @@ class EnhancedPolicyRunner(PolicyRunner):
                  is_init_info: bool = False,
                  init_info: dict = None,
                  legend_list: list = None,
-                 use_opt: bool = False,
                  load_opt_path: Optional[str] = None,
-                 opt_args: Optional[dict] = None,
-                 save_opt: bool = True,
                  constrained_env: bool = False,
                  is_tracking: bool = True,
                  use_dist: bool = False,
@@ -9108,8 +9105,10 @@ class EnhancedPolicyRunner(PolicyRunner):
                  action_noise_type: str = None,
                  action_noise_data: list = None,
                  fixed_seed: int = 2024,
+                 is_base_planner: bool = False,
+                 base_planner: str = None,
+                 controller: str = "SimpleController",
                  *args, **kwargs):
-
         # Extract custom parameters first
         self.save_screenshots = kwargs.pop('save_screenshots', False)
         self.screenshot_interval = kwargs.pop('screenshot_interval', 10)
@@ -9124,8 +9123,23 @@ class EnhancedPolicyRunner(PolicyRunner):
         self.env_storage = {}  # 存储 {算法名: env实例}
         self.frame_storage = {}  # 存储 {算法名: frame列表}
         self.current_alg_idx = 0  # 当前运行算法的索引
-
+        self.is_base_planner = is_base_planner
+        self.base_planner_name = base_planner
+        self.controller_name = controller
+        self.load_opt_path = load_opt_path
         # Create additional directories if needed
+        old_path = self.save_path
+        new_path = f"{old_path}_seed{self.fixed_seed}"
+        self.save_path = new_path
+        if os.path.exists(old_path):
+            try:
+                os.rename(old_path, new_path)
+                print(f"Directory renamed: {old_path} -> {new_path}")
+            except OSError as e:
+                print(f"Warning: Could not rename directory ({e}). Creating new one.")
+                os.makedirs(self.save_path, exist_ok=True)
+        else:
+            os.makedirs(self.save_path, exist_ok=True)
         if self.save_screenshots:
             self.screenshots_dir = os.path.join(self.save_path, "screenshots_png")
             os.makedirs(self.screenshots_dir, exist_ok=True)
@@ -9296,6 +9310,308 @@ class EnhancedPolicyRunner(PolicyRunner):
 
         return eval_dict, tracking_dict
 
+    def _run_base_planner(self, render=True):
+        from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
+        from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
+        from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+        """
+        Runs baseline planners (LatticePlanner, etc.) with strict type checking and error reporting.
+        """
+        import traceback  # For detailed error logs
+
+        if not self.base_planner_name:
+            return
+
+        print(f"=======================================")
+        print(f"GOPS: Running Baseline Planner: {self.base_planner_name}")
+
+        # 1. Environment Loading
+        if not self.args_list:
+            print("Warning: args_list is empty, using default configuration.")
+            self.args = {"pre_horizon": 20}
+        else:
+            self.args = self.args_list[0]
+
+        try:
+            if not self.env_storage:
+                raise ValueError("No environment stored in env_storage.")
+
+            env_key = list(self.env_storage.keys())[0]
+            env_wrapped = deepcopy(self.env_storage[env_key])
+
+            # Unwrap environment to access raw attributes
+            if hasattr(env_wrapped, 'unwrapped'):
+                env = env_wrapped.unwrapped
+            else:
+                env = env_wrapped
+
+            print(f"Using unwrapped env: {type(env)}")
+        except Exception as e:
+            print(f"Error preparing env: {e}")
+            traceback.print_exc()
+            return
+
+        # -----------------------------------------------------------
+        # A. Initialize Planner
+        # Force strict types for config
+        plan_steps = int(self.args.get('pre_horizon', 20))
+        plan_dt = float(self.dt) if self.dt is not None else 0.1
+
+        print(f"Planner Config: steps={plan_steps}, dt={plan_dt}")
+
+        planner = None
+        if self.base_planner_name == "LatticePlanner":
+            from gops.utils.planner_benchmark.planner_zoo import LatticePlanner
+            planner = LatticePlanner({
+                "steps": plan_steps,
+                "dt": plan_dt,
+                "end_s_candidates": (20, 40, 60),
+                "end_l_candidates": (-3.5, 0, 3.5),
+            })
+            print("LatticePlanner initialized.")
+
+        elif self.base_planner_name == "BezierPlanner":
+            from gops.utils.planner_benchmark.planner_zoo import BezierPlanner
+            planner = BezierPlanner({
+                "steps": plan_steps,
+                "dt": plan_dt,
+                "end_s_candidates": (20, 40, 60),
+                "end_l_candidates": (-3.5, 0, 3.5),
+            })
+            print("BezierPlanner initialized.")
+        else:
+            raise ValueError(f"Unknown base planner: {self.base_planner_name}")
+
+        # B. Initialize Controller
+        controller = None
+        if self.controller_name == "IDMController":
+            from gops.utils.planner_benchmark.control.IDMController import IDMController
+            controller = IDMController()
+            print("IDMController initialized.")
+
+        elif self.controller_name == "SimpleController":
+            from gops.utils.planner_benchmark.control.SimpleController import SimpleController
+            controller = SimpleController()
+            print("SimpleController initialized.")
+
+        elif self.controller_name == "MPCController":
+            print("Initializing MPCController...")
+            if self.opt_args is None:
+                raise ValueError("Choose to use MPC controller, but opt_args is None.")
+            from gops.utils.common_utils import create_env_model
+            model = create_env_model(**self.args, mask_at_done=False)
+            local_opt_args = self.opt_args.copy()
+            if "opt_controller_type" in local_opt_args:
+                local_opt_args.pop("opt_controller_type")
+            if "use_MPC_for_general_env" in local_opt_args:
+                local_opt_args.pop("use_MPC_for_general_env")
+
+            if self.opt_args.get("use_MPC_for_general_env", False):
+                from gops.sys_simulator.opt_controller_for_gen_env import OptController
+                controller = OptController(model, **local_opt_args)
+            else:
+                from gops.sys_simulator.opt_controller import OptController
+                controller = OptController(model, **local_opt_args)
+            print("MPCController initialized.")
+        else:
+            raise ValueError(f"Unknown controller: {self.controller_name}")
+
+        # -----------------------------------------------------------
+
+        # 3. Run Episode
+        current_seed = self.fixed_seed
+        if hasattr(env, 'seed'): env.seed(current_seed)
+        np.random.seed(current_seed)
+
+        reset_res = env.reset(**self.init_info)
+        if isinstance(reset_res, tuple):
+            obs, info = reset_res
+        else:
+            obs = reset_res
+            info = {}
+
+        name = f"{self.base_planner_name}_{self.controller_name}"
+        self.env_storage[name] = env
+        frame_images = []
+        step = 0
+        done = False
+
+        # Build LocalMap for Lattice Planner
+        # We manually construct a map based on the reference trajectory
+        local_map = RoutedLocalMap()
+        xs, ys = [], []
+        # Use floats to prevent type issues
+        for t in range(0, 200):
+            t_sec = float(t) * 0.5
+            x = env.ref_traj.compute_x(t_sec, env.path_num, env.u_num)
+            y = env.ref_traj.compute_y(t_sec, env.path_num, env.u_num)
+            xs.append(float(x))
+            ys.append(float(y))
+
+        center_line = np.column_stack((xs, ys))
+
+        for idx, lat_off in enumerate([-3.5, 0, 3.5]):
+            lane_line = center_line.copy()
+            lane_line[:, 1] += float(lat_off)
+            local_map.lanes.append(Lane(int(idx), lane_line, width=3.5, speed_limit=15.0))
+
+        planner.set_local_map(local_map)
+
+        print(f"Start planning loop for {name}...")
+
+        while not (done or info.get("TimeLimit.truncated", False)):
+            # --- Data Sanitization & Adapter ---
+            obstacles_box_list = []
+            for i, obs in enumerate(env.obstacles):
+                # Explicitly cast to float/int to avoid NoneType or numpy scalar issues
+                obs_x = float(obs.x)
+                obs_y = float(obs.y)
+                obs_l = float(obs.l)
+                obs_w = float(obs.w)
+                obs_phi = float(obs.phi)
+                obs_u = float(obs.u) if obs.u is not None else 0.0
+                obs_id = int(obs.id)
+
+                t_box = TrackingBox(
+                    obb=(obs_x, obs_y, obs_l, obs_w, obs_phi, 0.5),
+                    vx=obs_u, vy=0.0, id=obs_id, class_label=1
+                )
+                obstacles_box_list.append(t_box)
+            obstacles_container = TrackingBoxList(obstacles_box_list)
+
+            # Extract State
+            raw_state = env.state
+            if hasattr(raw_state, 'robot_state'):
+                raw_state = raw_state.robot_state
+            elif hasattr(raw_state, 'numpy'):
+                raw_state = raw_state.numpy()
+
+            try:
+                current_state_np = np.array(raw_state).flatten()
+            except:
+                current_state_np = np.zeros(6)
+
+            # Explicit float casting for VehicleState
+            ego_x = float(current_state_np[0])
+            ego_y = float(current_state_np[1])
+            ego_yaw = float(current_state_np[2])
+            ego_v = float(current_state_np[3])  # Longitudinal Speed
+            ego_vy = float(current_state_np[4])  # Lateral Speed
+            ego_yaw_rate = float(current_state_np[5])
+
+            ego_veh_state = VehicleState.from_kine_states(
+                x=ego_x, y=ego_y, yaw=ego_yaw,
+                vx=ego_v, vy=ego_vy,
+                length=float(env.veh_length), width=float(env.veh_width)
+            )
+            ego_veh_state.kinematics.yaw_rate = ego_yaw_rate
+
+            # --- Planning ---
+            try:
+                traj = planner.plan(ego_veh_state, obstacles_container, local_map)
+            except Exception as e:
+                # Print FULL traceback to locate NoneType error
+                print(f"Plan failed at step {step}: {e}")
+                traceback.print_exc()
+                traj = None
+
+            # --- Control ---
+            if traj is None:
+                action_single = np.array([0.0, -3.0])
+            else:
+                if self.controller_name == "IDMController":
+                    ref = np.stack((np.array(traj.x), np.array(traj.y)), axis=1)
+                    current_pose = np.array([ego_x, ego_y, ego_yaw])
+                    current_speed = ego_v
+
+                    target_v_first = traj.v[0] if len(traj.v) > 0 else 0.0
+                    action_single = controller.get_control(ref, 0, 100, target_v_first, current_pose, current_speed)
+
+                elif self.controller_name == "SimpleController":
+                    ref_path = np.stack((np.array(traj.x), np.array(traj.y)), axis=1)
+                    target_v_first = traj.v[0] if len(traj.v) > 0 else 0.0
+
+                    current_pose = np.array([ego_x, ego_y, ego_yaw])
+                    current_speed = ego_v
+                    action_single = controller.get_control(ref_path, target_v_first, current_pose, current_speed)
+
+                elif self.controller_name == "MPCController":
+                    action_single = controller(obs, info)
+                else:
+                    action_single = np.array([0.0, 0.0])
+
+            # --- Step Env ---
+            if traj is not None:
+                # Inject planning trajectory for rendering
+                try:
+                    p_x = np.array(traj.x)
+                    p_y = np.array(traj.y)
+                    p_head = np.array(traj.heading)
+                    p_v = np.array(traj.v)
+                    min_len = min(len(p_x), len(p_y), len(p_head), len(p_v))
+                    env.current_planning_traj = np.stack([
+                        p_x[:min_len], p_y[:min_len], p_head[:min_len], p_v[:min_len]
+                    ], axis=1)
+                except Exception as e:
+                    print(f"Error setting planning traj: {e}")
+
+            # Manual Environment Step Update (Hack to bypass env internal planner)
+            env.step_self += 1
+            for o in env.obstacles:
+                if o.type == "dynamic" and o.dynamic_data: o.dynamic_data.step()
+
+            # Use calculated action to update dynamics
+            if hasattr(env, 'ref_points'):
+                road_info = env.ref_points[1, 4:]
+            else:
+                road_info = np.array([0.0, 0.0])
+
+            next_state = env.vehicle_dynamics.f_xu(
+                current_state_np,
+                action_single,
+                road_info,
+                env.dt
+            )
+            env.state = next_state
+
+            dist_traveled = ego_v * env.dt
+            current_ref_v = max(env.ref_points[0, 3], 0.1)
+            env.t += dist_traveled / current_ref_v
+
+            env._update_ref_points()
+            env.guide_trajectories = env._generate_guidance_prompts()
+
+            done = env.judge_done()
+            env._log_step_data()
+
+            if hasattr(env, 'info'):
+                info = env.info
+            else:
+                info = {}
+
+            # Screenshot
+            if render and self.save_screenshots and step % self.screenshot_interval == 0:
+                try:
+                    frame = env.render(mode='rgb_array')
+                    if frame is not None:
+                        frame_images.append(frame)
+                        screenshot_path = os.path.join(
+                            self.screenshots_dir, f"frame_{self.base_planner_name}_{step * env.dt:.1f}s.pdf")
+                        screenshot_path_png = os.path.join(
+                            self.screenshots_dir, f"frame_{self.base_planner_name}_{step * env.dt:.1f}s.png")
+                        plt.imsave(screenshot_path, frame)
+                        plt.imsave(screenshot_path_png, frame)
+                except Exception as e:
+                    print(f"Failed to capture screenshot at step {step}: {e}")
+            step += 1
+            if step >= env.max_episode_steps:
+                done = True
+
+        if self.save_screenshots or self.convert_to_gif:
+            self.frame_storage[name] = frame_images
+
+        print(f"Baseline {name} finished. Steps: {step}")
+
     def _plot_tracking_analysis(self, env, suffix=""):
         """
         绘制仿真结果：轨迹对比图 + 跟踪误差图
@@ -9426,9 +9742,16 @@ class EnhancedPolicyRunner(PolicyRunner):
             self.current_alg_idx = 0
             self.env_storage = {}
             self.frame_storage = {}
-            # 1. 运行仿真 (使用父类的私有方法，确保数据生成)
+            # 1. 运行仿真
             self._PolicyRunner__run_data()
-            # 2. 转换视频
+            # 2. 运行 Baseline (Lattice)
+            if self.is_base_planner:
+                self._run_base_planner()
+            else:
+                print("Don't select any base planner, "
+                      "you can choose LatticePlanner/BezierPlanner matching with "
+                      "IDMController/SimpleController/MPCController")
+            # 3. 转换视频
             self._convert_existing_videos_to_gif()
 
             # 3. 绘制默认图 (GOPS 基类方法)

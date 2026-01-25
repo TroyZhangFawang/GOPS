@@ -11,7 +11,7 @@ VehicleState = TypeVar("VehicleState")
 
 class SimpleController(object):
 
-    def __init__(self, _max_steer, _max_accel):
+    def __init__(self, _max_steer=0.5, _max_accel=3):
         self._lon_controller = PIDLonController(_max_accel)
         self._lat_controller = PurePursuitController()
         self._max_dccel = -_max_accel

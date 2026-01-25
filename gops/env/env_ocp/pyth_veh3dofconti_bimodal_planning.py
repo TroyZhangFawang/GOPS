@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import gym
 import numpy as np
 from gops.env.env_ocp.pyth_veh3dofcontiplanning import SimuVeh3dofconti, angle_normalize, ego_vehicle_coordinate_transform
-# from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
-# from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
-# from gops.utils.planner_benchmark.elements.vehicle import VehicleState
+from gops.utils.planner_benchmark.elements.map import RoutedLocalMap, Lane
+from gops.utils.planner_benchmark.elements.box import TrackingBoxList, TrackingBox
+from gops.utils.planner_benchmark.elements.vehicle import VehicleState
 import numpy as np
 import matplotlib.font_manager as fm
 try:
@@ -226,19 +226,19 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             delta_lon = 1.0 * self.np_random.uniform(-1, 1)#0#
             delta_lat = 1.0 * self.np_random.uniform(-1, 1)#np.array([-3.5, 3.5])#
             dynamic_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)#0#
-            dynamic_u = np.random.uniform(0, 10, self.dynamic_obstacle_num)#np.array([-4, -4])#
+            dynamic_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)+delta_lat#0#
+            dynamic_u = np.random.uniform(0, 10)#np.array([-4, -4])#
             self.dynamic_obss.append(
                 DynamicObstacleData(
                     x=dynamic_x,
-                    y=dynamic_y + delta_lat[i_dynamic],
-                    phi=dynamic_phi[i_dynamic],
-                    u=dynamic_u[i_dynamic],
+                    y=dynamic_y,
+                    phi=dynamic_phi,
+                    u=dynamic_u,
                     delta=dynamic_delta,
                     dt=self.dt
                 )
             )
-            obstacle = TrackingBox(obb=(dynamic_x, dynamic_y+ delta_lat[i_dynamic], self.veh_length, self.veh_width, dynamic_phi[i_dynamic], 2), vx=dynamic_u[i_dynamic], vy=0.0, id=i_dynamic)
+            obstacle = TrackingBox(obb=(dynamic_x, dynamic_y, self.veh_length, self.veh_width, dynamic_phi, 2), vx=dynamic_u, vy=0.0, id=i_dynamic)
             self.obstacle_trackingbox.append(obstacle)
         self.static_obss = []
         # add static obstacle
@@ -249,22 +249,28 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             delta_lon = 1.0 * self.np_random.uniform(-1, 1)#0#
             delta_lat = 1.0 * self.np_random.uniform(-1, 1)#np.array([0., 0, 0])#
             static_obs_x = self.ref_traj.compute_x(self.t + delta_t, self.path_num, self.u_num) + delta_lon
-            static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)#0#
-            self.static_length = np.random.uniform(0, 2, self.static_obstacle_num)#np.array([0.5, 3, 5])#
-            self.static_width = np.random.uniform(0, 2, self.static_obstacle_num)#, 0.5#np.array([1.5, 2.0, 1.3]) #
-            self.static_height = np.random.uniform(0, 1, self.static_obstacle_num)#, 0.23#np.array([0.2, 0.5, 0.1]) #
+            static_obs_y = self.ref_traj.compute_y(self.t + delta_t, self.path_num, self.u_num)+delta_lat
+            self.static_length = float(np.random.uniform(0, 2))
+            self.static_width = float(np.random.uniform(0, 2))
+            self.static_height = float(np.random.uniform(0, 1))
             self.static_obss.append(
                 StaticObstacle(
                     obs_id=i_static,
                     x=static_obs_x,
-                    y=static_obs_y+ delta_lat[i_static],
+                    y=static_obs_y,
                     phi=static_obs_phi,
-                    length=self.static_length[i_static],
-                    width=self.static_width[i_static],
-                    height=self.static_height[i_static],
+                    length=self.static_length,
+                    width=self.static_width,
+                    height=self.static_height,
                 )
             )
-            obstacle = TrackingBox(obb=(static_obs_x, static_obs_y+ delta_lat[i_static], self.static_length[i_static], self.static_width[i_static], static_obs_phi, self.static_height[i_static]),
+            obstacle = TrackingBox(obb=(
+                                    float(static_obs_x),
+                                    float(static_obs_y),
+                                    float(self.static_length),
+                                    float(self.static_width),
+                                    float(static_obs_phi),
+                                    float(self.static_height)),
                                    vx=0, vy=0.0, id=i_static)
             self.obstacle_trackingbox.append(obstacle)
 
@@ -1033,7 +1039,7 @@ class SimuVeh3dofBimodalPlanning(SimuVeh3dofconti):
             vis.draw_trajectory(traj.debug_info["initial_trajectory"], '--', color="black", show_footprint=False)
 
         vis.draw_ego_vehicle(self.ego_veh_state, color='magenta', fill=True, alpha=0.3, linestyle='-', linewidth=1.5,label='轨迹')  # 画自车
-        legend_label.append()
+        # legend_label.append()
         # plt.axis('equal')
         plt.tight_layout()
         vis.ego_centric_view(self.ego_veh_state.x(), self.ego_veh_state.y(), [-20, 80], [-10, 10])

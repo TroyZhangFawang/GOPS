@@ -12,10 +12,10 @@
 
 from gops.sys_simulator.sys_run import PolicyRunner
 import numpy as np
-result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACT_260101-223633"
+result_path = "../results/pyth_veh3dofconti_bimodaldiffusion_planning/DSACTDiffusion_260123-181618"
 runner = PolicyRunner(
     log_policy_dir_list=[result_path],
-    trained_policy_iteration_list=["300000"],
+    trained_policy_iteration_list=["355000_opt"],
     is_init_info=True,
     init_info={"init_state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "ref_num": 0, "u_num": 0, "ref_time": 0},  #
     save_render=True,

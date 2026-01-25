@@ -397,12 +397,12 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
         if u_num is not None:
             self.u_num = u_num
         else:
-            self.u_num = 0#self.np_random.choice([0, 1])
+            self.u_num = self.np_random.choice([0, 1])
 
         if slope_num is not None:
             self.slope_num = slope_num
         else:
-            self.slope_num = 1#self.np_random.choice([0, 1])
+            self.slope_num = self.np_random.choice([0, 1])
         ref_points = []
         for i in range(self.pre_horizon + 1):
             ref_x = self.ref_traj.compute_x(
@@ -982,7 +982,7 @@ class SimuVeh3dofcontiBimodalDiffusion(PythBaseEnv):
             ego_u = self.state[3]
             ego_w = self.state[5]
             lat_acc = ego_u * ego_w
-            r_stability = -0.1 * (lat_acc ** 2)
+            r_stability = -0.2 * (lat_acc ** 2)
 
             total_reward = (
                     r_efficiency +
